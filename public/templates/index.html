@@ -1,19 +1,15 @@
-<!DOCTYPE html>{#
-
-    run server/expand.js to instantiate this template
-    -------------------------------------------------
-#}
+<!DOCTYPE html>
 <html itemscope itemtype="http://schema.org/Map" prefix="og: http://ogp.me/ns# fb: http://ogp.me/ns/fb#">
 <head>
     <meta charset="utf-8"/>
     <title>earth :: an animated map of global wind and weather</title>
-    <meta itemprop="name"                                      content="{{__('earth')}}"/>
-    <meta itemprop="description"     name="description"        content="{{__('an animated map of global wind and weather')}}"/>
+    <meta itemprop="name"                                      content="<%- __('earth') %>"/>
+    <meta itemprop="description"     name="description"        content="<%- __('an animated map of global wind and weather') %>"/>
     <meta itemprop="author"          name="author"             content="Cameron Beccario"/>
 
     <meta property="og:type"        content="website"/>
-    <meta property="og:title"       content="{{__('earth')}}"/>
-    <meta property="og:description" content="{{__('An animated map of global wind and weather. Visit the community at https://www.facebook.com/EarthWindMap')}}"/>
+    <meta property="og:title"       content="<%- __('earth') %>"/>
+    <meta property="og:description" content="<%- __('An animated map of global wind and weather. Visit the community at https://www.facebook.com/EarthWindMap') %>"/>
     <meta property="og:url"         content="http://earth.nullschool.net"/>
     <meta property="og:image"       content="http://earth.nullschool.net/preview.jpg"/>
 
@@ -25,7 +21,7 @@
     <link rel="alternate" hreflang="x-default" href="http://earth.nullschool.net/"/>
     <link rel="alternate" hreflang="ja" href="http://earth.nullschool.net/jp/"/>
 </head>
-<body data-lang="{{__('lang')}}">
+<body data-lang="<%- __('lang') %>">
 
     <!--[if lte IE 8]><p id="warn">{{__('This site requires IE9 or newer.')}}</p><![endif]-->
 
@@ -135,7 +131,7 @@
         </div>
     </div>
 
-    <script src="//cdnjs.cloudflare.com/ajax/libs/underscore.js/1.6.0/underscore-min.js" charset="utf-8"></script>
+    <script src="//cdnjs.cloudflare.com/ajax/libs/underscore.js/1.13.6/underscore-min.js" charset="utf-8"></script>
     <script src="//cdnjs.cloudflare.com/ajax/libs/backbone.js/1.1.0/backbone-min.js" charset="utf-8"></script>
     <script src="//cdnjs.cloudflare.com/ajax/libs/topojson/1.1.0/topojson.min.js" charset="utf-8"></script>
     <script src="//cdnjs.cloudflare.com/ajax/libs/d3/3.3.10/d3.min.js" charset="utf-8"></script>

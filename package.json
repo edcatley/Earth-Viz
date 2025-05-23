@@ -1,6 +1,6 @@
 {
     "name": "earth",
-    "description": "Earth",
+    "description": "Earth - Global Weather Visualization",
     "version": "0.0.1",
     "private": true,
     "author": {
@@ -12,15 +12,39 @@
         "type": "git",
         "url": "git://github.com/cambecc/earth.git"
     },
-    "engine": "node >= 0.10.21",
+    "type": "module",
+    "scripts": {
+        "dev": "vite",
+        "test:micro": "vite --config vite.micro-test.config.js",
+        "test:products": "vite --config vite.products-test.config.js",
+        "build": "vite build",
+        "build:test": "vite build --config vite.micro-test.config.js && vite build --config vite.products-test.config.js",
+        "preview": "vite preview",
+        "lint": "eslint . --ext .js",
+        "lint:fix": "eslint . --ext .js --fix",
+        "expand": "node expand.js"
+    },
     "dependencies": {
-        "when": "2.6.0",
-        "swig": "1.2.2",
-        "mkdirp": "0.3.5",
-        "express": "3.4.4"
+        "ejs": "^3.1.9",
+        "express": "^4.18.2",
+        "make-dir": "^4.0.0",
+        "topojson-client": "^3.1.0",
+        "underscore": "^1.13.6",
+        "when": "^3.7.8"
     },
     "devDependencies": {
-        "grunt": "~0.4.1",
-        "grunt-contrib-jshint": "~0.7.1"
+        "@types/d3": "^7.4.3",
+        "@types/node": "^20.11.24",
+        "@types/topojson-client": "^3.1.5",
+        "@types/underscore": "^1.11.15",
+        "eslint": "^8.56.0",
+        "eslint-config-prettier": "^9.1.0",
+        "eslint-plugin-prettier": "^5.1.3",
+        "prettier": "^3.2.4",
+        "typescript": "^5.3.3",
+        "vite": "^5.1.4"
+    },
+    "engines": {
+        "node": ">=18.0.0"
     }
 }

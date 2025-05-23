@@ -1,33 +1,32 @@
 /**
  * expand - expands templates with internationalized strings. The resulting HTML files are written to disk.
  *
- * This utility builds the Japanese and English versions of the HTML files. The templates are written using Swig,
+ * This utility builds the Japanese and English versions of the HTML files. The templates are written using EJS,
  * and roughly follows the methodology described at http://ejohn.org/blog/a-strategy-for-i18n-and-node/
  *
  * English files are placed in the root: public/
  * Japanese files are placed under the language code: public/jp
  * ...and so on for other languages, if ever...
- *
- * don't really care about making the code nice at the moment
- * ideally, this would be a grunt task run at build time
  */
 
-"use strict";
+import fs from 'fs/promises';
+import path from 'path';
+import ejs from 'ejs';
+import makeDir from 'make-dir';
+import { fileURLToPath } from 'url';
+import dictionary from './public/templates/il8n.json' assert { type: "json" };
 
-var fs = require("fs");
-var path = require("path");
-var swig = require("swig");
-var mkdirp = require("mkdirp");
-var dictionary = require("./public/templates/il8n.json");
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
-var templateDir = "public/templates";
+const templateDir = "public/templates";
 
-var templates = [
+const templates = [
     "index.html",
     "about.html"
 ];
 
-var languages = [
+const languages = [
     {code: "en", target: "public"},
     {code: "ja", target: "public/jp"}  // *lang* code for Japanese is JA not JP. Too late now. Site already public.
 ];
@@ -35,7 +34,7 @@ var languages = [
 function newContext(languageCode) {
     return {
         __: function(s) {
-            var entry = dictionary[s];
+            const entry = dictionary[s];
             if (!entry) {
                 console.error("unknown il8n key: " + s);
             }
@@ -44,15 +43,27 @@ function newContext(languageCode) {
     };
 }
 
-templates.forEach(function(file) {
-    var template = swig.compileFile(path.join(templateDir, file));
+async function expandTemplates() {
+    try {
+        for (const file of templates) {
+            const templatePath = path.join(__dirname, templateDir, file);
+            const templateContent = await fs.readFile(templatePath, 'utf8');
+            
+            for (const language of languages) {
+                const context = newContext(language.code);
+                const result = await ejs.render(templateContent, context, { async: true });
 
-    languages.forEach(function(language) {
+                await makeDir(language.target);
+                await fs.writeFile(path.join(language.target, file), result);
+                console.log(`Generated ${language.code} version of ${file}`);
+            }
+        }
+        console.log('Template expansion complete!');
+    } catch (error) {
+        console.error('Error expanding templates:', error);
+        process.exit(1);
+    }
+}
 
-        var context = newContext(language.code);
-        var result = template(context);
-
-        mkdirp.sync(language.target);
-        fs.writeFileSync(path.join(language.target, file), result);
-    });
-});
+// Run the template expansion
+expandTemplates();

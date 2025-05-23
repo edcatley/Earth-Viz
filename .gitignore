@@ -5,3 +5,7 @@ target
 scratch
 private
 *.iml
+.npm-global/
+.npm-cache/
+.nvmrc
+.npmrc
