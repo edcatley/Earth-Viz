@@ -10,44 +10,27 @@ import { ViewportSize } from './types/types';
 import * as d3 from 'd3';
 import µ from './micro';
 
-// Add d3.geo type declarations for v3
-declare module 'd3' {
-    class GeoProjection {
-        rotate(): [number, number, number];
-        rotate(angles: [number, number] | [number, number, number]): this;
-        scale(): number;
-        scale(scale: number): this;
-        translate(): [number, number];
-        translate(point: [number, number]): this;
-        precision(): number;
-        precision(precision: number): this;
-        clipAngle(): number | null;
-        clipAngle(angle: number | null): this;
-        clipExtent(extent: [[number, number], [number, number]]): this;
-        bounds(feature: { type: string }): [[number, number], [number, number]];
-    }
+// Update type declarations for D3 v7
+interface GeoProjection extends d3.GeoProjection {
+    rotate(): [number, number, number];
+    rotate(angles: [number, number] | [number, number, number]): this;
+    scale(): number;
+    scale(scale: number): this;
+    translate(): [number, number];
+    translate(point: [number, number]): this;
+    precision(): number;
+    precision(precision: number): this;
+    clipAngle(): number | null;
+    clipAngle(angle: number | null): this;
+    clipExtent(): [[number, number], [number, number]] | null;
+    clipExtent(extent: [[number, number], [number, number]] | null): this;
+}
 
-    export namespace geo {
-        export function path(): {
-            projection: (projection: GeoProjection | null) => any;
-            bounds: (feature: { type: string }) => [[number, number], [number, number]];
-            context: (context: any) => any;
-        };
-        export function graticule(): { 
-            minorStep: (step: [number, number]) => any;
-            majorStep: (step: [number, number]) => any;
-        };
-        export function mollweide(): GeoProjection;
-        export function azimuthalEquidistant(): GeoProjection;
-        export function conicEquidistant(): GeoProjection;
-        export function equirectangular(): GeoProjection;
-        export function orthographic(): GeoProjection;
-        export function stereographic(): GeoProjection;
-        export function winkel3(): GeoProjection;
-        export namespace polyhedron {
-            export function waterman(): GeoProjection;
-        }
-    }
+// Add missing projection types
+declare module 'd3' {
+    export function geoMollweide(): GeoProjection;
+    export function geoWinkel3(): GeoProjection;
+    export function geoPolyhedralWaterman(): GeoProjection;
 }
 
 export interface Globe {
@@ -107,7 +90,7 @@ function standardGlobe(): Globe {
          *          the bounds of the current projection clamped to the specified view.
          */
         bounds: function(view: ViewportSize) {
-            return clampedBounds(d3.geo.path().projection(this.projection).bounds({type: "Sphere"}), view);
+            return clampedBounds(d3.geoPath().projection(this.projection).bounds({type: "Sphere"}), view);
         },
 
         /**
@@ -116,7 +99,7 @@ function standardGlobe(): Globe {
          */
         fit: function(view: ViewportSize) {
             var defaultProjection = this.newProjection(view);
-            var bounds = d3.geo.path().projection(defaultProjection).bounds({type: "Sphere"});
+            var bounds = d3.geoPath().projection(defaultProjection).bounds({type: "Sphere"});
             var hScale = (bounds[1][0] - bounds[0][0]) / defaultProjection.scale();
             var vScale = (bounds[1][1] - bounds[0][1]) / defaultProjection.scale();
             return Math.min(view.width / hScale, view.height / vScale) * 0.9;
@@ -212,7 +195,7 @@ function standardGlobe(): Globe {
          * @returns the context
          */
         defineMask: function(context: CanvasRenderingContext2D): CanvasRenderingContext2D {
-            d3.geo.path().projection(this.projection).context(context)({type: "Sphere"});
+            d3.geoPath().projection(this.projection).context(context)({type: "Sphere"});
             return context;
         },
 
@@ -222,7 +205,7 @@ function standardGlobe(): Globe {
          * @param foregroundSvg the foreground SVG container.
          */
         defineMap: function(mapSvg: any, foregroundSvg: any): void {
-            var path = d3.geo.path().projection(this.projection);
+            var path = d3.geoPath().projection(this.projection);
             var defs = mapSvg.append("defs");
             defs.append("path")
                 .attr("id", "sphere")
@@ -231,13 +214,19 @@ function standardGlobe(): Globe {
             mapSvg.append("use")
                 .attr("xlink:href", "#sphere")
                 .attr("class", "background-sphere");
+            
+            // Create graticules with different steps
+            const standardGraticule = d3.geoGraticule();
+            const hemisphereGraticule = d3.geoGraticule()
+                .step([90, 90]); // Use step instead of minorStep/majorStep
+            
             mapSvg.append("path")
                 .attr("class", "graticule")
-                .datum(d3.geo.graticule())
+                .datum(standardGraticule)
                 .attr("d", path);
             mapSvg.append("path")
                 .attr("class", "hemisphere")
-                .datum(d3.geo.graticule().minorStep([0, 90]).majorStep([0, 90]))
+                .datum(hemisphereGraticule)
                 .attr("d", path);
             mapSvg.append("path")
                 .attr("class", "coastline");
@@ -259,7 +248,7 @@ function newGlobe(source: Partial<Globe>, view: ViewportSize): Globe {
 function atlantis(): Globe {
     return newGlobe({
         newProjection: function() {
-            return d3.geo.mollweide().rotate([30, -45, 90] as [number, number, number]).precision(0.1);
+            return d3.geoMollweide().rotate([30, -45, 90] as [number, number, number]).precision(0.1);
         }
     }, µ.view());
 }
@@ -267,7 +256,7 @@ function atlantis(): Globe {
 function azimuthalEquidistant(): Globe {
     return newGlobe({
         newProjection: function() {
-            return d3.geo.azimuthalEquidistant().precision(0.1).rotate([0, -90] as [number, number]).clipAngle(180 - 0.001);
+            return d3.geoAzimuthalEquidistant().precision(0.1).rotate([0, -90] as [number, number]).clipAngle(180 - 0.001);
         }
     }, µ.view());
 }
@@ -276,7 +265,7 @@ function conicEquidistant(): Globe {
     return newGlobe({
         newProjection: function() {
             const pos = currentPosition();
-            return d3.geo.conicEquidistant().rotate([pos[0], pos[1], 0] as [number, number, number]).precision(0.1);
+            return d3.geoConicEquidistant().rotate([pos[0], pos[1], 0] as [number, number, number]).precision(0.1);
         },
         center: function(view: ViewportSize) {
             return [view.width / 2, view.height / 2 + view.height * 0.065];
@@ -288,7 +277,7 @@ function equirectangular(): Globe {
     return newGlobe({
         newProjection: function() {
             const pos = currentPosition();
-            return d3.geo.equirectangular().rotate([pos[0], pos[1], 0] as [number, number, number]).precision(0.1);
+            return d3.geoEquirectangular().rotate([pos[0], pos[1], 0] as [number, number, number]).precision(0.1);
         }
     }, µ.view());
 }
@@ -297,13 +286,13 @@ function orthographic(): Globe {
     return newGlobe({
         newProjection: function() {
             const pos = currentPosition();
-            return d3.geo.orthographic().rotate([pos[0], pos[1], 0] as [number, number, number]).precision(0.1).clipAngle(90);
+            return d3.geoOrthographic().rotate([pos[0], pos[1], 0] as [number, number, number]).precision(0.1).clipAngle(90);
         },
         defineMap: function(mapSvg: any, foregroundSvg: any) {
             const projection = this.projection;
             if (!projection) return;
             
-            const path = d3.geo.path().projection(projection);
+            const path = d3.geoPath().projection(projection);
             const defs = mapSvg.append("defs");
             const gradientFill = defs.append("radialGradient")
                 .attr("id", "orthographic-fill")
@@ -321,11 +310,11 @@ function orthographic(): Globe {
                 .attr("fill", "url(#orthographic-fill)");
             mapSvg.append("path")
                 .attr("class", "graticule")
-                .datum(d3.geo.graticule())
+                .datum(d3.geoGraticule())
                 .attr("d", path);
             mapSvg.append("path")
                 .attr("class", "hemisphere")
-                .datum(d3.geo.graticule().minorStep([0, 90]).majorStep([0, 90]))
+                .datum(d3.geoGraticule().step([90, 90]))
                 .attr("d", path);
             mapSvg.append("path")
                 .attr("class", "coastline");
@@ -347,7 +336,7 @@ function orthographic(): Globe {
 function stereographic(): Globe {
     return newGlobe({
         newProjection: function(view: ViewportSize) {
-            return d3.geo.stereographic()
+            return d3.geoStereographic()
                 .rotate([-43, -20] as [number, number])
                 .precision(1.0)
                 .clipAngle(180 - 0.0001)
@@ -359,13 +348,17 @@ function stereographic(): Globe {
 function waterman(): Globe {
     return newGlobe({
         newProjection: function() {
-            return d3.geo.polyhedron.waterman().rotate([20, 0] as [number, number]).precision(0.1);
+            // Use geoPolyhedron with waterman configuration instead
+            return (d3 as any).geoPolyhedron()
+                .rotate([20, 0] as [number, number])
+                .precision(0.1)
+                .waterman();
         },
         defineMap: function(mapSvg: any, foregroundSvg: any) {
             const projection = this.projection;
             if (!projection) return;
             
-            const path = d3.geo.path().projection(projection);
+            const path = d3.geoPath().projection(projection);
             const defs = mapSvg.append("defs");
             defs.append("path")
                 .attr("id", "sphere")
@@ -378,10 +371,16 @@ function waterman(): Globe {
             mapSvg.append("use")
                 .attr("xlink:href", "#sphere")
                 .attr("class", "background-sphere");
+                
+            // Create graticules with different steps
+            const standardGraticule = d3.geoGraticule();
+            const hemisphereGraticule = d3.geoGraticule()
+                .step([90, 90]); // Use step instead of minorStep/majorStep
+            
             mapSvg.append("path")
                 .attr("class", "graticule")
                 .attr("clip-path", "url(#clip)")
-                .datum(d3.geo.graticule())
+                .datum(standardGraticule)
                 .attr("d", path);
             mapSvg.append("path")
                 .attr("class", "coastline")
@@ -399,7 +398,7 @@ function waterman(): Globe {
 function winkel3(): Globe {
     return newGlobe({
         newProjection: function() {
-            return d3.geo.winkel3().precision(0.1);
+            return d3.geoWinkel3().precision(0.1);
         }
     }, µ.view());
 }

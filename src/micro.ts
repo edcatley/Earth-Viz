@@ -8,7 +8,7 @@
  */
 
 import * as d3 from 'd3';
-import { Point, GeoPoint, Logger, DateConfig, ViewportSize, RGB, RGBA } from './types/earth';
+import { Point, GeoPoint, Logger, DateConfig, ViewportSize, RGB, RGBA } from './types/types';
 
 declare global {
     var µ: any;  // Tell TypeScript that µ exists globally

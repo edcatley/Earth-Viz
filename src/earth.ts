@@ -8,14 +8,13 @@
  */
 
 import * as Backbone from 'backbone';
-import { D3 } from 'd3';
-declare const d3: D3;
-import './types/d3v3';  // Import our custom D3 v3 type definitions
+import * as d3 from 'd3';
+import { Selection, GeoProjection } from 'd3';
 import { Globe, Point, Vector, GeoPoint } from './types/types';
 import { globes } from './globes';
 import { products } from './products';
-import * as topojson from 'topojson';
-import { µ } from './types/mu';  // Import µ type definitions
+import * as topojson from 'topojson-client';
+import type { µ } from './types/types';  // Import µ type definitions
 
 // Utility functions to replace underscore
 function debounce<T extends (...args: any[]) => any>(
@@ -301,13 +300,13 @@ declare const ga: ((command: string, ...args: any[]) => void) | undefined;
             };
         }
 
-        var zoom = d3.behavior.zoom()
-            .on("zoomstart", function(this: HTMLElement) {
-                op = op || newOp(d3.mouse(this), zoom.scale());  // a new operation begins
+        const zoom = d3.zoom<HTMLElement, unknown>()
+            .on("start", function(event: d3.D3ZoomEvent<HTMLElement, unknown>) {
+                op = op || newOp(d3.pointer(event, this), event.transform.k);  // a new operation begins
             })
-            .on("zoom", function(this: HTMLElement) {
-                const currentMouse = d3.mouse(this);
-                const currentScale = d3.event.scale;
+            .on("zoom", function(event: d3.D3ZoomEvent<HTMLElement, unknown>) {
+                const currentMouse = d3.pointer(event, this);
+                const currentScale = event.transform.k;
                 op = op || newOp(currentMouse, 1);  // Fix bug on some browsers where zoomstart fires out of order.
                 if (op && (op.type === "click" || op.type === "spurious")) {
                     const distanceMoved = µ.distance(currentMouse, op.startMouse);
@@ -329,7 +328,7 @@ declare const ga: ((command: string, ...args: any[]) => void) | undefined;
                 }
                 dispatch.trigger("move");
             })
-            .on("zoomend", function() {
+            .on("end", function() {
                 if (!op) return;
                 if (op.manipulator) {
                     op.manipulator.end();
@@ -356,7 +355,7 @@ declare const ga: ((command: string, ...args: any[]) => void) | undefined;
             }
         }, MOVE_END_WAIT);  // wait for a bit to decide if user has stopped moving the globe
 
-        d3.select("#display").call(zoom as any);  // Type assertion needed for D3 v3 compatibility
+        d3.select<HTMLElement, unknown>("#display").call(zoom);
         d3.select("#show-location").on("click", function() {
             if (navigator.geolocation) {
                 report.status("Finding current position...");
@@ -392,7 +391,7 @@ declare const ga: ((command: string, ...args: any[]) => void) | undefined;
             globe.orientation(configuration.get("orientation"), view);
             const projection = globe.projection;
             if (projection) {
-                zoom.scale(projection.scale());
+                zoom.transform(d3.select<HTMLElement, unknown>("#display"), d3.zoomIdentity.scale(projection.scale()));
             }
             dispatch.trigger("moveEnd");
         }
@@ -514,13 +513,14 @@ declare const ga: ((command: string, ...args: any[]) => void) | undefined;
         // First clear map and foreground svg contents.
         const mapNode = d3.select("#map").node();
         const foregroundNode = d3.select("#foreground").node();
-        if (mapNode) µ.removeChildren(mapNode);
-        if (foregroundNode) µ.removeChildren(foregroundNode);
+        if (mapNode instanceof HTMLElement) µ.removeChildren(mapNode);
+        if (foregroundNode instanceof HTMLElement) µ.removeChildren(foregroundNode);
         
         // Create new map svg elements.
         globe.defineMap(d3.select("#map"), d3.select("#foreground"));
 
-        const path = d3.geo.path().projection(globe.projection).pointRadius(7);
+        const geoPath = d3.geoPath().projection(globe.projection);
+        const path = (d: any) => geoPath(d);
         const coastline = d3.select(".coastline");
         const lakes = d3.select(".lakes");
         d3.selectAll("path").attr("d", path);  // do an initial draw -- fixes issue with safari
@@ -531,9 +531,11 @@ declare const ga: ((command: string, ...args: any[]) => void) | undefined;
                 return;  // outside the field boundary, so ignore.
             }
             if (coord && Number.isFinite(coord[0]) && Number.isFinite(coord[1])) {
-                let mark = d3.select(".location-mark");
+                let mark = d3.select<SVGPathElement, unknown>(".location-mark");
                 if (!mark.node()) {
-                    mark = d3.select("#foreground").append("path").attr("class", "location-mark");
+                    mark = d3.select<SVGPathElement, unknown>("#foreground")
+                        .append<SVGPathElement>("path")
+                        .attr("class", "location-mark");
                 }
                 mark.datum({type: "Point", coordinates: coord}).attr("d", path);
             }
@@ -969,8 +971,8 @@ declare const ga: ((command: string, ...args: any[]) => void) | undefined;
             }
 
             // Show tooltip on hover.
-            d3.select("#scale").on("mousemove", function(this: HTMLElement) {
-                const x = d3.mouse(this)[0];
+            d3.select("#scale").on("mousemove", function(event: MouseEvent) {
+                const x = d3.pointer(event)[0];
                 const pct = µ.clamp((Math.round(x) - 2) / (width - 2), 0, 1);
                 const value = µ.spread(pct, bounds[0], bounds[1]);
                 const elementId = grid.type === "wind" ? "#location-wind-units" : "#location-value-units";
@@ -1028,7 +1030,7 @@ declare const ga: ((command: string, ...args: any[]) => void) | undefined;
         let center = "";
         
         if (grids) {
-            const langCode = d3.select("body").node()?.getAttribute("data-lang") || "en";
+            const langCode = d3.select<HTMLElement, unknown>("body").node()?.getAttribute("data-lang") || "en";
             const pd = grids.primaryGrid.description(langCode);
             const od = grids.overlayGrid.description(langCode);
             description = od.name + od.qualifier;
@@ -1393,8 +1395,9 @@ declare const ga: ((command: string, ...args: any[]) => void) | undefined;
         });
 
         // Add handlers for all wind level buttons.
-        d3.selectAll(".surface").each(function() {
-            var id = this.id, parts = id.split("-");
+        d3.selectAll<HTMLElement, unknown>(".surface").each(function(this: HTMLElement) {
+            const id = this.id;
+            const parts = id.split("-");
             bindButtonToConfiguration("#" + id, {param: "wind", surface: parts[0], level: parts[1]});
         });
 
