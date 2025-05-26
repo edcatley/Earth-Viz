@@ -9,16 +9,6 @@ declare module 'topojson-client' {
     export function feature(topology: any, object: any): any;
 }
 
-declare module 'backbone' {
-    export interface BackboneEvents {
-        on(event: string, callback: Function, context?: any): this;
-        off(event?: string, callback?: Function, context?: any): this;
-        trigger(event: string, ...args: any[]): this;
-        listenTo(other: any, event: string, callback: Function): this;
-        stopListening(other?: any, event?: string, callback?: Function): this;
-    }
-    export const Events: BackboneEvents;
-}
 
 // Basic types used throughout the application
 export type Point = [number, number];  // [x, y] coordinates

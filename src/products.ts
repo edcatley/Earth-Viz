@@ -9,7 +9,7 @@
 
 import * as d3 from 'd3';
 import µ from './micro';
-import { GridBuilder, Grid, GridHeader } from './types/grid';
+import { GridBuilder, Grid, GridHeader } from './types/types';
 
 export interface Product {
     description: string | ((langCode: string) => any);
@@ -96,7 +96,7 @@ function buildProduct(overrides: Partial<Product>): Product {
 function gfs1p0degPath(attr: any, type: string, surface?: string, level?: string): string {
     const dir = attr.date;
     const stamp = dir === "current" ? "current" : attr.hour;
-    const file = [stamp, type, surface, level, "gfs", "1.0"].filter(µ.isValue).join("-") + ".json";
+    const file = [stamp, type, surface, level, "gfs", "1.0"].filter(x => x != null).join("-") + ".json";
     return [WEATHER_PATH, dir, file].join("/");
 }
 
@@ -137,11 +137,11 @@ function netcdfHeader(time: any, lat: any, lon: any, center: string): GridHeader
 }
 
 function describeSurface(attr: any): string {
-    return attr.surface === "surface" ? "Surface" : µ.capitalize(attr.level);
+    return attr.surface === "surface" ? "Surface" : attr.level.charAt(0).toUpperCase() + attr.level.slice(1);
 }
 
 function describeSurfaceJa(attr: any): string {
-    return attr.surface === "surface" ? "地上" : µ.capitalize(attr.level);
+    return attr.surface === "surface" ? "地上" : attr.level.charAt(0).toUpperCase() + attr.level.slice(1);
 }
 
 /**
@@ -247,10 +247,10 @@ function buildGrid(builder: GridBuilder): Grid {
         if ((row = grid[fj])) {
             const g00 = row[fi];
             const g10 = row[ci];
-            if (µ.isValue(g00) && µ.isValue(g10) && (row = grid[cj])) {
+            if (g00 != null && g10 != null && (row = grid[cj])) {
                 const g01 = row[fi];
                 const g11 = row[ci];
-                if (µ.isValue(g01) && µ.isValue(g11)) {
+                if (g01 != null && g11 != null) {
                     // All four points found, so interpolate the value.
                     return builder.interpolate(i - fi, j - fj, g00, g10, g01, g11);
                 }
@@ -286,7 +286,19 @@ function bilinearInterpolateVector(x: number, y: number, g00: [number, number], 
     const a = rx * ry, b = x * ry, c = rx * y, d = x * y;
     const u = g00[0] * a + g10[0] * b + g01[0] * c + g11[0] * d;
     const v = g00[1] * a + g10[1] * b + g01[1] * c + g11[1] * d;
-    return [u, v, Math.sqrt(u * u + v * v)];
+    const magnitude = Math.sqrt(u * u + v * v);
+    
+    // Debug extreme values
+    if (magnitude > 50 || Math.abs(u) > 50 || Math.abs(v) > 50) {
+        console.log(`[BILINEAR] EXTREME INTERPOLATION:`, {
+            x, y, 
+            corners: { g00, g10, g01, g11 },
+            weights: { a, b, c, d },
+            result: [u, v, magnitude]
+        });
+    }
+    
+    return [u, v, magnitude];
 }
 
 /**
@@ -685,7 +697,7 @@ const FACTORIES = {
                             interpolate: bilinearInterpolateVector,
                             data: function(i: number) {
                                 const u = uData[i], v = vData[i];
-                                return µ.isValue(u) && µ.isValue(v) ? [u, v] : null;
+                                return u != null && v != null ? [u, v] : null;
                             }
                         }
                     },
@@ -728,7 +740,7 @@ function productsFor(attributes: any): (Product | Promise<Product> | null)[] {
             results.push(factory.create(attr));
         }
     });
-    return results.filter(µ.isValue);
+    return results.filter(x => x != null);
 }
 
 export const products = {

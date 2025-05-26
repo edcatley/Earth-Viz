@@ -131,26 +131,29 @@
         </div>
     </div>
 
-    <script src="//cdnjs.cloudflare.com/ajax/libs/underscore.js/1.6.0/underscore-min.js" charset="utf-8"></script>
-    <script src="//cdnjs.cloudflare.com/ajax/libs/backbone.js/1.1.0/backbone-min.js" charset="utf-8"></script>
-    <script src="//cdnjs.cloudflare.com/ajax/libs/topojson/1.1.0/topojson.min.js" charset="utf-8"></script>
-    <script src="//cdnjs.cloudflare.com/ajax/libs/d3/3.3.10/d3.min.js" charset="utf-8"></script>
+    <script type="module">
+        import _ from 'underscore';
+        import Backbone from 'backbone';
+        import * as d3 from 'd3';
+        import * as topojson from 'topojson-client';
+        import * as d3GeoProjection from 'd3-geo-projection';
+        import * as d3GeoPolygon from 'd3-geo-polygon';
+        
+        // Set up global objects
+        window._ = _;
+        window.Backbone = Backbone;
+        window.d3 = {
+            ...d3,
+            ...d3GeoProjection,
+            ...d3GeoPolygon
+        };
+        window.topojson = topojson;
+    </script>
 
-<!--
-    <script src="/libs/underscore.js/1.6.0/underscore.js" charset="utf-8"></script>
-    <script src="/libs/backbone.js/1.1.0/backbone.js" charset="utf-8"></script>
-    <script src="/libs/topojson/1.1.0/topojson.js" charset="utf-8"></script>
-    <script src="/libs/d3/3.3.10/d3.js" charset="utf-8"></script>
--->
-
-    <script src="/libs/d3.geo/0.0.0/d3.geo.projection.v0.min.js" charset="utf-8"></script>
-    <script src="/libs/d3.geo/0.0.0/d3.geo.polyhedron.v0.min.js" charset="utf-8"></script>
-    <script src="/libs/when/2.6.0/when.js" charset="utf-8"></script>
-
-    <script src="/libs/earth/1.0.0/micro.js" charset="utf-8"></script>
-    <script src="/libs/earth/1.0.0/globes.js" charset="utf-8"></script>
-    <script src="/libs/earth/1.0.0/products.js" charset="utf-8"></script>
-    <script src="/libs/earth/1.0.0/earth.js" charset="utf-8"></script>
+    <script type="module" src="/libs/earth/1.0.0/micro.umd.js" charset="utf-8"></script>
+    <script type="module" src="/libs/earth/1.0.0/globes.umd.js" charset="utf-8"></script>
+    <script type="module" src="/libs/earth/1.0.0/products.umd.js" charset="utf-8"></script>
+    <script type="module" src="/libs/earth/1.0.0/earth.umd.js" charset="utf-8"></script>
 
 </body>
 </html>

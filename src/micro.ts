@@ -16,13 +16,13 @@ declare global {
 
 // Create the global µ object with all our functions
 window.µ = {
-    isTruthy(x: any): boolean {
-        return !!x;
-    },
-    
-    isValue(x: any): boolean {
-        return x !== null && x !== undefined;
-    },
+    // Modern replacements - these are now just direct native calls
+    isTruthy: (x: any) => !!x,
+    isValue: (x: any) => x != null,
+    coalesce: <T>(a: T | null | undefined, b: T) => a ?? b,
+    zeroPad: (n: number, width: number) => n.toString().padStart(width, '0'),
+    capitalize: (s: string) => s.charAt(0).toUpperCase() + s.slice(1),
+    removeChildren: (element: Element) => element.replaceChildren(),
 
     // Add other functions as needed...
 };
@@ -36,27 +36,6 @@ const µ = (function() {
     const H = 0.0000360;  // 0.0000360°φ ~= 4m
     const DEFAULT_CONFIG = "current/wind/surface/level/orthographic";
     const TOPOLOGY = isMobile() ? "/data/earth-topo-mobile.json?v2" : "/data/earth-topo.json?v2";
-
-    /**
-     * @returns {Boolean} true if the specified value is truthy.
-     */
-    function isTruthy(x: any): boolean {
-        return !!x;
-    }
-
-    /**
-     * @returns {Boolean} true if the specified value is not null and not undefined.
-     */
-    function isValue(x: any): boolean {
-        return x !== null && x !== undefined;
-    }
-
-    /**
-     * @returns {Object} the first argument if not null and not undefined, otherwise the second argument.
-     */
-    function coalesce<T>(a: T | null | undefined, b: T): T {
-        return isValue(a) ? a as T : b;
-    }
 
     /**
      * @returns {Number} returns remainder of floored division, i.e., floor(a / n). Useful for consistent modulo
@@ -102,22 +81,6 @@ const µ = (function() {
     }
 
     /**
-     * Pad number with leading zeros. Does not support fractional or negative numbers.
-     */
-    function zeroPad(n: number, width: number): string {
-        const s = n.toString();
-        const i = Math.max(width - s.length, 0);
-        return new Array(i + 1).join("0") + s;
-    }
-
-    /**
-     * @returns {String} the specified string with the first letter capitalized.
-     */
-    function capitalize(s: string): string {
-        return s.length === 0 ? s : s.charAt(0).toUpperCase() + s.substr(1);
-    }
-
-    /**
      * @returns {Boolean} true if agent is probably firefox. Don't really care if this is accurate.
      */
     function isFF(): boolean {
@@ -137,16 +100,16 @@ const µ = (function() {
 
     function toUTCISO(date: Date): string {
         return date.getUTCFullYear() + "-" +
-            zeroPad(date.getUTCMonth() + 1, 2) + "-" +
-            zeroPad(date.getUTCDate(), 2) + " " +
-            zeroPad(date.getUTCHours(), 2) + ":00";
+            date.getUTCMonth().toString().padStart(2, '0') + "-" +
+            date.getUTCDate().toString().padStart(2, '0') + " " +
+            date.getUTCHours().toString().padStart(2, '0') + ":00";
     }
 
     function toLocalISO(date: Date): string {
         return date.getFullYear() + "-" +
-            zeroPad(date.getMonth() + 1, 2) + "-" +
-            zeroPad(date.getDate(), 2) + " " +
-            zeroPad(date.getHours(), 2) + ":00";
+            (date.getMonth() + 1).toString().padStart(2, '0') + "-" +
+            date.getDate().toString().padStart(2, '0') + " " +
+            date.getHours().toString().padStart(2, '0') + ":00";
     }
 
     /**
@@ -172,7 +135,7 @@ const µ = (function() {
     function dateToConfig(date: Date): DateConfig {
         return {
             date: dateToUTCymd(date, "/"),
-            hour: zeroPad(date.getUTCHours(), 2) + "00"
+            hour: date.getUTCHours().toString().padStart(2, '0') + "00"
         };
     }
 
@@ -198,19 +161,10 @@ const µ = (function() {
     function view(): ViewportSize {
         const w = window;
         const d = document && document.documentElement;
-        const b = document && document.getElementsByTagName("body")[0];
-        const x = w.innerWidth || d?.clientWidth || b?.clientWidth || 0;
-        const y = w.innerHeight || d?.clientHeight || b?.clientHeight || 0;
+        const b = document && document.body;
+        const x = w.innerWidth || (d && d.clientWidth) || (b && b.clientWidth) || 1024;
+        const y = w.innerHeight || (d && d.clientHeight) || (b && b.clientHeight) || 768;
         return {width: x, height: y};
-    }
-
-    /**
-     * Removes all children of the specified DOM element.
-     */
-    function removeChildren(element: Element): void {
-        while (element.firstChild) {
-            element.removeChild(element.firstChild);
-        }
     }
 
     /**
@@ -388,116 +342,6 @@ const µ = (function() {
         ];
     }
 
-    interface Agent<T> {
-        value: () => T;
-        submit: (task: (() => T | Promise<T>) | T | Promise<T>, ...args: any[]) => void;
-        cancel: () => void;
-        on: (event: string, callback: Function) => void;
-        off: (event: string, callback: Function) => void;
-    }
-
-    /**
-     * Returns a new agent. An agent executes tasks and stores the result of the most recently completed task.
-     *
-     * A task is a value or promise, or a function that returns a value or promise. After submitting a task to
-     * an agent using the submit() method, the task is evaluated and its result becomes the agent's value,
-     * replacing the previous value. If a task is submitted to an agent while an earlier task is still in
-     * progress, the earlier task is cancelled and its result ignored. Evaluation of a task may even be skipped
-     * entirely if cancellation occurs early enough.
-     */
-    function newAgent<T>(initial?: T): Agent<T> {
-        const me = {
-            value: function(): T { return value; },
-            submit: submit,
-            cancel: function(): void { cancel.requested = true; },
-            on: function(type: string, handler: Function): void { on(type, handler); },
-            off: function(type: string, handler: Function): void { off(type, handler); }
-        };
-
-        let value: T = initial as T;
-        let cancel = cancelFactory();
-        const listeners: { [key: string]: Function[] } = {};
-        let running = false;
-
-        function cancelFactory() {
-            return {
-                requested: false,
-                fork: function() { return { requested: this.requested }; }
-            };
-        }
-
-        function clearListeners() {
-            for (const type in listeners) {
-                if (Object.prototype.hasOwnProperty.call(listeners, type)) {
-                    delete listeners[type];
-                }
-            }
-        }
-
-        function on(type: string, handler: Function) {
-            let typeListeners = listeners[type] || [];
-            typeListeners.push(handler);
-            listeners[type] = typeListeners;
-        }
-
-        function off(type: string, handler: Function) {
-            const typeListeners = listeners[type] || [];
-            const index = typeListeners.indexOf(handler);
-            if (index >= 0) {
-                typeListeners.splice(index, 1);
-            }
-        }
-
-        function trigger(type: string, ...args: any[]) {
-            for (const listener of (listeners[type] || [])) {
-                try {
-                    listener.apply(null, args);
-                }
-                catch (e) {
-                    console.error(e);
-                    trigger("error", e);
-                }
-            }
-        }
-
-        function submit(task: (() => T | Promise<T>) | T | Promise<T>, ...args: any[]) {
-            // task is a function returning a value or promise, or a value or promise itself
-            running = true;
-            trigger("submit", me);
-            const localCancel = cancel.fork();
-            const taskFunction = typeof task === "function" ? task : () => task;
-
-            Promise.resolve()
-                .then(() => {
-                    if (!localCancel.requested) {
-                        // Use call instead of apply and ensure proper this binding
-                        return typeof task === "function" ? 
-                            (task as Function).call(me, ...args) : 
-                            task;
-                    }
-                })
-                .then(result => {
-                    if (!localCancel.requested) {
-                        value = result;
-                        running = false;
-                        trigger("update", value, me);
-                    }
-                })
-                .catch(err => {
-                    if (!localCancel.requested) {
-                        running = false;
-                        trigger("reject", err, me);
-                    }
-                });
-
-            if (running) {
-                cancel = cancelFactory();
-            }
-        }
-
-        return me;
-    }
-
     interface Configuration {
         date: string;
         hour: string;
@@ -519,14 +363,15 @@ const µ = (function() {
      *          projection: "orthographic", orientation: "26.50,-153.00,1430", overlayType: "off"}
      */
     function parse(hash: string, projectionNames: any, overlayTypes: any): Configuration {
-        var option: RegExpExecArray | null, result = {} as Configuration;
+        let option: RegExpExecArray | null;
+        let result = {} as Configuration;
         //             1        2        3          4          5            6      7      8    9
-        var tokens = /^(current|(\d{4})\/(\d{1,2})\/(\d{1,2})\/(\d{3,4})Z)\/(\w+)\/(\w+)\/(\w+)([\/].+)?/.exec(hash);
+        const tokens = /^(current|(\d{4})\/(\d{1,2})\/(\d{1,2})\/(\d{3,4})Z)\/(\w+)\/(\w+)\/(\w+)([\/].+)?/.exec(hash);
         if (tokens) {
-            var date = tokens[1] === "current" ?
+            const date = tokens[1] === "current" ?
                 "current" :
-                tokens[2] + "/" + zeroPad(+tokens[3], 2) + "/" + zeroPad(+tokens[4], 2);
-            var hour = isValue(tokens[5]) ? zeroPad(+tokens[5], 4) : "";
+                tokens[2] + "/" + (+tokens[3]).toString().padStart(2, '0') + "/" + (+tokens[4]).toString().padStart(2, '0');
+            const hour = (tokens[5] != null) ? (+tokens[5]).toString().padStart(4, '0') : "";
             result = {
                 date: date,                  // "current" or "yyyy/mm/dd"
                 hour: hour,                  // "hhhh" or ""
@@ -539,11 +384,11 @@ const µ = (function() {
                 overlayType: "default",
                 showGridPoints: false
             };
-            coalesce(tokens[9], "").split("/").forEach(function(segment) {
+            (tokens[9] ?? "").split("/").forEach(function(segment) {
                 if ((option = /^(\w+)(=([\d\-.,]*))?$/.exec(segment))) {
                     if (projectionNames.has(option[1])) {
                         result.projection = option[1];                 // non-empty alphanumeric _
-                        result.orientation = coalesce(option[3], "");  // comma delimited string of numbers, or ""
+                        result.orientation = (option[3] ?? "");  // comma delimited string of numbers, or ""
                     }
                 }
                 else if ((option = /^overlay=(\w+)$/.exec(segment))) {
@@ -577,16 +422,11 @@ const µ = (function() {
     }
 
     return {
-        isTruthy,
-        isValue,
-        coalesce,
         floorMod,
         distance,
         clamp,
         proportion,
         spread,
-        zeroPad,
-        capitalize,
         isFF,
         isMobile,
         isEmbeddedInIFrame,
@@ -597,7 +437,6 @@ const µ = (function() {
         dateToConfig,
         log,
         view,
-        removeChildren,
         clearCanvas,
         colorInterpolator,
         sinebowColor,
@@ -610,7 +449,6 @@ const µ = (function() {
         formatVector,
         loadJson,
         distortion,
-        newAgent,
         parse,
         buildConfiguration
     };

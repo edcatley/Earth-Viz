@@ -133,7 +133,7 @@ function standardGlobe(): Globe {
                 return "0,0,1";  // Default orientation if no projection exists
             }
             const rotate = projection.rotate();
-            if (µ.isValue(o) && o !== undefined) {  // Extra check to satisfy TypeScript
+            if (o != null && o !== undefined) {  // Check for non-null and non-undefined
                 const parts = o.split(",");
                 const λ = +parts[0], φ = +parts[1], scale = +parts[2];
                 const extent = this.scaleExtent();
