@@ -20,7 +20,7 @@
             height: 100vh;
         }
 
-        #map, #foreground, #animation {
+        #map, #foreground, #animation, #overlay {
             position: absolute;
             top: 0;
             left: 0;
@@ -28,7 +28,7 @@
             height: 100%;
         }
 
-        #animation {
+        #animation, #overlay {
             pointer-events: none;
         }
 
@@ -104,6 +104,12 @@
             display: block;
             margin-bottom: 10px;
         }
+
+        #scale {
+            width: 100px;
+            height: 10px;
+            border: 1px solid #666;
+        }
     </style>
 </head>
 <body>
@@ -115,6 +121,9 @@
         <!-- Canvas for particle animation -->
         <canvas id="animation" class="fill-screen"></canvas>
         
+        <!-- Canvas for overlay rendering -->
+        <canvas id="overlay" class="fill-screen"></canvas>
+        
         <!-- Status and progress -->
         <div id="status">Loading...</div>
         <div id="progress" class="invisible"></div>
@@ -122,6 +131,10 @@
         <!-- Test controls -->
         <div id="controls">
             <button id="show-location">📍 Find My Location</button>
+            <div>
+                <label>Scale: </label>
+                <canvas id="scale"></canvas>
+            </div>
         </div>
     </div>
 

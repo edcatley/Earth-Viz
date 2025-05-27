@@ -8,6 +8,7 @@
  */
 import { ViewportSize } from './types/types';
 import * as d3 from 'd3';
+import * as d3GeoProjection from 'd3-geo-projection';
 import µ from './micro';
 
 // Update type declarations for D3 v7
@@ -248,12 +249,12 @@ function newGlobe(source: Partial<Globe>, view: ViewportSize): Globe {
 function atlantis(): Globe {
     return newGlobe({
         newProjection: function() {
-            return d3.geoMollweide().rotate([30, -45, 90] as [number, number, number]).precision(0.1);
+            return d3GeoProjection.geoMollweide().rotate([30, -45, 90] as [number, number, number]).precision(0.1);
         }
     }, µ.view());
 }
 
-function azimuthalEquidistant(): Globe {
+function azimuthal_equidistant(): Globe {
     return newGlobe({
         newProjection: function() {
             return d3.geoAzimuthalEquidistant().precision(0.1).rotate([0, -90] as [number, number]).clipAngle(180 - 0.001);
@@ -261,7 +262,7 @@ function azimuthalEquidistant(): Globe {
     }, µ.view());
 }
 
-function conicEquidistant(): Globe {
+function conic_equidistant(): Globe {
     return newGlobe({
         newProjection: function() {
             const pos = currentPosition();
@@ -348,11 +349,9 @@ function stereographic(): Globe {
 function waterman(): Globe {
     return newGlobe({
         newProjection: function() {
-            // Use geoPolyhedron with waterman configuration instead
-            return (d3 as any).geoPolyhedron()
+            return d3GeoProjection.geoPolyhedralWaterman()
                 .rotate([20, 0] as [number, number])
-                .precision(0.1)
-                .waterman();
+                .precision(0.1);
         },
         defineMap: function(mapSvg: any, foregroundSvg: any) {
             const projection = this.projection;
@@ -398,15 +397,15 @@ function waterman(): Globe {
 function winkel3(): Globe {
     return newGlobe({
         newProjection: function() {
-            return d3.geoWinkel3().precision(0.1);
+            return d3GeoProjection.geoWinkel3().precision(0.1);
         }
     }, µ.view());
 }
 
 interface GlobesModule {
     atlantis: () => Globe;
-    azimuthalEquidistant: () => Globe;
-    conicEquidistant: () => Globe;
+    azimuthal_equidistant: () => Globe;
+    conic_equidistant: () => Globe;
     equirectangular: () => Globe;
     orthographic: () => Globe;
     stereographic: () => Globe;
@@ -418,8 +417,8 @@ interface GlobesModule {
 
 const projectionBuilders = {
     atlantis,
-    azimuthalEquidistant,
-    conicEquidistant,
+    azimuthal_equidistant,
+    conic_equidistant,
     equirectangular,
     orthographic,
     stereographic,

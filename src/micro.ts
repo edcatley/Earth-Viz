@@ -14,19 +14,6 @@ declare global {
     var µ: any;  // Tell TypeScript that µ exists globally
 }
 
-// Create the global µ object with all our functions
-window.µ = {
-    // Modern replacements - these are now just direct native calls
-    isTruthy: (x: any) => !!x,
-    isValue: (x: any) => x != null,
-    coalesce: <T>(a: T | null | undefined, b: T) => a ?? b,
-    zeroPad: (n: number, width: number) => n.toString().padStart(width, '0'),
-    capitalize: (s: string) => s.charAt(0).toUpperCase() + s.slice(1),
-    removeChildren: (element: Element) => element.replaceChildren(),
-
-    // Add other functions as needed...
-};
-
 export {}; // Make this a module
 
 const µ = (function() {

@@ -9,6 +9,8 @@ import * as d3 from 'd3';
 import { globes } from './globes';
 import { products } from './products';
 import µ from './micro';
+import { MenuSystem } from './MenuSystem';
+import { ParticleSystem } from './particles';
 import { 
     Globe, 
     ViewportSize, 
@@ -53,6 +55,8 @@ class EarthModernApp {
     private mesh: any = null;
     private field: any = null;
     private products: any[] = [];
+    private menuSystem: MenuSystem;
+    private particleSystem: ParticleSystem | null = null;
     
     // Animation
     private particles: Array<{age: number; x: number; y: number; xt?: number; yt?: number}> = [];
@@ -61,6 +65,13 @@ class EarthModernApp {
     private context: CanvasRenderingContext2D | null = null;
     private colorStyles: string[] & { indexFor: (m: number) => number } | null = null;
     private buckets: Array<Array<{age: number; x: number; y: number; xt?: number; yt?: number}>> = [];
+    
+    // Overlay system
+    private overlayCanvas: HTMLCanvasElement | null = null;
+    private overlayContext: CanvasRenderingContext2D | null = null;
+    private scaleCanvas: HTMLCanvasElement | null = null;
+    private scaleContext: CanvasRenderingContext2D | null = null;
+    private overlayGrid: any = null;
 
     constructor() {
         debugLog('APP', 'Initializing EarthModernApp');
@@ -74,6 +85,7 @@ class EarthModernApp {
         this.config.level = "level";
         this.config.date = "current";
         this.config.hour = "0000";
+        this.config.overlayType = "off"; // Start with no overlay
         
         // Initialize display options properly
         const view = µ.view();
@@ -83,6 +95,9 @@ class EarthModernApp {
             projection: null as any, // Will be set when globe is created
             orientation: [0, 0, 0]
         };
+        
+        // Initialize MenuSystem
+        this.menuSystem = new MenuSystem(this.config);
         
         debugLog('APP', 'App initialized', { config: this.config, display: this.display });
     }
@@ -94,22 +109,26 @@ class EarthModernApp {
             this.setupReporting();
             this.setupUI();
             this.setupInput();
+            this.setupMenuSystem();
             
             // Load initial data
             await this.loadMesh();
             this.createGlobe();
-            await this.loadProducts();
+            
+            // Create and initialize particle system
+            if (this.globe) {
+                const mask = this.createMask();
+                const view: ViewportSize = { width: this.display.width, height: this.display.height };
+                this.particleSystem = new ParticleSystem(this.config, this.globe, mask, view);
+            }
             
             // Setup rendering
             this.setupCanvas();
             this.render();
             
-            // Start field and animation
-            if (this.products.length > 0) {
-                await this.buildField();
-                if (this.config.animate !== false) {
-                    this.startAnimation();
-                }
+            // Start animation if we have a particle system
+            if (this.particleSystem && this.config.animate !== false) {
+                this.startAnimation();
             }
             
             this.reportStatus("Ready");
@@ -207,11 +226,80 @@ class EarthModernApp {
         });
     }
 
+    private setupMenuSystem(): void {
+        debugLog('APP', 'Setting up menu system');
+        
+        // Set up callbacks for menu interactions
+        this.menuSystem.setCallbacks(
+            () => this.handleConfigChange(),
+            () => this.render()
+        );
+        
+        // Set up all menu event handlers
+        this.menuSystem.setupMenuHandlers();
+        
+        // Update menu state to match current config
+        this.menuSystem.updateMenuState();
+        
+        debugLog('APP', 'Menu system setup complete');
+    }
+
+    private handleConfigChange(): void {
+        debugLog('APP', 'Configuration changed', this.config);
+        
+        // Update globe if projection changed
+        if (this.globe && this.config.projection) {
+            // Stop animation and clear canvas immediately when projection changes
+            this.stopAnimation();
+            this.clearCanvas();
+            
+            this.createGlobe();
+            this.render();
+            
+            // Reinitialize particle system with new projection
+            if (this.particleSystem) {
+                const mask = this.createMask();
+                const view: ViewportSize = { width: this.display.width, height: this.display.height };
+                this.particleSystem.reinitialize(this.config, this.globe, mask, view).then(() => {
+                    if (this.config.animate !== false) {
+                        this.startAnimation();
+                    }
+                }).catch((error: any) => {
+                    debugLog('APP', 'Failed to reinitialize particle system after projection change', error);
+                });
+            }
+        }
+        
+        // Reload products if parameters changed
+        if (this.config.param || this.config.surface || this.config.level) {
+            if (this.particleSystem && this.globe) {
+                const mask = this.createMask();
+                const view: ViewportSize = { width: this.display.width, height: this.display.height };
+                this.particleSystem.reinitialize(this.config, this.globe, mask, view).then(() => {
+                    if (this.config.animate !== false) {
+                        this.stopAnimation();
+                        this.startAnimation();
+                    }
+                }).catch((error: any) => {
+                    debugLog('APP', 'Error reinitializing particle system after config change', error);
+                    this.reportError(error);
+                });
+            }
+        }
+        
+        // Update menu state to reflect changes
+        this.menuSystem.updateMenuState();
+    }
+
     private operation: any = null;
 
     private handleZoomStart(event: d3.D3ZoomEvent<HTMLElement, unknown>): void {
         debugLog('INPUT', 'Zoom start');
         if (!this.globe) return;
+
+        // Stop animation and clear canvas immediately when manipulation starts
+        this.stopAnimation();
+        this.clearCanvas();
 
         const mouse = d3.pointer(event, event.target as any) as Point;
         const scale = event.transform.k;
@@ -268,11 +356,27 @@ class EarthModernApp {
             this.handleClick();
         }
 
+        const operationType = this.operation.type;
         this.operation = null;
         
         // Update configuration and regenerate field after manipulation
         this.updateConfigurationFromGlobe();
-        this.buildField(); // Regenerate field with new projection
+        
+        debugLog('INPUT', `Rebuilding field after ${operationType} operation`);
+        
+        // Reinitialize particle system after manipulation
+        if (this.particleSystem && this.globe) {
+            const mask = this.createMask();
+            const view: ViewportSize = { width: this.display.width, height: this.display.height };
+            this.particleSystem.reinitialize(this.config, this.globe, mask, view).then(() => {
+                debugLog('INPUT', 'Particle system reinitialized successfully after manipulation');
+                if (this.config.animate !== false) {
+                    this.startAnimation();
+                }
+            }).catch((error: any) => {
+                debugLog('INPUT', 'Failed to reinitialize particle system after manipulation', error);
+            });
+        }
     }
 
     private handleClick(): void {
@@ -392,43 +496,6 @@ class EarthModernApp {
         }
     }
 
-    private async loadProducts(): Promise<void> {
-        debugLog('APP', 'Loading products');
-        this.reportStatus("Loading weather data...");
-        
-        try {
-            // Use the products module to get weather data
-            debugLog('APP', 'Calling products.productsFor with config:', this.config);
-            const productPromises = products.productsFor(this.config);
-            debugLog('APP', 'Product promises received:', productPromises.length);
-            
-            this.products = await Promise.all(productPromises.filter(p => p !== null));
-            debugLog('APP', 'Products resolved:', this.products.length);
-            
-            // Load the actual data
-            if (this.products.length > 0) {
-                debugLog('APP', 'Loading product data...');
-                for (const product of this.products) {
-                    if (product && product.load) {
-                        debugLog('APP', 'Loading product:', product.type || 'unknown');
-                        await product.load({ requested: false });
-                        debugLog('APP', 'Product loaded successfully:', product.type || 'unknown');
-                    }
-                }
-            } else {
-                debugLog('APP', 'No products found to load');
-            }
-            
-            this.reportProgress(1.0);
-            debugLog('APP', 'Products loaded successfully', this.products.length);
-            
-        } catch (error) {
-            debugLog('APP', 'Failed to load products', error);
-            // Don't fail completely if weather data fails
-            this.products = [];
-        }
-    }
-
     private render(): void {
         debugLog('RENDER', 'Rendering');
         
@@ -462,6 +529,9 @@ class EarthModernApp {
                 .datum(this.mesh.lakesLo)
                 .attr("d", path);
             
+            // Draw overlay if available
+            this.drawOverlay();
+            
             debugLog('RENDER', 'Render completed');
             
         } catch (error) {
@@ -469,175 +539,45 @@ class EarthModernApp {
         }
     }
 
-    private async buildField(): Promise<void> {
-        debugLog('FIELD', 'Building field');
-        
-        if (!this.globe || this.products.length === 0) {
-            debugLog('FIELD', 'Cannot build field - missing globe or products');
-            return;
-        }
-
-        try {
-            this.reportStatus("Generating wind field...");
-            
-            // Get the wind product
-            const windProduct = this.products.find(p => p && p.field === "vector");
-            if (!windProduct) {
-                debugLog('FIELD', 'No wind product found');
-                return;
-            }
-
-            // Create mask and pre-compute field like the original
-            const mask = this.createMask();
-            if (!mask) {
-                debugLog('FIELD', 'Failed to create mask');
-                return;
-            }
-
-            const view: ViewportSize = { width: this.display.width, height: this.display.height };
-            const bounds = this.globe.bounds(view);
-            const velocityScale = bounds.height * (windProduct.particles?.velocityScale || 1/60000);
-            
-            debugLog('FIELD', `Pre-computing field with velocity scale: ${velocityScale}`);
-            
-            // Pre-compute wind vectors for all visible pixels (like original interpolateField)
-            const columns: any[] = [];
-            const validPositions: Array<[number, number]> = [];  // Collect valid positions
-            
-            for (let x = bounds.x; x <= bounds.xMax; x += 2) {
-                const column: any[] = [];
-                
-                for (let y = bounds.y; y <= bounds.yMax; y += 2) {
-                    let wind: Vector = [NaN, NaN, null];
-                    
-                    if (mask.isVisible(x, y)) {
-                        const coord = this.globe.projection?.invert?.([x, y]);
-                        if (coord) {
-                            const λ = coord[0], φ = coord[1];
-                            if (Number.isFinite(λ)) {
-                                // Skip coordinates too close to projection singularities
-                                if (Math.abs(λ) > 89|| Math.abs(φ) > 179) {
-                                    // Skip this coordinate - too close to singularity
-                                } else {
-                                    const rawWind = windProduct.interpolate(λ, φ);
-                                    if (rawWind && rawWind[0] != null && rawWind[1] != null) {
-                                        // Apply distortion like the original distort function
-                                        const u = rawWind[0] * velocityScale;
-                                        const v = rawWind[1] * velocityScale;
-                                        
-                                        if (this.globe.projection) {
-                                            const distortion = µ.distortion(this.globe.projection, λ, φ, x, y);
-                                            
-                                            wind = [
-                                                distortion[0] * u + distortion[2] * v,
-                                                distortion[1] * u + distortion[3] * v,
-                                                rawWind[2]
-                                            ];
-                                            
-                                            // This position has valid wind data - add to valid positions
-                                            validPositions.push([x, y]);
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    
-                    column[y+1] = column[y] = wind;
-                }
-                columns[x+1] = columns[x] = column;
-            }
-            
-            debugLog('FIELD', `Collected ${validPositions.length} valid positions for particle spawning`);
-            
-            // Create field function that looks up pre-computed values
-            this.field = this.createPrecomputedField(columns, bounds, mask, validPositions);
-            
-            // Setup color system like original earth.js
-            if (windProduct && windProduct.particles) {
-                this.colorStyles = µ.windIntensityColorScale(INTENSITY_SCALE_STEP, windProduct.particles.maxIntensity);
-                this.buckets = this.colorStyles.map(() => []);
-                debugLog('FIELD', `Color system initialized with ${this.colorStyles.length} color buckets, maxIntensity: ${windProduct.particles.maxIntensity}`);
-            }
-            
-            this.initializeParticles();
-            
-            debugLog('FIELD', 'Field built successfully');
-            
-        } catch (error) {
-            debugLog('FIELD', 'Failed to build field', error);
-        }
-    }
-
-    private createPrecomputedField(columns: any[][], bounds: Bounds, mask: any, validPositions: Array<[number, number]>): any {
-        const NULL_WIND_VECTOR: Vector = [NaN, NaN, null];
-        
-        function field(x: number, y: number): Vector {
-            const column = columns[Math.round(x)];
-            return column && column[Math.round(y)] || NULL_WIND_VECTOR;
-        }
-
-        field.randomize = (): { x: number; y: number; age: number } => {
-            if (validPositions.length === 0) {
-                debugLog('FIELD', 'ERROR: No valid positions available for particle spawning!');
-                return { x: bounds.x, y: bounds.y, age: Math.random() * MAX_PARTICLE_AGE };
-            }
-            
-            // Pick a random valid position - guaranteed to be valid!
-            const randomIndex = Math.floor(Math.random() * validPositions.length);
-            const [x, y] = validPositions[randomIndex];
-            
-            return { x, y, age: Math.random() * MAX_PARTICLE_AGE };
-        };
-
-        field.isDefined = function(x: number, y: number): boolean {
-            return field(x, y)[2] !== null;
-        };
-
-        field.overlay = {
-            scale: (overlayType: string) => (value: number) => [255, 255, 255] as const,
-            interpolate: (x: number, y: number) => null
-        };
-
-        return field;
-    }
-
     private setupCanvas(): void {
         debugLog('ANIMATION', 'Setting up canvas');
         
+        // Setup animation canvas
         this.canvas = d3.select("#animation").node() as HTMLCanvasElement;
         if (this.canvas) {
             this.context = this.canvas.getContext("2d");
             this.canvas.width = this.display.width;
             this.canvas.height = this.display.height;
+            
+            // Set up canvas properties like the original
+            if (this.context) {
+                this.context.lineWidth = PARTICLE_LINE_WIDTH;
+                this.context.fillStyle = µ.isFF() ? "rgba(0, 0, 0, 0.95)" : "rgba(0, 0, 0, 0.97)";  // FF Mac alpha behaves oddly
+            }
+        }
+        
+        // Setup overlay canvas
+        this.overlayCanvas = d3.select("#overlay").node() as HTMLCanvasElement;
+        if (this.overlayCanvas) {
+            this.overlayContext = this.overlayCanvas.getContext("2d");
+            this.overlayCanvas.width = this.display.width;
+            this.overlayCanvas.height = this.display.height;
+            debugLog('OVERLAY', 'Overlay canvas initialized', { width: this.display.width, height: this.display.height });
+        }
+        
+        // Setup scale canvas
+        this.scaleCanvas = d3.select("#scale").node() as HTMLCanvasElement;
+        if (this.scaleCanvas) {
+            this.scaleContext = this.scaleCanvas.getContext("2d");
+            debugLog('OVERLAY', 'Scale canvas initialized');
         }
     }
 
-    private initializeParticles(): void {
-        debugLog('ANIMATION', 'Initializing particles');
+    private clearCanvas(): void {
+        if (!this.context) return;
         
-        if (!this.field) return;
-
-        // Use original particle count formula: bounds.width * PARTICLE_MULTIPLIER
-        const bounds = this.globe?.bounds({ width: this.display.width, height: this.display.height });
-        if (!bounds) return;
-        
-        let particleCount = Math.round(bounds.width * PARTICLE_MULTIPLIER);
-        if (µ.isMobile()) {
-            particleCount *= PARTICLE_REDUCTION;
-        }
-        
-        this.particles = [];
-        for (let i = 0; i < particleCount; i++) {
-            const particle = this.field.randomize();
-            this.particles.push({
-                age: particle.age,
-                x: particle.x,
-                y: particle.y
-            });
-        }
-        
-        debugLog('ANIMATION', `Initialized ${particleCount} particles (bounds.width: ${bounds.width})`);
+        // Completely clear the canvas
+        this.context.clearRect(0, 0, this.display.width, this.display.height);
     }
 
     private startAnimation(): void {
@@ -661,7 +601,11 @@ class EarthModernApp {
 
     private animate(): void {
         try {
-            this.evolveParticles();
+            if (!this.particleSystem) return;
+            
+            this.particleSystem.evolveParticles();
+            this.buckets = this.particleSystem.getBuckets();
+            this.colorStyles = this.particleSystem.getColorStyles();
             this.drawParticles();
             
             this.animationId = setTimeout(() => {
@@ -676,68 +620,16 @@ class EarthModernApp {
         }
     }
 
-    private evolveParticles(): void {
-        if (!this.field || !this.colorStyles) return;
-
-        // Clear buckets like original
-        this.buckets.forEach(bucket => { bucket.length = 0; });
-
-        this.particles.forEach(particle => {
-            if (particle.age > MAX_PARTICLE_AGE) {
-                const newParticle = this.field!.randomize();
-                particle.x = newParticle.x;
-                particle.y = newParticle.y;
-                particle.age = newParticle.age;
-            } else {
-                const x = particle.x;
-                const y = particle.y;
-                const v = this.field!(x, y);  // vector at current position
-                const m = v[2];  // magnitude
-                
-                // Debug: Check for extreme wind vectors
-                if (Math.abs(v[0]) > 200 || Math.abs(v[1]) > 200) {
-                    debugLog('PARTICLE', `EXTREME WIND VECTOR at (${x.toFixed(1)}, ${y.toFixed(1)}): [${v[0].toFixed(2)}, ${v[1].toFixed(2)}, ${m}]`);
-                }
-                
-                if (m === null) {
-                    particle.age = MAX_PARTICLE_AGE;  // particle has escaped the grid, never to return...
-                } else {
-                    const xt = x + v[0];
-                    const yt = y + v[1];
-                    
-                    // Debug: Check for large distance jumps
-                    const distance = Math.sqrt((xt - x) * (xt - x) + (yt - y) * (yt - y));
-                    if (distance > 200) {
-                        debugLog('PARTICLE', `LARGE JUMP: (${x.toFixed(1)}, ${y.toFixed(1)}) → (${xt.toFixed(1)}, ${yt.toFixed(1)}) distance: ${distance.toFixed(1)}, wind: [${v[0].toFixed(2)}, ${v[1].toFixed(2)}]`);
-                    }
-                    
-                    if (this.field!.isDefined(xt, yt)) {
-                        // Path from (x,y) to (xt,yt) is visible, so add this particle to the appropriate draw bucket.
-                        particle.xt = xt;
-                        particle.yt = yt;
-                        this.buckets[this.colorStyles!.indexFor(m)].push(particle);
-                    } else {
-                        // Particle isn't visible, but it still moves through the field.
-                        particle.x = xt;
-                        particle.y = yt;
-                    }
-                }
-                particle.age += 1;
-            }
-        });
-    }
-
     private drawParticles(): void {
         if (!this.context || !this.colorStyles) return;
 
-        // Get bounds for fade effect
+        // Get bounds for drawing particles
         const bounds = this.globe?.bounds({ width: this.display.width, height: this.display.height });
         if (!bounds) return;
 
-        // Fade existing particle trails like original
+        // Fade existing particle trails - only clear the bounds area like the original
         const prev = this.context.globalCompositeOperation;
         this.context.globalCompositeOperation = "destination-in";
-        this.context.fillStyle = µ.isFF() ? "rgba(0, 0, 0, 0.95)" : "rgba(0, 0, 0, 0.97)";  // FF Mac alpha behaves oddly
         this.context.fillRect(bounds.x, bounds.y, bounds.width, bounds.height);
         this.context.globalCompositeOperation = prev;
 
@@ -761,6 +653,62 @@ class EarthModernApp {
                 this.context!.stroke();
             }
         });
+    }
+
+    private drawOverlay(): void {
+        debugLog('OVERLAY', 'Drawing overlay', { overlayType: this.config.overlayType });
+        
+        if (!this.overlayContext) {
+            debugLog('OVERLAY', 'No overlay context available');
+            return;
+        }
+
+        // Clear overlay canvas
+        µ.clearCanvas(this.overlayCanvas!);
+        
+        // Clear scale canvas
+        if (this.scaleCanvas) {
+            µ.clearCanvas(this.scaleCanvas);
+        }
+        this.field = this.particleSystem?.getField();
+        // Only draw if overlay is enabled and not "off"
+        if (this.config.overlayType && this.config.overlayType !== "off") {
+            // For now, just draw the overlay imageData if it exists
+            if (this.field && this.field.overlay) {
+                debugLog('OVERLAY', 'Putting overlay imageData');
+                this.overlayContext.putImageData(this.field.overlay, 0, 0);
+            }
+            
+            // Draw color scale if we have overlay grid
+            if (this.overlayGrid) {
+                this.drawColorScale();
+            }
+        }
+    }
+
+    private drawColorScale(): void {
+        if (!this.scaleContext || !this.overlayGrid || !this.overlayGrid.scale) {
+            return;
+        }
+
+        const canvas = this.scaleCanvas!;
+        const ctx = this.scaleContext;
+        const scale = this.overlayGrid.scale;
+        const bounds = scale.bounds;
+        
+        if (!bounds) return;
+
+        const width = canvas.width - 1;
+        
+        // Draw gradient bar
+        for (let i = 0; i <= width; i++) {
+            const value = µ.spread(i / width, bounds[0], bounds[1]);
+            const rgb = scale.gradient(value, 1); // Full opacity for scale
+            ctx.fillStyle = `rgb(${rgb[0]},${rgb[1]},${rgb[2]})`;
+            ctx.fillRect(i, 0, 1, canvas.height);
+        }
+        
+        debugLog('OVERLAY', 'Drew color scale', { bounds, width: canvas.width, height: canvas.height });
     }
 
     private drawLocationMark(point: Point, coord: GeoPoint): void {
@@ -789,6 +737,7 @@ class EarthModernApp {
             this.display.orientation = [orientationArray[0] || 0, orientationArray[1] || 0, orientationArray[2] || 0];
         }
     }
+   
 
     private createMask(): any {
         if (!this.globe) return null;
@@ -805,7 +754,10 @@ class EarthModernApp {
         
         // Let the globe define its mask polygon
         const context = this.globe.defineMask(ctx);
-        if (!context) return null;
+        if (!context) {
+            debugLog('MASK', 'Globe.defineMask returned null');
+            return null;
+        }
         
         context.fillStyle = "rgba(255, 0, 0, 1)";
         context.fill();
@@ -813,13 +765,39 @@ class EarthModernApp {
         const imageData = context.getImageData(0, 0, this.display.width, this.display.height);
         const data = imageData.data;
         
-        return {
+        // Create overlay imageData for storing overlay colors
+        const overlayImageData = context.createImageData(this.display.width, this.display.height);
+        const overlayData = overlayImageData.data;
+        
+        // Count visible pixels for debugging
+        let visiblePixels = 0;
+        for (let i = 3; i < data.length; i += 4) {
+            if (data[i] > 0) visiblePixels++;
+        }
+        
+        debugLog('MASK', `Mask created: ${visiblePixels} visible pixels out of ${this.display.width * this.display.height}`);
+        
+        const mask = {
             imageData: imageData,
+            overlayImageData: overlayImageData,
             isVisible: (x: number, y: number): boolean => {
-                const i = (y * this.display.width + x) * 4;
+                if (x < 0 || x >= this.display.width || y < 0 || y >= this.display.height) return false;
+                const i = (Math.floor(y) * this.display.width + Math.floor(x)) * 4;
                 return data[i + 3] > 0;  // non-zero alpha means pixel is visible
+            },
+            set: (x: number, y: number, rgba: number[]) => {
+                if (x >= 0 && x < this.display.width && y >= 0 && y < this.display.height) {
+                    const i = (Math.floor(y) * this.display.width + Math.floor(x)) * 4;
+                    overlayData[i] = rgba[0] || 0;     // red
+                    overlayData[i + 1] = rgba[1] || 0; // green
+                    overlayData[i + 2] = rgba[2] || 0; // blue
+                    overlayData[i + 3] = rgba[3] || 0; // alpha
+                }
+                return mask; // Return self for chaining
             }
         };
+        
+        return mask;
     }
 }
 
