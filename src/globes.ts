@@ -1,15 +1,40 @@
 /**
- * globes - a set of models of the earth, each having their own kind of projection and onscreen behavior.
+ * Globes - a set of models of the earth, each having their own kind of projection and onscreen behavior.
  *
  * Copyright (c) 2014 Cameron Beccario
  * The MIT License - http://opensource.org/licenses/MIT
  *
  * https://github.com/cambecc/earth
  */
-import { ViewportSize } from './types/types';
 import * as d3 from 'd3';
 import * as d3GeoProjection from 'd3-geo-projection';
-import µ from './micro';
+import { Utils } from './utils/Utils';
+
+// Basic types used throughout the application
+export type Point = [number, number];  // [x, y] screen coordinates
+export type GeoPoint = [number, number];  // [longitude, latitude]
+export type Vector = [number, number, number | null];  // [u, v, magnitude]
+
+export interface ViewportSize {
+    width: number;
+    height: number;
+}
+
+export interface Bounds {
+    x: number;
+    y: number;
+    xMax: number;
+    yMax: number;
+    width: number;
+    height: number;
+}
+
+export interface DisplayOptions {
+    width: number;
+    height: number;
+    projection: d3.GeoProjection;
+    orientation: [number, number, number];
+}
 
 // Update type declarations for D3 v7
 interface GeoProjection extends d3.GeoProjection {
@@ -27,11 +52,11 @@ interface GeoProjection extends d3.GeoProjection {
     clipExtent(extent: [[number, number], [number, number]] | null): this;
 }
 
-// Add missing projection types
-declare module 'd3' {
-    export function geoMollweide(): GeoProjection;
-    export function geoWinkel3(): GeoProjection;
-    export function geoPolyhedralWaterman(): GeoProjection;
+// Type declarations for d3-geo-projection (separate library)
+declare module 'd3-geo-projection' {
+    export function geoMollweide(): d3.GeoProjection;
+    export function geoWinkel3(): d3.GeoProjection;
+    export function geoPolyhedralWaterman(): d3.GeoProjection;
 }
 
 export interface Globe {
@@ -51,26 +76,47 @@ export interface Globe {
     defineMap(mapSvg: any, foregroundSvg: any): void;
 }
 
-function currentPosition(): [number, number] {
-    const λ = µ.floorMod(new Date().getTimezoneOffset() / 4, 360);  // 24 hours * 60 min / 4 === 360 degrees
+// Color type definitions
+export type RGB = [number, number, number];
+export type RGBA = [number, number, number, number];
+
+// Date configuration interface  
+export interface DateConfig {
+    date: string;
+    hour: string;
+}
+
+// Logger interface
+export interface Logger {
+    debug: (s: unknown) => void;
+    info: (s: unknown) => void;
+    error: (e: unknown) => void;
+    time: (s: unknown) => void;
+    timeEnd: (s: unknown) => void;
+}
+
+export class Globes {
+    // Helper functions converted to static methods
+    private static currentPosition(): [number, number] {
+        const λ = Utils.floorMod(new Date().getTimezoneOffset() / 4, 360);  // 24 hours * 60 min / 4 === 360 degrees
     return [λ, 0];
 }
 
-function ensureNumber(num: number | undefined | null, fallback: number): number {
+    private static ensureNumber(num: number | undefined | null, fallback: number): number {
     return (Number.isFinite(num) || num === Infinity || num === -Infinity ? num : fallback) as number;
 }
 
-function clampedBounds(bounds: any, view: ViewportSize) {
+    private static clampedBounds(bounds: any, view: ViewportSize) {
     var upperLeft = bounds[0];
     var lowerRight = bounds[1];
-    var x = Math.max(Math.floor(ensureNumber(upperLeft[0], 0)), 0);
-    var y = Math.max(Math.floor(ensureNumber(upperLeft[1], 0)), 0);
-    var xMax = Math.min(Math.ceil(ensureNumber(lowerRight[0], view.width)), view.width - 1);
-    var yMax = Math.min(Math.ceil(ensureNumber(lowerRight[1], view.height)), view.height - 1);
+        var x = Math.max(Math.floor(Globes.ensureNumber(upperLeft[0], 0)), 0);
+        var y = Math.max(Math.floor(Globes.ensureNumber(upperLeft[1], 0)), 0);
+        var xMax = Math.min(Math.ceil(Globes.ensureNumber(lowerRight[0], view.width)), view.width - 1);
+        var yMax = Math.min(Math.ceil(Globes.ensureNumber(lowerRight[1], view.height)), view.height - 1);
     return {x: x, y: y, xMax: xMax, yMax: yMax, width: xMax - x + 1, height: yMax - y + 1};
 }
 
-function standardGlobe(): Globe {
+    private static standardGlobe(): Globe {
     return {
         /**
          * This globe's current D3 projection.
@@ -91,7 +137,7 @@ function standardGlobe(): Globe {
          *          the bounds of the current projection clamped to the specified view.
          */
         bounds: function(view: ViewportSize) {
-            return clampedBounds(d3.geoPath().projection(this.projection).bounds({type: "Sphere"}), view);
+                return Globes.clampedBounds(d3.geoPath().projection(this.projection).bounds({type: "Sphere"}), view);
         },
 
         /**
@@ -141,7 +187,7 @@ function standardGlobe(): Globe {
                 projection.rotate(Number.isFinite(λ) && Number.isFinite(φ) ?
                     [-λ, -φ, rotate[2]] as [number, number, number] :
                     this.newProjection(view).rotate());
-                projection.scale(Number.isFinite(scale) ? µ.clamp(scale, extent[0], extent[1]) : this.fit(view));
+                    projection.scale(Number.isFinite(scale) ? Utils.clamp(scale, extent[0], extent[1]) : this.fit(view));
                 projection.translate(this.center(view));
                 return this;
             }
@@ -240,54 +286,55 @@ function standardGlobe(): Globe {
     };
 }
 
-function newGlobe(source: Partial<Globe>, view: ViewportSize): Globe {
-    const result = Object.assign(standardGlobe(), source);
+    private static newGlobe(source: Partial<Globe>, view: ViewportSize): Globe {
+        const result = Object.assign(Globes.standardGlobe(), source);
     result.projection = result.newProjection(view);
     return result;
 }
 
-function atlantis(): Globe {
-    return newGlobe({
+    // Projection builder methods
+    static atlantis(): Globe {
+        return Globes.newGlobe({
         newProjection: function() {
             return d3GeoProjection.geoMollweide().rotate([30, -45, 90] as [number, number, number]).precision(0.1);
         }
-    }, µ.view());
+        }, Utils.view());
 }
 
-function azimuthal_equidistant(): Globe {
-    return newGlobe({
+    static azimuthal_equidistant(): Globe {
+        return Globes.newGlobe({
         newProjection: function() {
             return d3.geoAzimuthalEquidistant().precision(0.1).rotate([0, -90] as [number, number]).clipAngle(180 - 0.001);
         }
-    }, µ.view());
+        }, Utils.view());
 }
 
-function conic_equidistant(): Globe {
-    return newGlobe({
+    static conic_equidistant(): Globe {
+        return Globes.newGlobe({
         newProjection: function() {
-            const pos = currentPosition();
+                const pos = Globes.currentPosition();
             return d3.geoConicEquidistant().rotate([pos[0], pos[1], 0] as [number, number, number]).precision(0.1);
         },
         center: function(view: ViewportSize) {
             return [view.width / 2, view.height / 2 + view.height * 0.065];
         }
-    }, µ.view());
+        }, Utils.view());
 }
 
-function equirectangular(): Globe {
-    return newGlobe({
+    static equirectangular(): Globe {
+        return Globes.newGlobe({
         newProjection: function() {
-            const pos = currentPosition();
+                const pos = Globes.currentPosition();
             return d3.geoEquirectangular().rotate([pos[0], pos[1], 0] as [number, number, number]).precision(0.1);
         }
-    }, µ.view());
+        }, Utils.view());
 }
 
-function orthographic(): Globe {
-    return newGlobe({
+    static orthographic(): Globe {
+        return Globes.newGlobe({
         newProjection: function() {
-            const pos = currentPosition();
-            return d3.geoOrthographic().rotate([pos[0], pos[1], 0] as [number, number, number]).precision(0.1).clipAngle(90);
+                const pos = Globes.currentPosition();
+            return d3.geoOrthographic().rotate([pos[0], pos[1], 0] as [number, number, number]).precision(0.1).clipAngle(90-0.0001);
         },
         defineMap: function(mapSvg: any, foregroundSvg: any) {
             const projection = this.projection;
@@ -331,11 +378,11 @@ function orthographic(): Globe {
             const rotate = projection.rotate();
             return [-coord[0], -coord[1], rotate[2]];
         }
-    }, µ.view());
+        }, Utils.view());
 }
 
-function stereographic(): Globe {
-    return newGlobe({
+    static stereographic(): Globe {
+        return Globes.newGlobe({
         newProjection: function(view: ViewportSize) {
             return d3.geoStereographic()
                 .rotate([-43, -20] as [number, number])
@@ -343,11 +390,11 @@ function stereographic(): Globe {
                 .clipAngle(180 - 0.0001)
                 .clipExtent([[0, 0], [view.width, view.height]]);
         }
-    }, µ.view());
+        }, Utils.view());
 }
 
-function waterman(): Globe {
-    return newGlobe({
+    static waterman(): Globe {
+        return Globes.newGlobe({
         newProjection: function() {
             return d3GeoProjection.geoPolyhedralWaterman()
                 .rotate([20, 0] as [number, number])
@@ -391,43 +438,42 @@ function waterman(): Globe {
                 .attr("xlink:href", "#sphere")
                 .attr("class", "foreground-sphere");
         }
-    }, µ.view());
+        }, Utils.view());
 }
 
-function winkel3(): Globe {
-    return newGlobe({
+    static winkel3(): Globe {
+        return Globes.newGlobe({
         newProjection: function() {
             return d3GeoProjection.geoWinkel3().precision(0.1);
         }
-    }, µ.view());
+        }, Utils.view());
 }
 
-interface GlobesModule {
-    atlantis: () => Globe;
-    azimuthal_equidistant: () => Globe;
-    conic_equidistant: () => Globe;
-    equirectangular: () => Globe;
-    orthographic: () => Globe;
-    stereographic: () => Globe;
-    waterman: () => Globe;
-    winkel3: () => Globe;
-    get: (name: string) => (() => Globe) | undefined;
-    keys: () => string[];
+    // Utility methods for accessing projections
+    static get(name: string): (() => Globe) | undefined {
+        const projectionBuilders: Record<string, () => Globe> = {
+            atlantis: Globes.atlantis,
+            azimuthal_equidistant: Globes.azimuthal_equidistant,
+            conic_equidistant: Globes.conic_equidistant,
+            equirectangular: Globes.equirectangular,
+            orthographic: Globes.orthographic,
+            stereographic: Globes.stereographic,
+            waterman: Globes.waterman,
+            winkel3: Globes.winkel3
+        };
+        return projectionBuilders[name];
+    }
+
+    static keys(): string[] {
+        return [
+            "atlantis",
+            "azimuthal_equidistant", 
+            "conic_equidistant",
+            "equirectangular",
+            "orthographic", 
+            "stereographic",
+            "waterman",
+            "winkel3"
+        ];
+    }
 }
-
-const projectionBuilders = {
-    atlantis,
-    azimuthal_equidistant,
-    conic_equidistant,
-    equirectangular,
-    orthographic,
-    stereographic,
-    waterman,
-    winkel3
-};
-
-export const globes: GlobesModule = {
-    ...projectionBuilders,
-    get: (name: string) => projectionBuilders[name as keyof typeof projectionBuilders],
-    keys: () => Object.keys(projectionBuilders)
-};

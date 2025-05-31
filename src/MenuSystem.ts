@@ -3,9 +3,7 @@
  */
 
 import * as d3 from 'd3';
-import { globes } from './globes';
-import { products } from './products';
-import µ from './micro';
+
 
 // Extend d3 with extended projections (same as globes.ts)
 declare module 'd3' {

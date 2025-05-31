@@ -1,16 +1,17 @@
 import { defineConfig } from 'vite';
 import { resolve } from 'path';
 
+// Configuration for micro.js testing
 export default defineConfig({
-  root: 'src/test',  // Root is where our test HTML lives
+  root: 'public',
+  publicDir: 'data',
   server: {
     port: 8081,
-    open: '/micro-test.html'  // Open this file on start
+    open: true
   },
   resolve: {
     alias: {
-      // Make our TypeScript file available to the test
-      '/libs/earth/1.0.0/micro.js': resolve(__dirname, 'src/micro.ts')
+      '/libs/earth/1.0.0/micro.js': resolve(__dirname, 'src/utils/Utils.ts')
     }
   }
 }); 

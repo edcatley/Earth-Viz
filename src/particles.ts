@@ -3,11 +3,8 @@
  * Class-based approach with internal data storage
  */
 
-import * as d3 from 'd3';
-import µ from './micro';
-import { products } from './products';
-import { ViewportSize, Vector, Bounds } from './types/types';
-import { Globe } from './globes';
+import { Utils } from './utils/Utils';
+import { ViewportSize, Vector, Bounds, Globe } from './Globes';
 
 // Constants
 const MAX_PARTICLE_AGE = 100;
@@ -36,7 +33,11 @@ export interface Field {
     (x: number, y: number): Vector;
     randomize(): { x: number; y: number; age: number };
     isDefined(x: number, y: number): boolean;
-    overlay?: any;
+}
+
+// Event system for ParticleSystem
+export interface ParticleSystemEvents {
+    particlesEvolved: (buckets: Particle[][], colorStyles: any, globe: Globe) => void;
 }
 
 export class ParticleSystem {
@@ -46,41 +47,42 @@ export class ParticleSystem {
     private buckets: Particle[][] = [];
     private config: any;
     private products: any[] = [];
+    private globe: Globe | null = null;
+    private events: Partial<ParticleSystemEvents> = {};
 
     constructor(
         config: any,
         globe: Globe,
         mask: any,
-        view: ViewportSize
+        view: ViewportSize,
+        products: any[]  // Accept products from parent instead of loading them
     ) {
         this.config = config;
-        this.reinitialize(config, globe, mask, view);
-    }
-
-    public async reinitialize(
-        config: any,
-        globe: Globe,
-        mask: any,
-        view: ViewportSize
-    ): Promise<void> {
-        this.config = config;
-        await this.loadProducts();
+        this.globe = globe;
+        this.products = products;  // Store the products passed from parent
         
         const windProduct = this.products.find(p => p && p.field === "vector");
-        const overlayProduct = this.config.overlayType && this.config.overlayType !== "off" ? 
-            this.products.find(p => p && p.field === "scalar" && p.type === this.config.overlayType) : null;
-        
         if (windProduct) {
-            this.initialize(windProduct, globe, mask, view, overlayProduct);
+            this.initialize(windProduct, globe, mask, view);
         }
     }
 
-    private initialize(
+    public on<K extends keyof ParticleSystemEvents>(event: K, handler: ParticleSystemEvents[K]): void {
+        this.events[event] = handler;
+    }
+
+    private emit<K extends keyof ParticleSystemEvents>(event: K, ...args: Parameters<ParticleSystemEvents[K]>): void {
+        const handler = this.events[event];
+        if (handler) {
+            (handler as any)(...args);
+        }
+    }
+
+    public initialize(
         windProduct: any,
         globe: Globe,
         mask: any,
-        view: ViewportSize,
-        overlayProduct?: any
+        view: ViewportSize
     ): void {
         debugLog('PARTICLES', 'Creating particle system from wind data');
         
@@ -93,11 +95,11 @@ export class ParticleSystem {
         // Pre-compute wind vectors for all visible pixels
         const columns: any[] = [];
         const validPositions: Array<[number, number]> = [];
-        const OVERLAY_ALPHA = Math.floor(0.4 * 255);
         
         let totalPixels = 0;
         let visiblePixels = 0;
         let windDataPixels = 0;
+        let filteredPixels = 0;
         
         for (let x = bounds.x; x <= bounds.xMax; x += 2) {
             const column: any[] = [];
@@ -105,47 +107,25 @@ export class ParticleSystem {
             for (let y = bounds.y; y <= bounds.yMax; y += 2) {
                 totalPixels++;
                 let wind: Vector = [NaN, NaN, null];
-                let overlayColor = [0, 0, 0, 0];
                 
                 if (mask.isVisible(x, y)) {
                     visiblePixels++;
                     const coord = globe.projection?.invert?.([x, y]);
                     if (coord) {
                         const λ = coord[0], φ = coord[1];
-                        if (isFinite(λ)) {
+                        if (isFinite(λ) && isFinite(φ)) {
                             const rawWind = windProduct.interpolate(λ, φ);
                             if (rawWind && rawWind[0] != null && rawWind[1] != null) {
-                                windDataPixels++;
-                                const u = rawWind[0] * velocityScale;
-                                const v = rawWind[1] * velocityScale;
-                                
+                                windDataPixels++;                                
                                 if (globe.projection) {
-                                    const distortion = µ.distortion(globe.projection, λ, φ, x, y);
-                                    
-                                    wind = [
-                                        distortion[0] * u + distortion[2] * v,
-                                        distortion[1] * u + distortion[3] * v,
-                                        rawWind[2]
-                                    ];
-                                    
-                                    validPositions.push([x, y]);
-                                }
-                            }
-                            
-                            // Generate overlay color if overlay product exists
-                            if (overlayProduct && overlayProduct.scale) {
-                                const overlayValue = overlayProduct.interpolate(λ, φ);
-                                if (overlayValue != null) {
-                                    overlayColor = overlayProduct.scale.gradient(overlayValue, OVERLAY_ALPHA);
+                                    const distortedWind = this.distort(globe.projection, λ, φ, x, y, velocityScale, rawWind);
+                                    if (distortedWind) {
+                                        wind = distortedWind;
+                                        validPositions.push([x, y]);
+                                    }
                                 }
                             }
                         }
-                    }
-                    
-                    // Set overlay color in mask
-                    if (mask.set) {
-                        mask.set(x, y, overlayColor).set(x+1, y, overlayColor)
-                            .set(x, y+1, overlayColor).set(x+1, y+1, overlayColor);
                     }
                 }
                 
@@ -154,15 +134,15 @@ export class ParticleSystem {
             columns[x+1] = columns[x] = column;
         }
         
-        debugLog('PARTICLES', `Pixel statistics: total=${totalPixels}, visible=${visiblePixels}, withWindData=${windDataPixels}`);
+        debugLog('PARTICLES', `Pixel statistics: total=${totalPixels}, visible=${visiblePixels}, withWindData=${windDataPixels}, filtered=${filteredPixels}`);
         debugLog('PARTICLES', `Valid positions for particles: ${validPositions.length}`);
         
         // Create field function
-        this.field = this.createField(columns, bounds, mask, validPositions);
+        this.field = this.createField(columns, bounds, validPositions);
         
         // Setup color system
         this.colorStyles = windProduct.particles ? 
-            µ.windIntensityColorScale(INTENSITY_SCALE_STEP, windProduct.particles.maxIntensity) : null;
+            Utils.windIntensityColorScale(INTENSITY_SCALE_STEP, windProduct.particles.maxIntensity) : null;
         this.buckets = this.colorStyles ? this.colorStyles.map(() => []) : [];
         
         // Initialize particles
@@ -171,7 +151,23 @@ export class ParticleSystem {
         debugLog('PARTICLES', `Created ${this.particles.length} particles`);
     }
 
-    private createField(columns: any[][], bounds: Bounds, mask: any, validPositions: Array<[number, number]>): Field {
+    private distort(projection: any, λ: number, φ: number, x: number, y: number, scale: number, wind: Vector): Vector | null {
+        var u = wind[0] * scale;
+        var v = wind[1] * scale;
+        var d = Utils.distortion(projection, λ, φ, x, y);
+
+        if (!d || d.length < 4) {
+            return null;
+        }
+
+        // Scale distortion vectors by u and v, then add.
+        wind[0] = d[0] * u + d[2] * v;
+        wind[1] = d[1] * u + d[3] * v;
+        return wind;
+    
+    }
+
+    private createField(columns: any[][], bounds: Bounds, validPositions: Array<[number, number]>): Field {
         const NULL_WIND_VECTOR: Vector = [NaN, NaN, null];
         
         function field(x: number, y: number): Vector {
@@ -195,22 +191,12 @@ export class ParticleSystem {
             return field(x, y)[2] !== null;
         };
 
-        field.overlay = {
-            scale: (overlayType: string) => (value: number) => [255, 255, 255] as const,
-            interpolate: (x: number, y: number) => null
-        };
-
-        // Store overlay imageData if available
-        if (mask.overlayImageData) {
-            field.overlay = mask.overlayImageData;
-        }
-
         return field;
     }
 
     private initializeParticles(bounds: Bounds): void {
         let particleCount = Math.round(bounds.width * PARTICLE_MULTIPLIER);
-        if (µ.isMobile()) {
+        if (Utils.isMobile()) {
             particleCount *= PARTICLE_REDUCTION;
         }
         
@@ -262,6 +248,8 @@ export class ParticleSystem {
             }
             particle.age += 1;
         });
+
+        this.emit('particlesEvolved', this.buckets, this.colorStyles, this.globe!);
     }
 
     private reportStatus(message: string): void {
@@ -273,44 +261,6 @@ export class ParticleSystem {
         debugLog('PARTICLES', `Progress: ${(amount * 100).toFixed(1)}%`);
         // Could emit events or call callbacks here if needed
     }
-
-    private async loadProducts(): Promise<void> {
-        debugLog('APP', 'Loading products');
-        this.reportStatus("Loading weather data...");
-        
-        try {
-            // Use the products module to get weather data
-            debugLog('APP', 'Calling products.productsFor with config:', this.config);
-            const productPromises = products.productsFor(this.config);
-            debugLog('APP', 'Product promises received:', productPromises.length);
-            
-            this.products = await Promise.all(productPromises.filter(p => p !== null));
-            debugLog('APP', 'Products resolved:', this.products.length);
-            
-            // Load the actual data
-            if (this.products.length > 0) {
-                debugLog('APP', 'Loading product data...');
-                for (const product of this.products) {
-                    if (product && product.load) {
-                        debugLog('APP', 'Loading product:', product.type || 'unknown');
-                        await product.load({ requested: false });
-                        debugLog('APP', 'Product loaded successfully:', product.type || 'unknown');
-                    }
-                }
-            } else {
-                debugLog('APP', 'No products found to load');
-            }
-            
-            this.reportProgress(1.0);
-            debugLog('APP', 'Products loaded successfully', this.products.length);
-            
-        } catch (error) {
-            debugLog('APP', 'Failed to load products', error);
-            // Don't fail completely if weather data fails
-            this.products = [];
-        }
-    }
-    
 
     // Getter methods for accessing internal data
     getParticles(): Particle[] {
