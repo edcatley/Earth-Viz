@@ -26,6 +26,10 @@ export class MenuSystem {
         this.onRender = onRender;
     }
 
+    getConfig(): any {
+        return this.config;
+    }
+
     setupMenuHandlers(): void {
         console.log('[MENU] Setting up menu handlers');
         

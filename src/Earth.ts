@@ -13,8 +13,7 @@ import { MenuSystem } from './MenuSystem';
 import { ParticleSystem } from './Particles';
 import { InputHandler } from './InputHandler';
 import { RenderSystem, RenderData } from './RenderSystem';
-import { HybridOverlaySystem } from './HybridOverlaySystem';
-import { createWebGLOverlaySystem, testWebGLSystem } from './WebGLOverlaySystem';
+import { OverlaySystem } from './OverlaySystem';
 
 // Debug logging
 const DEBUG = true;
@@ -49,7 +48,7 @@ class EarthModernApp {
     private products: any[] = [];
     private menuSystem: MenuSystem;
     private particleSystem: ParticleSystem | null = null;
-    private overlaySystem: HybridOverlaySystem | null = null;
+    private overlaySystem: OverlaySystem;
     private inputHandler: InputHandler;
     private renderSystem: RenderSystem;
     
@@ -61,40 +60,42 @@ class EarthModernApp {
     private cachedOverlayResult: { imageData: ImageData | null; overlayType: string } | null = null;
 
     constructor() {
-        debugLog('APP', 'Initializing Earth Modern App');
+        debugLog('APP', 'Initializing EarthModernApp');
         
-        // Initialize configuration
+        // Use proper configuration system from Utils
         this.config = Utils.buildConfiguration(Globes.keys(), Products.overlayTypes);
-        debugLog('CONFIG', 'Configuration loaded', this.config);
         
-        // Initialize display dimensions
-        this.display = this.createDisplayOptions();
+        // Add required parameters for products system
+        this.config.param = "wind";
+        this.config.surface = "surface";
+        this.config.level = "level";
+        this.config.date = "current";
+        this.config.hour = "0000";
+        this.config.overlayType = "off"; // Start with no overlay
         
-        // Initialize systems
-        this.renderSystem = new RenderSystem(this.display);
-        this.menuSystem = new MenuSystem(this.config);
-        this.inputHandler = new InputHandler();
-        
-        // Setup input event handlers
-        this.setupInputEventHandlers();
-        
-        // Setup window resize handling
-        this.setupWindowResize();
-        
-        debugLog('APP', 'Earth Modern App initialized');
-    }
-
-    /**
-     * Create display options from current viewport
-     */
-    private createDisplayOptions(): DisplayOptions {
+        // Initialize display options properly
         const view = Utils.view();
-        return {
+        this.display = {
             width: view.width,
             height: view.height,
             projection: null as any, // Will be set when globe is created
             orientation: [0, 0, 0]
         };
+        
+        // Initialize MenuSystem
+        this.menuSystem = new MenuSystem(this.config);
+        
+        // Initialize InputHandler
+        this.inputHandler = new InputHandler();
+        this.setupInputEventHandlers();
+        
+        // Initialize RenderSystem
+        this.renderSystem = new RenderSystem(this.display);
+        
+        // Initialize OverlaySystem - clean separation of concerns!
+        this.overlaySystem = new OverlaySystem();
+        
+        debugLog('APP', 'App initialized', { config: this.config, display: this.display });
     }
 
     async start(): Promise<void> {
@@ -125,10 +126,6 @@ class EarthModernApp {
             
             // Setup rendering
             this.renderSystem.setupCanvases();
-            
-            // Create overlay system AFTER render system has created canvases
-            this.overlaySystem = new HybridOverlaySystem(this.renderSystem, this.display);
-            
             this.render();
             
             // Start animation if we have a particle system
@@ -226,9 +223,35 @@ class EarthModernApp {
     private handleConfigChange(): void {
         debugLog('APP', 'Configuration changed', this.config);
         
-        // For now, reload everything on any config change
-        // TODO: Optimize to detect what actually changed
-        this.loadProducts();
+        
+        this.createGlobe();
+        
+ 
+        // Stop animation, reload products, then restart everything
+        this.stopAnimation();
+        this.loadProducts().then(() => {
+            // Reinitialize systems with new products
+            if (this.globe && this.particleSystem) {
+                const mask = this.createMask();
+                const view: ViewportSize = { width: this.display.width, height: this.display.height };
+                this.particleSystem = new ParticleSystem(this.config, this.globe, mask, view, this.products);
+                
+                // Reconnect events
+                this.particleSystem.on('particlesEvolved', (buckets, colorStyles, globe) => {
+                    this.renderSystem.drawParticles(buckets, colorStyles, globe);
+                });
+            }
+            
+            this.render();
+            this.reinitializeAfterGlobeChange('config change');
+            
+            // Update menu state to reflect changes
+            this.menuSystem.updateMenuState();
+        }).catch(error => {
+            debugLog('APP', 'Failed to reload products after config change', error);
+            this.reportError(error);
+        });
+
     }
 
     private handleZoomStart(event: d3.D3ZoomEvent<HTMLElement, unknown>): void {
@@ -412,7 +435,7 @@ class EarthModernApp {
             
             // Generate overlay data cleanly and separately
             const mask = this.createMask();
-            const overlayResult = this.overlaySystem?.generateOverlay(
+            const overlayResult = this.overlaySystem.generateOverlay(
                 overlayProduct,
                 this.globe,
                 mask,
@@ -427,7 +450,7 @@ class EarthModernApp {
                 field: field,
                 overlayGrid: this.overlayGrid,
                 overlayType: this.config.overlayType,
-                overlayData: overlayResult?.imageData
+                overlayData: overlayResult.imageData
             };
 
             // Render everything through the render system
@@ -612,56 +635,6 @@ class EarthModernApp {
             // Don't fail completely if weather data fails
             this.products = [];
         }
-    }
-
-    /**
-     * Setup window resize event handling
-     */
-    private setupWindowResize(): void {
-        const handleResize = () => {
-            debugLog('APP', 'Window resized, updating display');
-            
-            // Update display dimensions
-            const newDisplay = this.createDisplayOptions();
-            this.display = newDisplay;
-            
-            // Update render system
-            this.renderSystem.updateDisplay(newDisplay);
-            
-            // Update overlay system if it exists
-            if (this.overlaySystem) {
-                this.overlaySystem.updateDisplay(newDisplay);
-            }
-            
-            // Update UI elements
-            d3.selectAll(".fill-screen")
-                .attr("width", newDisplay.width)
-                .attr("height", newDisplay.height);
-            
-            // Recreate globe with new dimensions if it exists
-            if (this.globe) {
-                const view: ViewportSize = { width: newDisplay.width, height: newDisplay.height };
-                // Update globe's view
-                if (this.globe.projection) {
-                    this.display.projection = this.globe.projection;
-                }
-                
-                // Reinitialize systems with new dimensions
-                this.reinitializeAfterGlobeChange('window resize');
-            }
-        };
-        
-        // Debounce resize events to avoid excessive updates
-        let resizeTimeout: number | null = null;
-        const debouncedResize = () => {
-            if (resizeTimeout) {
-                clearTimeout(resizeTimeout);
-            }
-            resizeTimeout = window.setTimeout(handleResize, 150);
-        };
-        
-        window.addEventListener('resize', debouncedResize);
-        debugLog('APP', 'Window resize handler setup complete');
     }
 }
 

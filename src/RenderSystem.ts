@@ -49,13 +49,6 @@ export class RenderSystem {
     }
 
     /**
-     * Get the overlay canvas for external systems (like WebGL overlay)
-     */
-    public getOverlayCanvas(): HTMLCanvasElement | null {
-        return this.overlayCanvas;
-    }
-
-    /**
      * Initialize all canvas elements and contexts
      */
     public setupCanvases(): void {

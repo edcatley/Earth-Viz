@@ -11,11 +11,10 @@ export default defineConfig({
   },
   resolve: {
     alias: {
-      // Use our new WebGL-accelerated TypeScript files
       '/libs/earth/1.0.0/micro.umd.js': resolve(__dirname, 'src/utils/Utils.ts'),
       '/libs/earth/1.0.0/globes.umd.js': resolve(__dirname, 'src/Globes.ts'),
       '/libs/earth/1.0.0/products.umd.js': resolve(__dirname, 'src/Products.ts'),
-      '/libs/earth/1.0.0/earth.umd.js': resolve(__dirname, 'src/Earth.ts')
+      '/libs/earth/1.0.0/earth.umd.js': resolve(__dirname, 'src/earth-modern.ts')
     }
   }
 }); 

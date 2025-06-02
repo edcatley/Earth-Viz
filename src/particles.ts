@@ -120,8 +120,15 @@ export class ParticleSystem {
                                 if (globe.projection) {
                                     const distortedWind = this.distort(globe.projection, λ, φ, x, y, velocityScale, rawWind);
                                     if (distortedWind) {
-                                        wind = distortedWind;
-                                        validPositions.push([x, y]);
+                                        // DISGUSTING FUDGE: Check if the distorted wind vector is reasonable
+                                        const movementMagnitude = Math.sqrt(distortedWind[0] * distortedWind[0] + distortedWind[1] * distortedWind[1]);
+                                        const MAX_REASONABLE_MOVEMENT = 10; // pixels per frame
+                                        
+                                        if (movementMagnitude <= MAX_REASONABLE_MOVEMENT) {
+                                            wind = distortedWind;
+                                            validPositions.push([x, y]);
+                                        }
+                                        // If movement is too large, don't add to validPositions - treat as invalid
                                     }
                                 }
                             }
