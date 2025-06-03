@@ -13,21 +13,17 @@ declare module 'd3' {
 }
 
 export class MenuSystem {
-    private config: any;
-    private onConfigChange?: () => void;
+    private onConfigChange?: (changes: any) => void;
     private onRender?: () => void;
+    private currentWeatherData: any = null; // Store current weather data for metadata display
 
-    constructor(config: any) {
-        this.config = config;
+    constructor() {
+        console.log('[MENU] MenuSystem initialized');
     }
 
-    setCallbacks(onConfigChange: () => void, onRender: () => void): void {
+    setCallbacks(onConfigChange: (changes: any) => void, onRender: () => void): void {
         this.onConfigChange = onConfigChange;
         this.onRender = onRender;
-    }
-
-    getConfig(): any {
-        return this.config;
     }
 
     setupMenuHandlers(): void {
@@ -74,9 +70,7 @@ export class MenuSystem {
         // Now button - go to current conditions
         d3.select("#nav-now").on("click", () => {
             console.log('[MENU] Navigate to current conditions');
-            this.config.date = "current";
-            this.config.hour = "0000";
-            this.triggerConfigChange();
+            this.triggerConfigChange({ date: "current", hour: "0000" });
         });
 
         // Backward navigation
@@ -106,17 +100,13 @@ export class MenuSystem {
         // Air mode
         d3.select("#wind-mode-enable").on("click", () => {
             console.log('[MENU] Switch to Air mode');
-            this.config.param = "wind";
-            this.updateModeDisplay("wind");
-            this.triggerConfigChange();
+            this.triggerConfigChange({ param: "wind" });
         });
 
         // Ocean mode
         d3.select("#ocean-mode-enable").on("click", () => {
             console.log('[MENU] Switch to Ocean mode');
-            this.config.param = "currents";
-            this.updateModeDisplay("ocean");
-            this.triggerConfigChange();
+            this.triggerConfigChange({ param: "currents" });
         });
     }
 
@@ -124,10 +114,7 @@ export class MenuSystem {
         // Surface level
         d3.select("#surface-level").on("click", () => {
             console.log('[MENU] Set surface level');
-            this.config.surface = "surface";
-            this.config.level = "level";
-            this.updateSurfaceDisplay("surface");
-            this.triggerConfigChange();
+            this.triggerConfigChange({ surface: "surface", level: "level" });
         });
 
         // Pressure levels
@@ -135,10 +122,7 @@ export class MenuSystem {
         pressureLevels.forEach(level => {
             d3.select(`#isobaric-${level}hPa`).on("click", () => {
                 console.log(`[MENU] Set pressure level: ${level}hPa`);
-                this.config.surface = "isobaric";
-                this.config.level = `${level}hPa`;
-                this.updateSurfaceDisplay(level);
-                this.triggerConfigChange();
+                this.triggerConfigChange({ surface: "isobaric", level: `${level}hPa` });
             });
         });
     }
@@ -147,16 +131,12 @@ export class MenuSystem {
         // No overlay
         d3.select("#overlay-off").on("click", () => {
             console.log('[MENU] Set overlay: None');
-            this.config.overlayType = "off";
-            this.updateOverlayDisplay("off");
-            this.triggerConfigChange();
+            this.triggerConfigChange({ overlayType: "off" });
         });
 
         d3.select("#overlay-ocean-off").on("click", () => {
             console.log('[MENU] Set ocean overlay: None');
-            this.config.overlayType = "off";
-            this.updateOverlayDisplay("off");
-            this.triggerConfigChange();
+            this.triggerConfigChange({ overlayType: "off" });
         });
 
         // Wind overlays
@@ -168,25 +148,20 @@ export class MenuSystem {
         windOverlays.forEach(overlay => {
             d3.select(`#overlay-${overlay}`).on("click", () => {
                 console.log(`[MENU] Set overlay: ${overlay}`);
-                this.config.overlayType = overlay;
-                this.updateOverlayDisplay(overlay);
-                this.triggerConfigChange();
+                this.triggerConfigChange({ overlayType: overlay });
             });
         });
 
         // Ocean overlays
         d3.select("#overlay-currents").on("click", () => {
             console.log('[MENU] Set overlay: currents');
-            this.config.overlayType = "currents";
-            this.updateOverlayDisplay("currents");
-            this.triggerConfigChange();
+            this.triggerConfigChange({ overlayType: "currents" });
         });
 
         // Ocean animation
         d3.select("#animate-currents").on("click", () => {
             console.log('[MENU] Toggle currents animation');
-            this.config.param = "currents";
-            this.triggerConfigChange();
+            this.triggerConfigChange({ param: "currents" });
         });
     }
 
@@ -200,9 +175,7 @@ export class MenuSystem {
         allProjections.forEach(proj => {
             d3.select(`#${proj}`).on("click", () => {
                 console.log(`[MENU] Set projection: ${proj}`);
-                this.config.projection = proj;
-                this.updateProjectionDisplay(proj);
-                this.triggerConfigChange();
+                this.triggerConfigChange({ projection: proj });
             });
         });
     }
@@ -210,9 +183,9 @@ export class MenuSystem {
     private setupGridControls(): void {
         d3.select("#option-show-grid").on("click", () => {
             console.log('[MENU] Toggle grid display');
-            this.config.showGridPoints = !this.config.showGridPoints;
-            this.updateGridDisplay();
-            this.triggerRender();
+            // We can't know current state without config, so just trigger the change
+            // The parent will handle the actual toggle logic
+            this.triggerConfigChange({ toggleGrid: true });
         });
     }
 
@@ -227,20 +200,15 @@ export class MenuSystem {
         // Wind units toggle
         d3.select("#location-wind-units").on("click", () => {
             console.log('[MENU] Toggle wind units');
-            // Cycle through wind units: m/s, km/h, kn, mph
-            const currentUnits = this.config.windUnits || "m/s";
-            const units = ["m/s", "km/h", "kn", "mph"];
-            const currentIndex = units.indexOf(currentUnits);
-            const nextIndex = (currentIndex + 1) % units.length;
-            this.config.windUnits = units[nextIndex];
-            this.updateWindUnitsDisplay();
+            // Trigger a units toggle - parent will handle the cycling logic
+            this.triggerConfigChange({ toggleWindUnits: true });
         });
 
         // Value units toggle (for overlays)
         d3.select("#location-value-units").on("click", () => {
             console.log('[MENU] Toggle value units');
             // This would cycle through units for the current overlay
-            this.updateValueUnitsDisplay();
+            this.triggerConfigChange({ toggleValueUnits: true });
         });
     }
 
@@ -249,7 +217,7 @@ export class MenuSystem {
         // For now, just log the action
         console.log(`[MENU] Navigate time by ${hours} hours`);
         // TODO: Implement actual time navigation
-        this.triggerConfigChange();
+        this.triggerConfigChange({ navigateHours: hours });
     }
 
     private updateModeDisplay(mode: string): void {
@@ -289,9 +257,9 @@ export class MenuSystem {
         d3.select(`#${projection}`).classed("highlighted", true);
     }
 
-    private updateGridDisplay(): void {
+    private updateGridDisplay(showGrid: boolean): void {
         // Update grid button state
-        d3.select("#option-show-grid").classed("highlighted", this.config.showGridPoints);
+        d3.select("#option-show-grid").classed("highlighted", showGrid);
     }
 
     private updateDateDisplay(): void {
@@ -299,11 +267,18 @@ export class MenuSystem {
         const dateElement = d3.select("#data-date");
         const isLocal = dateElement.classed("local");
         d3.select("#toggle-zone").text(isLocal ? "UTC" : "Local");
-        // TODO: Update actual date text based on current data
+        
+        // Update actual date text based on current data
+        if (this.currentWeatherData && this.currentWeatherData.date) {
+            const date = this.currentWeatherData.date;
+            const dateStr = isLocal ? date.toLocaleString() : date.toISOString().replace('T', ' ').replace('.000Z', ' UTC');
+            dateElement.text(dateStr);
+        } else {
+            dateElement.text("No data");
+        }
     }
 
-    private updateWindUnitsDisplay(): void {
-        const units = this.config.windUnits || "m/s";
+    private updateWindUnitsDisplay(units: string): void {
         d3.select("#location-wind-units").text(units);
     }
 
@@ -312,9 +287,9 @@ export class MenuSystem {
         // TODO: Implement based on overlay type
     }
 
-    private triggerConfigChange(): void {
+    private triggerConfigChange(changes: any): void {
         if (this.onConfigChange) {
-            this.onConfigChange();
+            this.onConfigChange(changes);
         }
     }
 
@@ -324,39 +299,87 @@ export class MenuSystem {
         }
     }
 
+    // New method to update weather data metadata
+    updateWeatherData(weatherProducts: any[]): void {
+        console.log('[MENU] Updating weather data metadata', weatherProducts);
+        
+        // Find the primary wind product for metadata
+        const windProduct = weatherProducts.find((p: any) => p && p.field === "vector");
+        this.currentWeatherData = windProduct;
+        
+        // Update the display
+        this.updateDataDisplay();
+    }
+
+    // New method to update all data-related displays
+    private updateDataDisplay(): void {
+        if (!this.currentWeatherData) {
+            // No data available
+            d3.select("#data-date").text("No data");
+            d3.select("#data-layer").text("No data");
+            d3.select("#data-center").text("No data");
+            return;
+        }
+
+        // Update date
+        this.updateDateDisplay();
+
+        // Update data layer (surface/level info) with resolution
+        const description = this.currentWeatherData.description;
+        let layerText = "Wind";
+        
+        if (typeof description === 'function') {
+            const desc = description('en');
+            layerText = desc.name + (desc.qualifier || '');
+        } else if (typeof description === 'string') {
+            layerText = description;
+        }
+        
+        // Add resolution info to the layer text
+        if (this.currentWeatherData.source && this.currentWeatherData.source.includes('GFS')) {
+            layerText += " (1.0°)";
+        }
+        
+        d3.select("#data-layer").text(layerText);
+
+        // Update source
+        const source = this.currentWeatherData.source || "Unknown source";
+        d3.select("#data-center").text(source);
+    }
+
     // Public method to update menu state based on current config
-    updateMenuState(): void {
+    updateMenuState(config: any): void {
         console.log('[MENU] Updating menu state');
         
         // Update mode display
-        const mode = this.config.param === "currents" ? "ocean" : "wind";
+        const mode = config.param === "currents" ? "ocean" : "wind";
         this.updateModeDisplay(mode);
         
         // Update surface display
-        if (this.config.surface === "surface") {
+        if (config.surface === "surface") {
             this.updateSurfaceDisplay("surface");
         } else {
-            const level = this.config.level?.replace("hPa", "");
+            const level = config.level?.replace("hPa", "");
             if (level) {
                 this.updateSurfaceDisplay(level);
             }
         }
         
         // Update overlay display
-        this.updateOverlayDisplay(this.config.overlayType || "off");
+        this.updateOverlayDisplay(config.overlayType || "off");
         
         // Update projection display
-        const currentProjection = this.config.projection || "orthographic";
+        const currentProjection = config.projection || "orthographic";
         this.updateProjectionDisplay(currentProjection);
         
         // Update grid display
-        this.updateGridDisplay();
+        this.updateGridDisplay(config.showGridPoints || false);
         
-        // Update date display
+        // Update date display (in case timezone toggle changed)
         this.updateDateDisplay();
         
         // Update units displays
-        this.updateWindUnitsDisplay();
+        this.updateWindUnitsDisplay(config.windUnits || "m/s");
         this.updateValueUnitsDisplay();
     }
 } 

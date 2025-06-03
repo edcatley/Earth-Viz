@@ -209,10 +209,25 @@ export class Utils {
     }
 
     /**
-     * Interpolates a sinebow color where 0 <= i <= j, then wraps around and interpolates backwards.
+     * Interpolates a sinebow color where 0 <= i <= j, then fades to white where j < i <= 1.
+     * This matches the original earth.js implementation exactly.
      */
     static extendedSinebowColor(i: number, a: number): RGBA {
-        return i < 0.5 ? Utils.sinebowColor(i * 2, a) : Utils.sinebowColor((1 - i) * 2, a);
+        const BOUNDARY = 0.45;
+        
+        if (i <= BOUNDARY) {
+            // Use sinebow color from 0 to BOUNDARY, scaled to use full sinebow range
+            return Utils.sinebowColor(i / BOUNDARY, a);
+        } else {
+            // Fade from the final sinebow color to pure white
+            const finalSinebowColor = Utils.sinebowColor(1.0, 0); // Get final sinebow color (alpha=0 for RGB only)
+            const whiteColor: RGB = [255, 255, 255];
+            const fadeProgress = (i - BOUNDARY) / (1 - BOUNDARY);
+            
+            // Interpolate between final sinebow color and white
+            const interpolator = Utils.colorInterpolator(finalSinebowColor.slice(0, 3) as RGB, whiteColor);
+            return interpolator(fadeProgress, a);
+        }
     }
 
     static asColorStyle(r: number, g: number, b: number, a: number): string {
@@ -255,11 +270,14 @@ export class Utils {
         colors.push(segments[segments.length - 1][1]);
 
         return function(point: number, alpha: number): RGBA {
-            if (point <= 0) return [...colors[0], alpha] as RGBA;
-            if (point >= 1) return [...colors[colors.length - 1], alpha] as RGBA;
+            // Handle values outside the range
+            if (point <= points[0]) return [...colors[0], alpha] as RGBA;
+            if (point >= points[points.length - 1]) return [...colors[colors.length - 1], alpha] as RGBA;
+            
+            // Find the correct segment
             let i;
             for (i = 0; i < points.length - 1; i++) {
-                if (point <= points[i]) {
+                if (point <= points[i + 1]) {
                     break;
                 }
             }

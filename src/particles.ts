@@ -122,7 +122,7 @@ export class ParticleSystem {
                                     if (distortedWind) {
                                         // DISGUSTING FUDGE: Check if the distorted wind vector is reasonable
                                         const movementMagnitude = Math.sqrt(distortedWind[0] * distortedWind[0] + distortedWind[1] * distortedWind[1]);
-                                        const MAX_REASONABLE_MOVEMENT = 10; // pixels per frame
+                                        const MAX_REASONABLE_MOVEMENT = 40; // pixels per frame
                                         
                                         if (movementMagnitude <= MAX_REASONABLE_MOVEMENT) {
                                             wind = distortedWind;

@@ -1,487 +1,438 @@
 /**
- * earth-modern - modernized earth visualization using existing modules
+ * earth.ts - Clean callback-driven earth visualization
  * 
- * This version properly uses globes.ts, micro.ts, products.ts and the
- * well-designed interfaces from types.ts
+ * This is how Earth.ts SHOULD be structured:
+ * - Simple callback interfaces between systems
+ * - Clear data flow with no circular dependencies
+ * - Minimal coupling - each system only knows what it needs
+ * - Earth app is just the wiring, not the orchestrator
  */
 
 import * as d3 from 'd3';
-import { Globes, Globe, ViewportSize, DisplayOptions, Point, GeoPoint, Bounds } from './Globes';
+import { Globes, Globe, ViewportSize } from './Globes';
 import { Products } from './Products';
 import { Utils } from './utils/Utils';
 import { MenuSystem } from './MenuSystem';
 import { ParticleSystem } from './Particles';
 import { InputHandler } from './InputHandler';
-import { RenderSystem, RenderData } from './RenderSystem';
+import { RenderSystem } from './RenderSystem';
 import { OverlaySystem } from './OverlaySystem';
 
-// Debug logging
-const DEBUG = true;
-function debugLog(section: string, message: string, data?: any): void {
-    if (DEBUG) {
-        console.log(`[EARTH-MODERN] ${section}: ${message}`, data || '');
-    }
+// ===== CLEAN INTERFACES =====
+
+interface Configuration {
+    projection: string;
+    orientation: string;
+    date: string;
+    hour: string;
+    particleType: string;
+    surface: string;
+    level: string;
+    overlayType: string;
+    showGridPoints: boolean;
+    windUnits: string;
 }
 
-// Global topojson declaration
-declare global {
-    interface Window {
-        topojson: {
-            feature: (topology: any, object: any) => any;
-        };
-    }
+interface WeatherData {
+    wind: any;
+    overlay: any;
 }
 
-// ===== CONSTANTS =====
-const MAX_PARTICLE_AGE = 100;
-const PARTICLE_MULTIPLIER = 7;
-const PARTICLE_REDUCTION = 0.75;
-const FRAME_RATE = 40;
-const PARTICLE_LINE_WIDTH = 1.0;
-const INTENSITY_SCALE_STEP = 10;
+interface SystemCallbacks {
+    onConfigChange: (config: Configuration) => void;
+    onDataReady: (data: WeatherData) => void;
+    onProjectionChange: (projection: d3.GeoProjection, bounds: any) => void;
+    onParticlesReady: (particles: any) => void;
+    onOverlayReady: (overlay: ImageData | null) => void;
+    onRenderReady: () => void;
+}
+
+// ===== CLEAN EARTH APP =====
 
 class EarthModernApp {
-    private config: any; // Use the actual configuration object from Utils.buildConfiguration
-    private display: DisplayOptions;
+    // Core state (minimal)
+    private config: Configuration;
+    private view: ViewportSize;
+    
+    // Systems (each with single responsibility)
+    private products: Products;
     private globe: Globe | null = null;
-    private mesh: any = null;
-    private products: any[] = [];
     private menuSystem: MenuSystem;
     private particleSystem: ParticleSystem | null = null;
     private overlaySystem: OverlaySystem;
     private inputHandler: InputHandler;
     private renderSystem: RenderSystem;
     
+    // Mesh data (loaded once)
+    private mesh: any = null;
+    
+    // Weather data - cleanly separated
+    private overlayProduct: any = null;
+    private particleProduct: any = null;
+    private overlayData: ImageData | null = null;
+    
     // Animation
     private animationId: number | null = null;
-    
-    // Overlay system
-    private overlayGrid: any = null;
-    private cachedOverlayResult: { imageData: ImageData | null; overlayType: string } | null = null;
 
     constructor() {
-        debugLog('APP', 'Initializing EarthModernApp');
+        console.log('[EARTH-MODERN] Initializing clean architecture');
         
-        // Use proper configuration system from Utils
-        this.config = Utils.buildConfiguration(Globes.keys(), Products.overlayTypes);
+        // Initialize core state
+        this.view = Utils.view();
+        this.config = this.createInitialConfig();
         
-        // Add required parameters for products system
-        this.config.param = "wind";
-        this.config.surface = "surface";
-        this.config.level = "level";
-        this.config.date = "current";
-        this.config.hour = "0000";
-        this.config.overlayType = "off"; // Start with no overlay
-        
-        // Initialize display options properly
-        const view = Utils.view();
-        this.display = {
-            width: view.width,
-            height: view.height,
-            projection: null as any, // Will be set when globe is created
-            orientation: [0, 0, 0]
-        };
-        
-        // Initialize MenuSystem
-        this.menuSystem = new MenuSystem(this.config);
-        
-        // Initialize InputHandler
-        this.inputHandler = new InputHandler();
-        this.setupInputEventHandlers();
-        
-        // Initialize RenderSystem
-        this.renderSystem = new RenderSystem(this.display);
-        
-        // Initialize OverlaySystem - clean separation of concerns!
+        // Initialize systems (no coupling yet)
+        this.products = new Products();
+        this.menuSystem = new MenuSystem(); // No config passed - MenuSystem is stateless
         this.overlaySystem = new OverlaySystem();
-        
-        debugLog('APP', 'App initialized', { config: this.config, display: this.display });
-    }
-
-    async start(): Promise<void> {
-        debugLog('APP', 'Starting application');
-        
-        try {
-            this.setupUI();
-            this.setupMenuSystem();
-            
-            // Load products FIRST at the app level
-            await this.loadProducts();
-            
-            // Load initial data
-            await this.loadMesh();
-            this.createGlobe();
-            
-            // Create and initialize particle system (pass products to it)
-            if (this.globe) {
-                const mask = this.createMask();
-                const view: ViewportSize = { width: this.display.width, height: this.display.height };
-                this.particleSystem = new ParticleSystem(this.config, this.globe, mask, view, this.products);
-                
-                // Connect ParticleSystem events to RenderSystem
-                this.particleSystem.on('particlesEvolved', (buckets, colorStyles, globe) => {
-                    this.renderSystem.drawParticles(buckets, colorStyles, globe);
-                });
-            }
-            
-            // Setup rendering
-            this.renderSystem.setupCanvases();
-            this.render();
-            
-            // Start animation if we have a particle system
-            if (this.particleSystem && this.config.animate !== false) {
-                this.startAnimation();
-            }
-            
-            this.reportStatus("Ready");
-            debugLog('APP', 'Application started successfully');
-            
-        } catch (error) {
-            debugLog('APP', 'Failed to start application', error);
-            this.reportError(error as Error);
-            throw error;
-        }
-    }
-
-    private reportStatus(message: string): void {
-        debugLog('APP', `Status: ${message}`);
-        d3.select("#status").text(message);
-    }
-
-    private reportError(error: Error): void {
-        debugLog('APP', `Error: ${error.message}`, error);
-        d3.select("#status").classed("bad", true).text(error.message);
-    }
-
-    private reportProgress(amount: number): void {
-        debugLog('APP', `Progress: ${(amount * 100).toFixed(1)}%`);
-        const total = 22; // Length of progress bar
-        if (0 <= amount && amount < 1) {
-            const completed = "▪".repeat(Math.ceil(amount * total));
-            const remaining = "▫".repeat(total - Math.ceil(amount * total));
-            d3.select("#progress").classed("invisible", false).text(completed + remaining);
-        } else {
-            d3.select("#progress").classed("invisible", true).text("");
-        }
-    }
-
-    private setupUI(): void {
-        debugLog('APP', 'Setting up UI');
-        
-        // Set viewport dimensions
-        d3.selectAll(".fill-screen")
-            .attr("width", this.display.width)
-            .attr("height", this.display.height);
-
-        // Handle device-specific styling
-        if (Utils.isFF()) {
-            d3.select("#display").classed("firefox", true);
-        }
-        
-        if ("ontouchstart" in document.documentElement) {
-            d3.select(document).on("touchstart", function() {});
-        } else {
-            d3.select(document.documentElement).classed("no-touch", true);
-        }
-
-        // Set sponsor link target for iframes
-        if (Utils.isEmbeddedInIFrame()) {
-            d3.select("#sponsor-link").attr("target", "_new");
-        }
-    }
-
-    private setupInputEventHandlers(): void {
-        debugLog('APP', 'Setting up input event handlers');
-        
-        // Set up event listeners for InputHandler
-        this.inputHandler.on('zoomStart', (event) => this.handleZoomStart(event));
-        this.inputHandler.on('zoom', (event) => this.handleZoom(event));
-        this.inputHandler.on('zoomEnd', (event) => this.handleZoomEnd(event));
-        this.inputHandler.on('click', (point, coord) => this.handleClickFromInput(point, coord));
-        this.inputHandler.on('locationFound', (coord) => this.handleLocationFoundFromInput(coord));
-        this.inputHandler.on('locationError', (error) => this.handleLocationError(error));
-    }
-
-    private setupMenuSystem(): void {
-        debugLog('APP', 'Setting up menu system');
-        
-        // Set up callbacks for menu interactions
-        this.menuSystem.setCallbacks(
-            () => this.handleConfigChange(),
-            () => this.render()
-        );
-        
-        // Set up all menu event handlers
-        this.menuSystem.setupMenuHandlers();
-        
-        // Update menu state to match current config
-        this.menuSystem.updateMenuState();
-        
-        debugLog('APP', 'Menu system setup complete');
-    }
-
-    private handleConfigChange(): void {
-        debugLog('APP', 'Configuration changed', this.config);
-        
-        
-        this.createGlobe();
-        
- 
-        // Stop animation, reload products, then restart everything
-        this.stopAnimation();
-        this.loadProducts().then(() => {
-            // Reinitialize systems with new products
-            if (this.globe && this.particleSystem) {
-                const mask = this.createMask();
-                const view: ViewportSize = { width: this.display.width, height: this.display.height };
-                this.particleSystem = new ParticleSystem(this.config, this.globe, mask, view, this.products);
-                
-                // Reconnect events
-                this.particleSystem.on('particlesEvolved', (buckets, colorStyles, globe) => {
-                    this.renderSystem.drawParticles(buckets, colorStyles, globe);
-                });
-            }
-            
-            this.render();
-            this.reinitializeAfterGlobeChange('config change');
-            
-            // Update menu state to reflect changes
-            this.menuSystem.updateMenuState();
-        }).catch(error => {
-            debugLog('APP', 'Failed to reload products after config change', error);
-            this.reportError(error);
+        this.inputHandler = new InputHandler();
+        this.renderSystem = new RenderSystem({ 
+            width: this.view.width, 
+            height: this.view.height,
+            projection: null as any,
+            orientation: [0, 0, 0]
         });
-
-    }
-
-    private handleZoomStart(event: d3.D3ZoomEvent<HTMLElement, unknown>): void {
-        debugLog('INPUT', 'Zoom start - stopping animation and clearing canvas');
         
-        // Stop animation and clear canvas immediately when manipulation starts
-        this.stopAnimation();
-        this.clearCanvas();
-    }
-
-    private handleZoom(event: d3.D3ZoomEvent<HTMLElement, unknown>): void {
-        debugLog('INPUT', 'Zoom in progress - updating display projection and rendering');
-        
-        // InputHandler has already manipulated the globe, we just need to update our display state
-        if (this.globe?.projection) {
-            this.display.projection = this.globe.projection;
-        }
-
-        // Re-render immediately during manipulation
-        this.render();
-    }
-
-    private handleZoomEnd(event: d3.D3ZoomEvent<HTMLElement, unknown>): void {
-        debugLog('INPUT', 'Zoom end - updating configuration and restarting animation');
-        
-        // InputHandler has already finished the manipulation, we just need to update app state
-        this.updateConfigurationFromGlobe();
-        this.reinitializeAfterGlobeChange('zoom end');
-    }
-
-    private handleClickFromInput(point: Point, coord: GeoPoint | null): void {
-        if (coord) {
-            debugLog('INPUT', 'Clicked coordinates', coord);
-            this.drawLocationMark(point, coord);
-        }
-    }
-
-    private handleLocationFoundFromInput(coord: GeoPoint): void {
-        debugLog('INPUT', 'Location found', coord);
-        
-        if (!this.globe) return;
-
-        const rotate = this.globe.locate(coord);
-        
-        if (rotate && this.globe.projection) {
-            this.globe.projection.rotate(rotate);
-            this.display.projection = this.globe.projection;
-            this.display.orientation = rotate;
-            this.render();
-            this.updateConfigurationFromGlobe();
-            
-            // Reinitialize particle system for new orientation
-            this.reinitializeAfterGlobeChange("globe rotation");
-        }
-        
-        this.reportStatus("Ready");
-    }
-
-    private handleLocationError(error: GeolocationPositionError): void {
-        debugLog('INPUT', 'Geolocation error', error);
-        this.reportError(new Error("Unable to find your location"));
+        // Wire up the callback chain
+        this.wireCallbacks();
     }
 
     /**
-     * Common reinitialization logic used after globe changes (zoom, config changes, etc.)
+     * Wire up all the callbacks - this is the ONLY place systems talk to each other
      */
-    private reinitializeAfterGlobeChange(reason: string): void {
-        debugLog('APP', `Reinitializing after ${reason}`);
+    private wireCallbacks(): void {
+        console.log('[EARTH-MODERN] Wiring callback chain');
         
-        this.stopAnimation();
-        this.clearCanvas();
+        // 1. Menu changes → Configuration updates (no direct rendering)
+        this.menuSystem.setCallbacks(
+            (changes) => this.handleConfigChange(changes),
+            () => {} // Menu changes don't directly trigger renders
+        );
         
-        if (this.particleSystem && this.globe) {
-            const mask = this.createMask();
-            const view: ViewportSize = { width: this.display.width, height: this.display.height };
-            
-            try {
-                // Find wind product and call initialize directly
-                const windProduct = this.products.find(p => p && p.field === "vector");
-                if (windProduct) {
-                    this.particleSystem.initialize(windProduct, this.globe, mask, view);
-                }
-                
-                if (this.config.animate !== false) {
-                    this.startAnimation();
-                }
-            } catch (error) {
-                debugLog('APP', `Failed to reinitialize after ${reason}`, error);
+        // 2. Input changes → Globe manipulation
+        this.inputHandler.on('zoomStart', () => this.stopAnimation());
+        this.inputHandler.on('zoom', () => {
+            // Globe is changing - emit globe changed event
+            this.emit('globeChanged');
+        });
+        this.inputHandler.on('zoomEnd', () => this.handleGlobeChange());
+        this.inputHandler.on('click', (point, coord) => {
+            if (coord) {
+                this.renderSystem.drawLocationMark(point, coord);
+                // Location mark changed - emit location changed event
+                this.emit('locationChanged');
             }
+        });
+        
+        // 3. OverlaySystem → Pure observer of state changes
+        this.overlaySystem.observeState(this);
+        this.overlaySystem.on('overlayChanged', (result: any) => {
+            this.overlayData = result.imageData;
+            this.overlayProduct = result.overlayProduct;
+            this.emit('overlayChanged');
+        });
+        
+        // 4. ParticleSystem → Reactive particle updates (handled in initializeSystems)
+        
+        // 5. Subscribe RenderSystem to actual visual state changes
+        this.setupRenderSubscriptions();
+    }
+
+    /**
+     * Setup RenderSystem to listen to actual visual state changes
+     */
+    private setupRenderSubscriptions(): void {
+        // Any visual state change just triggers a render of current state
+        this.on('globeChanged', () => this.performRender());
+        this.on('overlayChanged', () => this.performRender());
+        this.on('meshChanged', () => this.performRender());
+        this.on('systemsReady', () => this.performRender());
+    }
+
+    /**
+     * Render current state - no parameters needed
+     */
+    private performRender(): void {
+        if (!this.globe || !this.mesh) return;
+        
+        this.renderSystem.renderFrame({
+            globe: this.globe,
+            mesh: this.mesh,
+            field: this.particleSystem?.getField(),
+            overlayGrid: this.overlayProduct, // Use stored overlay product
+            overlayType: this.config.overlayType,
+            overlayData: this.overlayData
+        });
+    }
+
+    // Simple event emitter for visual state changes
+    private eventHandlers: { [key: string]: Function[] } = {};
+
+    private on(event: string, handler: Function): void {
+        if (!this.eventHandlers[event]) {
+            this.eventHandlers[event] = [];
+        }
+        this.eventHandlers[event].push(handler);
+    }
+
+    private emit(event: string, ...args: any[]): void {
+        if (this.eventHandlers[event]) {
+            this.eventHandlers[event].forEach(handler => handler(...args));
         }
     }
 
-    private async loadMesh(): Promise<void> {
-        debugLog('APP', 'Loading mesh data');
-        this.reportStatus("Loading map data...");
+    /**
+     * Start the application - just the bootstrap sequence
+     */
+    async start(): Promise<void> {
+        console.log('[EARTH-MODERN] Starting application');
         
         try {
-            const topology = Utils.isMobile() ? 
-                "/data/earth-topo-mobile.json?v2" : 
-                "/data/earth-topo.json?v2";
+            // Setup UI
+            this.setupUI();
             
-            const topo = await Utils.loadJson(topology);
-            const o = topo.objects;
+            // Load static data (mesh)
+            await this.loadMesh();
             
-            this.mesh = {
-                coastLo: window.topojson.feature(topo, Utils.isMobile() ? o.coastline_tiny : o.coastline_110m),
-                coastHi: window.topojson.feature(topo, Utils.isMobile() ? o.coastline_110m : o.coastline_50m),
-                lakesLo: window.topojson.feature(topo, Utils.isMobile() ? o.lakes_tiny : o.lakes_110m),
-                lakesHi: window.topojson.feature(topo, Utils.isMobile() ? o.lakes_110m : o.lakes_50m)
-            };
+            // Create initial globe
+            this.createGlobe();
             
-            this.reportProgress(0.33);
-            debugLog('APP', 'Mesh loaded successfully');
+            // Load weather data
+            await this.loadWeatherData();
             
-        } catch (error) {
-            debugLog('APP', 'Failed to load mesh', error);
-            throw new Error("Failed to load map data");
-        }
-    }
-
-    private createGlobe(): void {
-        debugLog('APP', 'Creating globe');
-        this.reportStatus("Building globe...");
-        
-        try {
-            // Use the proper globes module
-            const projectionName = this.config.projection || 'orthographic';
-            const globeBuilder = Globes.get(projectionName);
-            if (!globeBuilder) {
-                throw new Error(`Unknown projection: ${projectionName}`);
-            }
+            // Initialize systems that need data
+            this.initializeSystems();
             
-            const view: ViewportSize = { width: this.display.width, height: this.display.height };
-            this.globe = globeBuilder();
+            // Setup rendering
+            this.renderSystem.setupCanvases();
             
-            // Update display with globe's projection
-            if (this.globe.projection) {
-                this.display.projection = this.globe.projection;
-            }
+            // Everything ready - emit event
+            this.emit('systemsReady');
             
-            // Set orientation if specified
-            const orientation = this.config.orientation;
-            if (orientation && this.globe) {
-                this.globe.orientation(orientation, view);
-                const orientationArray = orientation.split(',').map(Number);
-                this.display.orientation = [orientationArray[0] || 0, orientationArray[1] || 0, orientationArray[2] || 0];
-            }
+            // Start animation
+                this.startAnimation();
             
-            this.reportProgress(0.67);
-            debugLog('APP', 'Globe created successfully');
-            
-            // Update InputHandler with new globe reference
-            this.inputHandler.setGlobe(this.globe);
+            console.log('[EARTH-MODERN] Application started successfully');
             
         } catch (error) {
-            debugLog('APP', 'Failed to create globe', error);
+            console.error('[EARTH-MODERN] Failed to start:', error);
             throw error;
         }
     }
 
-    private render(): void {
-        debugLog('RENDER', 'Rendering');
-        
-        if (!this.globe || !this.mesh) {
-            debugLog('RENDER', 'Cannot render - missing globe or mesh');
-            return;
-        }
+    // ===== CALLBACK HANDLERS (Clean and focused) =====
 
+    /**
+     * Handle configuration changes - trigger the reactive chain
+     */
+    private handleConfigChange(changes: any): void {
+        console.log('[EARTH-MODERN] Configuration changed', changes);
+        
+        // Handle special toggle actions
+        if (changes.toggleGrid) {
+            this.config.showGridPoints = !this.config.showGridPoints;
+            delete changes.toggleGrid;
+        }
+        
+        if (changes.toggleWindUnits) {
+            const units = ["m/s", "km/h", "kn", "mph"];
+            const currentIndex = units.indexOf(this.config.windUnits || "m/s");
+            const nextIndex = (currentIndex + 1) % units.length;
+            this.config.windUnits = units[nextIndex];
+            delete changes.toggleWindUnits;
+        }
+        
+        if (changes.toggleValueUnits) {
+            // Handle value units toggle
+            delete changes.toggleValueUnits;
+        }
+        
+        if (changes.navigateHours) {
+            // Handle time navigation
+            console.log(`[EARTH-MODERN] Navigate time by ${changes.navigateHours} hours`);
+            // TODO: Implement actual time navigation logic
+            delete changes.navigateHours;
+        }
+        
+        // Apply the remaining changes to config
+        this.config = { ...this.config, ...changes };
+        
+        // Update menu display to reflect new state
+        this.menuSystem.updateMenuState(this.config);
+        
+        // Stop current animation
+        this.stopAnimation();
+        
+        // Update globe if projection changed
+        if (changes.projection) {
+            this.createGlobe();
+            // Globe changed - emit event (observers will automatically respond)
+            if (this.globe) this.emit('globeChanged');
+        }
+        
+        // Emit config changed event (observers will automatically respond)
+        this.emit('configChanged');
+        
+        // Reload weather data if parameters changed (fire and forget)
+        if (changes.date || changes.particleType || changes.surface || changes.level || changes.overlayType) {
+            this.loadWeatherData().then(() => {
+                // Weather data changed - emit event (observers will automatically respond)
+                this.emit('weatherDataChanged');
+                // Reinitialize systems after data loads
+                this.initializeSystems();
+                // Systems ready - emit event
+                this.emit('systemsReady');
+                this.startAnimation();
+            }).catch(error => {
+                console.error('[EARTH-MODERN] Failed to reload weather data:', error);
+            });
+        } else {
+            // No data reload needed, just reinitialize
+            this.initializeSystems();
+            // Systems ready - emit event
+            this.emit('systemsReady');
+            this.startAnimation();
+        }
+    }
+
+    /**
+     * Handle globe manipulation - update dependent systems
+     */
+    private handleGlobeChange(): void {
+        console.log('[EARTH-MODERN] Globe changed');
+        
+        if (!this.globe) return;
+        
+        // Update configuration with new orientation
+        const orientation = this.globe.orientation();
+        if (typeof orientation === 'string') {
+            this.config.orientation = orientation;
+        }
+        
+        // Reinitialize systems that depend on projection
+        this.initializeSystems();
+        
+        // Globe changed - emit event
+        this.emit('globeChanged');
+        
+        // Restart animation
+        this.startAnimation();
+    }
+
+
+    // ===== SYSTEM INITIALIZATION (Clean and focused) =====
+
+    /**
+     * Create globe - single responsibility
+     */
+    private createGlobe(): void {
+        console.log('[EARTH-MODERN] Creating globe');
+        
+        const globeBuilder = Globes.get(this.config.projection);
+        if (!globeBuilder) {
+            throw new Error(`Unknown projection: ${this.config.projection}`);
+        }
+        
+        this.globe = globeBuilder();
+        
+        // Set orientation if specified
+        if (this.config.orientation && this.globe) {
+            this.globe.orientation(this.config.orientation, this.view);
+        }
+        
+        // Update input handler
+        this.inputHandler.setGlobe(this.globe);
+        
+        console.log('[EARTH-MODERN] Globe created');
+    }
+
+    /**
+     * Load weather data - clean separation of particle and overlay products
+     */
+    private async loadWeatherData(): Promise<void> {
+        console.log('[EARTH-MODERN] Loading weather data');
+        
         try {
-            // Get clean field data (no more overlay smuggling!)
-            const field = this.particleSystem?.getField();
-            
-            // Find the right overlay product based on config.overlayType
-            let overlayProduct = null;
-            if (this.config.overlayType && this.config.overlayType !== "off") {
-                overlayProduct = this.products.find(p => p && p.type === this.config.overlayType);
-                if (!overlayProduct) {
-                    debugLog('RENDER', `No overlay product found for type: ${this.config.overlayType}`);
-                }
+            // Load particle data if needed (wind, waves, ocean currents, etc.)
+            if (this.config.particleType && this.config.particleType !== 'off') {
+                console.log('[EARTH-MODERN] Loading particle data:', this.config.particleType);
+                this.particleProduct = Products.createParticleProduct(this.config.particleType, this.config);
+                await this.particleProduct.load({ requested: false });
+            } else {
+                this.particleProduct = null;
             }
             
-            // Generate overlay data cleanly and separately
-            const mask = this.createMask();
-            const overlayResult = this.overlaySystem.generateOverlay(
-                overlayProduct,
-                this.globe,
-                mask,
-                { width: this.display.width, height: this.display.height },
-                this.config.overlayType
-            );
-
-            // Create clean render data object
-            const renderData: RenderData = {
-                globe: this.globe,
-                mesh: this.mesh,
-                field: field,
-                overlayGrid: this.overlayGrid,
-                overlayType: this.config.overlayType,
-                overlayData: overlayResult.imageData
-            };
-
-            // Render everything through the render system
-            this.renderSystem.renderFrame(renderData);
-
+            // Load overlay data if needed  
+            if (this.config.overlayType && this.config.overlayType !== 'off' && this.config.overlayType !== 'default') {
+                console.log('[EARTH-MODERN] Loading overlay data:', this.config.overlayType);
+                this.overlayProduct = Products.createOverlayProduct(this.config.overlayType, this.config);
+                await this.overlayProduct.load({ requested: false });
+            } else {
+                this.overlayProduct = null;
+            }
+            
+            // Update menu system with weather data metadata
+            const products = [this.particleProduct, this.overlayProduct].filter(p => p !== null);
+            this.menuSystem.updateWeatherData(products);
+            
+            console.log('[EARTH-MODERN] Weather data loaded - Particles:', !!this.particleProduct, 'Overlay:', !!this.overlayProduct);
+            
+            // Emit weather data changed event
+            this.emit('weatherDataChanged');
+            
         } catch (error) {
-            debugLog('RENDER', 'Render error', error);
+            console.error('[EARTH-MODERN] Failed to load weather data:', error);
+            // Don't fail completely
+            this.particleProduct = null;
+            this.overlayProduct = null;
+            // Update menu with empty data
+            this.menuSystem.updateWeatherData([]);
         }
     }
 
-    private clearCanvas(): void {
-        this.renderSystem.clearAnimationCanvas();
+    /**
+     * Initialize systems that need data - single responsibility
+     */
+    private initializeSystems(): void {
+        console.log('[EARTH-MODERN] Initializing systems');
+        
+        if (!this.globe) return;
+        
+        // Create mask for visibility testing
+        const mask = this.createMask();
+        
+        // Initialize particle system
+        if (this.particleProduct) {
+            this.particleSystem = new ParticleSystem(this.config, this.globe, mask, this.view, [this.particleProduct]);
+            
+            // Wire up particle system callbacks for continuous animation
+            this.particleSystem.on('particlesEvolved', (buckets, colorStyles, globe) => {
+                this.renderSystem.drawParticles(buckets, colorStyles, globe);
+            });
+        } else {
+            this.particleSystem = null;
+        }
+        
+        // OverlaySystem is now a pure observer - no manual initialization needed
+        // It automatically responds to state changes via the events we emit
+        
+        console.log('[EARTH-MODERN] Systems initialized');
     }
+
+    // ===== ANIMATION (Simple and clean) =====
 
     private startAnimation(): void {
-        debugLog('ANIMATION', 'Starting animation');
+        if (this.animationId || !this.particleSystem) return;
         
-        const field = this.particleSystem?.getField();
-        if (this.animationId || !field || !this.renderSystem.isReady()) {
-            return;
-        }
-        
+        console.log('[EARTH-MODERN] Starting animation');
         this.animate();
     }
 
     private stopAnimation(): void {
-        debugLog('ANIMATION', 'Stopping animation');
-        
         if (this.animationId) {
             clearTimeout(this.animationId);
             this.animationId = null;
+            console.log('[EARTH-MODERN] Animation stopped');
         }
     }
 
@@ -492,170 +443,138 @@ class EarthModernApp {
             this.particleSystem.evolveParticles();
             
             this.animationId = setTimeout(() => {
-                if (this.animationId) {
-                    this.animate();
-                }
-            }, FRAME_RATE) as any;
+                if (this.animationId) this.animate();
+            }, 40) as any;
             
         } catch (error) {
-            debugLog('ANIMATION', 'Animation error', error);
+            console.error('[EARTH-MODERN] Animation error:', error);
             this.stopAnimation();
         }
     }
 
-    private drawLocationMark(point: Point, coord: GeoPoint): void {
-        this.renderSystem.drawLocationMark(point, coord);
+    // ===== UTILITIES (Simple and focused) =====
+
+    private createInitialConfig(): Configuration {
+        return {
+            projection: 'orthographic',
+            orientation: '0,0,0',
+            date: 'current',
+            hour: '0000',
+            particleType: 'wind',
+            surface: 'surface',
+            level: 'level',
+            overlayType: 'off',
+            showGridPoints: false,
+            windUnits: 'm/s'
+        };
     }
 
-    private updateConfigurationFromGlobe(): void {
-        if (!this.globe) return;
+    private setupUI(): void {
+        d3.selectAll(".fill-screen")
+            .attr("width", this.view.width)
+            .attr("height", this.view.height);
+            
+        // Setup menu handlers so controls actually work
+        this.menuSystem.setupMenuHandlers();
+        console.log('[EARTH-MODERN] UI setup complete');
+    }
+
+    private async loadMesh(): Promise<void> {
+        console.log('[EARTH-MODERN] Loading mesh');
         
-        const orientation = this.globe.orientation();
-        if (typeof orientation === 'string') {
-            this.config.orientation = orientation;
-            const orientationArray = orientation.split(',').map(Number);
-            this.display.orientation = [orientationArray[0] || 0, orientationArray[1] || 0, orientationArray[2] || 0];
-        }
+        const topology = Utils.isMobile() ? 
+            "/data/earth-topo-mobile.json?v2" : 
+            "/data/earth-topo.json?v2";
+        
+        const topo = await Utils.loadJson(topology);
+        const o = topo.objects;
+        
+        this.mesh = {
+            coastLo: window.topojson.feature(topo, Utils.isMobile() ? o.coastline_tiny : o.coastline_110m),
+            coastHi: window.topojson.feature(topo, Utils.isMobile() ? o.coastline_110m : o.coastline_50m),
+            lakesLo: window.topojson.feature(topo, Utils.isMobile() ? o.lakes_tiny : o.lakes_110m),
+            lakesHi: window.topojson.feature(topo, Utils.isMobile() ? o.lakes_110m : o.lakes_50m)
+        };
+        
+        // Mesh changed - emit event
+        this.emit('meshChanged');
+        
+        console.log('[EARTH-MODERN] Mesh loaded');
     }
-   
 
-    /**
-     * Creates a visibility mask for the globe
-     * 
-     * UPDATE: Now that we have OverlaySystem, this mask ONLY handles visibility testing!
-     * The old overlay storage functionality has been moved to OverlaySystem for clean separation.
-     * 
-     * This function creates a red globe shape for visibility testing:
-     * 1. Draw globe boundary as red shape on hidden canvas
-     * 2. Extract pixel data for visibility testing  
-     * 3. Return object with isVisible() method
-     * 
-     * Note: We still create overlayImageData for backward compatibility,
-     * but it's no longer used for the data smuggling heresy!
-     * 
-     * @returns Mask object with visibility testing capability
-     */
     private createMask(): any {
         if (!this.globe) return null;
-
-        debugLog('MASK', 'Creating visibility mask');
         
-        // STEP 1: Create a hidden canvas to draw the globe boundary
         const canvas = document.createElement("canvas");
-        canvas.width = this.display.width;
-        canvas.height = this.display.height;
+        canvas.width = this.view.width;
+        canvas.height = this.view.height;
         
         const ctx = canvas.getContext("2d");
         if (!ctx) return null;
         
-        // STEP 2: Draw the globe boundary (sphere outline) using D3 geoPath
-        // This creates a path outline of where the globe is visible on screen
         const context = this.globe.defineMask(ctx);
-        if (!context) {
-            debugLog('MASK', 'Globe.defineMask returned null');
-            return null;
-        }
+        if (!context) return null;
         
-        // STEP 3: Fill the globe boundary with solid red color
-        // Red pixels = inside globe, transparent pixels = outside globe
         context.fillStyle = "rgba(255, 0, 0, 1)";
         context.fill();
-
-        // STEP 4: Extract the pixel data for visibility testing
-        // This gives us a flat RGBA array where red pixels indicate visible areas
-        const imageData = context.getImageData(0, 0, this.display.width, this.display.height);
-        const data = imageData.data; // Flat array: [r,g,b,a,r,g,b,a,...]
         
-        // STEP 5: Count visible pixels for debugging
-        let visiblePixels = 0;
-        for (let i = 3; i < data.length; i += 4) { // i += 4 steps through alpha values only
-            if (data[i] > 0) visiblePixels++; // Non-zero alpha = visible pixel
-        }
+        const imageData = context.getImageData(0, 0, this.view.width, this.view.height);
+        const data = imageData.data;
         
-        debugLog('MASK', `Mask created: ${visiblePixels} visible pixels out of ${this.display.width * this.display.height}`);
-        
-        // STEP 6: Return the mask object with visibility testing capability only
-        const mask = {
-            // The red globe shape (for visibility testing)
+        return {
             imageData: imageData,
-            
-            /**
-             * Tests if a screen pixel is inside the globe boundary
-             * Uses the RED globe shape to check visibility
-             * @param x Screen X coordinate
-             * @param y Screen Y coordinate  
-             * @returns true if pixel is inside globe boundary
-             */
             isVisible: (x: number, y: number): boolean => {
-                if (x < 0 || x >= this.display.width || y < 0 || y >= this.display.height) return false;
-                // Convert (x,y) to flat array index: y * width + x, then * 4 for RGBA
-                const i = (Math.floor(y) * this.display.width + Math.floor(x)) * 4;
-                return data[i + 3] > 0;  // Check alpha channel of RED globe shape
+                if (x < 0 || x >= this.view.width || y < 0 || y >= this.view.height) return false;
+                const i = (Math.floor(y) * this.view.width + Math.floor(x)) * 4;
+                return data[i + 3] > 0;
             }
         };
-        
-        return mask;
     }
 
-    /**
-     * Load weather products at the app level so both ParticleSystem and OverlaySystem can use them
-     */
-    private async loadProducts(): Promise<void> {
-        debugLog('APP', 'Loading products');
-        this.reportStatus("Loading weather data...");
-        
-        try {
-            // Use the products module to get weather data
-            debugLog('APP', 'Calling products.productsFor with config:', this.config);
-            const productPromises = Products.productsFor(this.config);
-            debugLog('APP', 'Product promises received:', productPromises.length);
-            
-            this.products = await Promise.all(productPromises.filter(p => p !== null));
-            debugLog('APP', 'Products resolved:', this.products.length);
-            
-            // Load the actual data
-            if (this.products.length > 0) {
-                debugLog('APP', 'Loading product data...');
-                for (const product of this.products) {
-                    if (product && product.load) {
-                        debugLog('APP', 'Loading product:', product.type || 'unknown');
-                        await product.load({ requested: false });
-                        debugLog('APP', 'Product loaded successfully:', product.type || 'unknown');
-                    }
-                }
-            } else {
-                debugLog('APP', 'No products found to load');
-            }
-            
-            this.reportProgress(1.0);
-            debugLog('APP', 'Products loaded successfully', this.products.length);
-            
-        } catch (error) {
-            debugLog('APP', 'Failed to load products', error);
-            // Don't fail completely if weather data fails
-            this.products = [];
-        }
+    // ===== STATE ACCESS METHODS (for observers) =====
+
+    getGlobe(): Globe | null {
+        return this.globe;
+    }
+
+    getMask(): any {
+        return this.createMask();
+    }
+
+    getView(): ViewportSize {
+        return this.view;
+    }
+
+    getConfig(): Configuration {
+        return this.config;
+    }
+
+    getParticleProduct(): any {
+        return this.particleProduct;
+    }
+
+    getOverlayProduct(): any {
+        return this.overlayProduct;
     }
 }
 
-// ===== MAIN INITIALIZATION =====
+// ===== BOOTSTRAP =====
+
 async function startEarthModern(): Promise<void> {
-    debugLog('MAIN', 'Starting Earth Modern application');
+    console.log('[EARTH-MODERN] Starting clean earth visualization');
     
     try {
         const app = new EarthModernApp();
         await app.start();
         
-        debugLog('MAIN', 'Application started successfully');
-        console.log('Earth Modern: Application started successfully');
+        console.log('[EARTH-MODERN] Success!');
         
     } catch (error) {
-        debugLog('MAIN', 'Failed to start application', error);
-        console.error('Earth Modern: Failed to start application:', error);
+        console.error('[EARTH-MODERN] Failed to start:', error);
     }
 }
 
-// Start when DOM is ready
+// Start when ready
 if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', startEarthModern);
 } else {

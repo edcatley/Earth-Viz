@@ -85,7 +85,42 @@ export class RenderSystem {
         this.scaleCanvas = d3.select("#scale").node() as HTMLCanvasElement;
         if (this.scaleCanvas) {
             this.scaleContext = this.scaleCanvas.getContext("2d");
-            debugLog('SETUP', 'Scale canvas initialized');
+            
+            // Set scale canvas dimensions dynamically like earth.js does
+            this.setSizeScale();
+            
+            debugLog('SETUP', 'Scale canvas initialized', { 
+                width: this.scaleCanvas.width, 
+                height: this.scaleCanvas.height 
+            });
+        }
+    }
+
+    /**
+     * Set scale canvas size dynamically like the original earth.js
+     * Width: (menu width - label width) * 0.97
+     * Height: label height / 2
+     */
+    private setSizeScale(): void {
+        if (!this.scaleCanvas) return;
+        
+        const label = d3.select("#scale-label").node() as HTMLElement;
+        const menu = d3.select("#menu").node() as HTMLElement;
+        
+        if (label && menu) {
+            const width = (menu.offsetWidth - label.offsetWidth) * 0.97;
+            const height = label.offsetHeight / 2;
+            
+            d3.select("#scale")
+                .attr("width", width)
+                .attr("height", height);
+                
+            debugLog('SCALE-SIZE', 'Scale canvas resized', { 
+                width, 
+                height,
+                menuWidth: menu.offsetWidth,
+                labelWidth: label.offsetWidth 
+            });
         }
     }
 
@@ -111,6 +146,9 @@ export class RenderSystem {
         }
 
         try {
+            // Clear animation canvas to prevent leftover particles from previous projections/data
+            this.clearAnimationCanvas();
+            
             // Render SVG map elements
             this.renderMap(data.globe, data.mesh);
             
@@ -257,6 +295,26 @@ export class RenderSystem {
             ctx.fillStyle = `rgb(${rgb[0]},${rgb[1]},${rgb[2]})`;
             ctx.fillRect(i, 0, 1, canvas.height);
         }
+        
+        // Add tooltip functionality like the original
+        const colorBar = d3.select("#scale");
+        colorBar.on("mousemove", (event) => {
+            const [x] = d3.pointer(event);
+            const pct = Utils.clamp((Math.round(x) - 2) / (width - 2), 0, 1);
+            const value = Utils.spread(pct, bounds[0], bounds[1]);
+            
+            // Use proper unit formatting like the original earth.js
+            if (overlayGrid.units && overlayGrid.units[0]) {
+                const units = overlayGrid.units[0];
+                const convertedValue = units.conversion(value);
+                const formattedValue = convertedValue.toFixed(units.precision);
+                
+                colorBar.attr("title", `${formattedValue} ${units.label}`);
+            } else {
+                // Fallback for products without units
+                colorBar.attr("title", `${value.toFixed(1)}`);
+            }
+        });
         
         debugLog('SCALE', 'Drew color scale', { 
             bounds, 

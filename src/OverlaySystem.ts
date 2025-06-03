@@ -1,16 +1,11 @@
 /**
- * OverlaySystem - handles overlay color generation independently from particles
+ * OverlaySystem - Pure observer that automatically regenerates overlays
  * 
- * This system generates colored overlays (temperature, pressure, etc.) by:
- * 1. Iterating through visible pixels on the globe
- * 2. Converting screen coordinates to geographic coordinates  
- * 3. Looking up overlay values from weather data
- * 4. Converting values to colors and storing in ImageData
+ * This system subscribes to external state changes and automatically
+ * regenerates overlays when relevant state changes, without needing
+ * explicit method calls.
  * 
- * This eliminates the insane data smuggling where overlay data was:
- * mask → particles → field → render system
- * 
- * Now it's clean: OverlaySystem → render system
+ * Emits 'overlayChanged' events when overlay is regenerated.
  */
 
 import * as d3 from 'd3';
@@ -29,12 +24,19 @@ const OVERLAY_ALPHA = Math.floor(0.4 * 255); // overlay transparency (on scale [
 export interface OverlayResult {
     imageData: ImageData | null;
     overlayType: string;
+    overlayProduct: any; // Include the product for scale information
 }
 
 export class OverlaySystem {
     private canvas: HTMLCanvasElement;
     private ctx: CanvasRenderingContext2D;
     private overlayImageData: ImageData | null = null;
+    
+    // External state references (we observe these)
+    private stateProvider: any = null;
+    
+    // Event callbacks
+    private eventHandlers: { [key: string]: Function[] } = {};
     
     constructor() {
         // Create canvas and context once - reuse for all overlay generation
@@ -47,32 +49,94 @@ export class OverlaySystem {
     }
     
     /**
-     * Generates overlay color data for the specified overlay product
-     * 
-     * @param overlayProduct Weather data product (temperature, pressure, etc.)
-     * @param globe Globe projection and bounds
-     * @param mask Visibility mask (only for isVisible testing)
-     * @param view Viewport dimensions
-     * @param overlayType Type of overlay being generated
-     * @returns ImageData with overlay colors, or null if no overlay
+     * Subscribe to external state provider - becomes a pure observer
      */
-    generateOverlay(
+    observeState(stateProvider: any): void {
+        this.stateProvider = stateProvider;
+        
+        // Subscribe to all relevant state changes
+        stateProvider.on('globeChanged', () => this.regenerateOverlay());
+        stateProvider.on('weatherDataChanged', () => this.regenerateOverlay());
+        stateProvider.on('configChanged', () => this.regenerateOverlay());
+        stateProvider.on('systemsReady', () => this.regenerateOverlay());
+        
+        debugLog('OVERLAY', 'Now observing external state changes');
+    }
+    
+    /**
+     * Get current overlay data
+     */
+    getOverlayData(): ImageData | null {
+        return this.overlayImageData;
+    }
+    
+    /**
+     * Subscribe to overlay change events
+     */
+    on(event: string, handler: Function): void {
+        if (!this.eventHandlers[event]) {
+            this.eventHandlers[event] = [];
+        }
+        this.eventHandlers[event].push(handler);
+    }
+    
+    /**
+     * Emit events to subscribers
+     */
+    private emit(event: string, ...args: any[]): void {
+        if (this.eventHandlers[event]) {
+            this.eventHandlers[event].forEach(handler => handler(...args));
+        }
+    }
+    
+    /**
+     * Automatically regenerate overlay when observed state changes
+     */
+    private regenerateOverlay(): void {
+        if (!this.stateProvider) return;
+        
+        // Get current state from provider
+        const globe = this.stateProvider.getGlobe();
+        const mask = this.stateProvider.getMask();
+        const view = this.stateProvider.getView();
+        const config = this.stateProvider.getConfig();
+        const overlayProduct = this.stateProvider.getOverlayProduct();
+        
+        // Need all required state to generate overlay
+        if (!globe || !mask || !view || !config) {
+            return;
+        }
+        
+        const result = this.generateOverlay(overlayProduct, globe, mask, view, config.overlayType);
+        this.overlayImageData = result.imageData;
+        
+        // Emit change event with both imageData and overlay product
+        this.emit('overlayChanged', result);
+    }
+    
+    /**
+     * Internal overlay generation (same logic as before)
+     */
+    private generateOverlay(
         overlayProduct: any,
         globe: Globe,
         mask: any,
         view: ViewportSize,
         overlayType: string
     ): OverlayResult {
-        
-        console.log(overlayProduct);
-        console.log(overlayType);
         // No overlay requested
         if (!overlayProduct || !overlayType || overlayType === "off") {
             debugLog('GENERATE', 'No overlay requested');
-            return { imageData: null, overlayType };
+            return { imageData: null, overlayType, overlayProduct: null };
         }
 
         debugLog('GENERATE', `Generating ${overlayType} overlay`);
+        
+        // DEBUG: Log overlay product details
+        if (overlayProduct.scale) {
+            console.log('[OVERLAY-DEBUG] Scale bounds:', overlayProduct.scale.bounds);
+            console.log('[OVERLAY-DEBUG] Scale gradient function:', typeof overlayProduct.scale.gradient);
+        }
         
         const bounds = globe.bounds(view);
         
@@ -89,15 +153,11 @@ export class OverlaySystem {
         
         // Clear the ImageData for reuse
         const overlayData = this.overlayImageData.data;
-        //overlayData.fill(0); // Clear to transparent
+        overlayData.fill(0); // Clear to transparent
         
-        let pixelsProcessed = 0;
-        let pixelsWithData = 0;
         // Iterate through visible pixels and generate overlay colors
         for (let x = bounds.x; x <= bounds.xMax; x += 2) {
             for (let y = bounds.y; y <= bounds.yMax; y += 2) {
-                //pixelsProcessed++;
-                
                 if (mask.isVisible(x, y)) {
                     const coord = globe.projection?.invert?.([x, y]);
                     
@@ -107,16 +167,34 @@ export class OverlaySystem {
                         if (isFinite(λ)) {
                             // Get overlay value from weather data
                             const overlayValue = overlayProduct.interpolate(λ, φ);
-                            if (overlayValue[2] != null && overlayProduct.scale) {
-                                // Convert value to color
-                                const overlayColor = overlayProduct.scale.gradient(overlayValue[2], OVERLAY_ALPHA);
+                            if (overlayValue != null && overlayProduct.scale) {
+                                // Handle both scalar and vector products
+                                let rawValue: number;
+                            
+                                    // Scalar product (temperature, humidity, etc.) - use value directly
+                                rawValue = overlayValue;
                                 
-                                // Store color in 2x2 pixel block (matching original behavior)
-                                this.setPixelColor(overlayData, view.width, x, y, overlayColor);
-                                this.setPixelColor(overlayData, view.width, x+1, y, overlayColor);
-                                this.setPixelColor(overlayData, view.width, x, y+1, overlayColor);
-                                this.setPixelColor(overlayData, view.width, x+1, y+1, overlayColor);
-                                //pixelsWithData++;
+                                
+                                // Skip if no valid value
+                                if (rawValue == null || !isFinite(rawValue)) {
+                                    continue;
+                                }
+
+                                
+                                // Convert value to color
+                                const overlayColor = overlayProduct.scale.gradient(rawValue, OVERLAY_ALPHA);
+                                
+
+                                
+                                if (overlayColor && overlayColor.length >= 3) {
+
+                                    
+                                    // Store color in 2x2 pixel block (matching original behavior)
+                                    this.setPixelColor(overlayData, view.width, x, y, overlayColor);
+                                    this.setPixelColor(overlayData, view.width, x+1, y, overlayColor);
+                                    this.setPixelColor(overlayData, view.width, x, y+1, overlayColor);
+                                    this.setPixelColor(overlayData, view.width, x+1, y+1, overlayColor);
+                                }
                             }
                         }
                     }
@@ -124,22 +202,15 @@ export class OverlaySystem {
             }
         }
         
-        //debugLog('GENERATE', `Overlay generated: ${pixelsWithData} pixels with data out of ${pixelsProcessed} processed`);
-        
         return {
             imageData: this.overlayImageData,
-            overlayType
+            overlayType,
+            overlayProduct
         };
     }
     
     /**
      * Helper to set RGBA color at specific pixel coordinates
-     * 
-     * @param data Flat RGBA array from ImageData
-     * @param width Canvas width
-     * @param x X coordinate
-     * @param y Y coordinate  
-     * @param rgba Color array [r, g, b, a]
      */
     private setPixelColor(
         data: Uint8ClampedArray, 
