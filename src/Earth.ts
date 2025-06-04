@@ -17,6 +17,7 @@ import { ParticleSystem } from './Particles';
 import { InputHandler } from './InputHandler';
 import { RenderSystem } from './RenderSystem';
 import { OverlaySystem } from './OverlaySystem';
+import { PlanetSystem } from './planets';
 
 // ===== CLEAN INTERFACES =====
 
@@ -25,10 +26,12 @@ interface Configuration {
     orientation: string;
     date: string;
     hour: string;
+    mode: string;
     particleType: string;
     surface: string;
     level: string;
     overlayType: string;
+    planetType: string;
     showGridPoints: boolean;
     windUnits: string;
 }
@@ -60,6 +63,7 @@ class EarthModernApp {
     private menuSystem: MenuSystem;
     private particleSystem: ParticleSystem | null = null;
     private overlaySystem: OverlaySystem;
+    private planetSystem: PlanetSystem;
     private inputHandler: InputHandler;
     private renderSystem: RenderSystem;
     
@@ -70,6 +74,9 @@ class EarthModernApp {
     private overlayProduct: any = null;
     private particleProduct: any = null;
     private overlayData: ImageData | null = null;
+    
+    // Planet data
+    private planetData: ImageData | null = null;
     
     // Animation
     private animationId: number | null = null;
@@ -85,6 +92,7 @@ class EarthModernApp {
         this.products = new Products();
         this.menuSystem = new MenuSystem(); // No config passed - MenuSystem is stateless
         this.overlaySystem = new OverlaySystem();
+        this.planetSystem = new PlanetSystem();
         this.inputHandler = new InputHandler();
         this.renderSystem = new RenderSystem({ 
             width: this.view.width, 
@@ -132,9 +140,16 @@ class EarthModernApp {
             this.emit('overlayChanged');
         });
         
-        // 4. ParticleSystem → Reactive particle updates (handled in initializeSystems)
+        // 4. PlanetSystem → Pure observer of state changes
+        this.planetSystem.observeState(this);
+        this.planetSystem.on('planetChanged', (result: any) => {
+            this.planetData = result.imageData;
+            this.emit('planetChanged');
+        });
         
-        // 5. Subscribe RenderSystem to actual visual state changes
+        // 5. ParticleSystem → Reactive particle updates (handled in initializeSystems)
+        
+        // 6. Subscribe RenderSystem to actual visual state changes
         this.setupRenderSubscriptions();
     }
 
@@ -145,6 +160,7 @@ class EarthModernApp {
         // Any visual state change just triggers a render of current state
         this.on('globeChanged', () => this.performRender());
         this.on('overlayChanged', () => this.performRender());
+        this.on('planetChanged', () => this.performRender());
         this.on('meshChanged', () => this.performRender());
         this.on('systemsReady', () => this.performRender());
     }
@@ -161,7 +177,8 @@ class EarthModernApp {
             field: this.particleSystem?.getField(),
             overlayGrid: this.overlayProduct, // Use stored overlay product
             overlayType: this.config.overlayType,
-            overlayData: this.overlayData
+            overlayData: this.overlayData,
+            planetData: this.planetData
         });
     }
 
@@ -456,16 +473,18 @@ class EarthModernApp {
 
     private createInitialConfig(): Configuration {
         return {
-            projection: 'orthographic',
-            orientation: '0,0,0',
-            date: 'current',
-            hour: '0000',
-            particleType: 'wind',
-            surface: 'surface',
-            level: 'level',
-            overlayType: 'off',
+            projection: "orthographic",
+            orientation: "0,0,0",
+            date: "current",
+            hour: "current",
+            mode: "air",
+            particleType: "wind",
+            surface: "surface",
+            level: "1000hPa",
+            overlayType: "off",
+            planetType: "earth",
             showGridPoints: false,
-            windUnits: 'm/s'
+            windUnits: "m/s"
         };
     }
 

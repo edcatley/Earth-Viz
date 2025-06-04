@@ -27,6 +27,7 @@ export interface RenderData {
     colorStyles?: string[] & { indexFor: (m: number) => number };
     overlayType?: string;
     overlayData?: ImageData | null;  // Direct overlay data - no more smuggling through field!
+    planetData?: ImageData | null;   // Planet surface image data
 }
 
 export class RenderSystem {
@@ -215,7 +216,13 @@ export class RenderSystem {
             Utils.clearCanvas(this.scaleCanvas);
         }
 
-        // Only draw if overlay is enabled and not "off"
+        // First, render planet surface data if available (background layer)
+        if (data.planetData) {
+            debugLog('PLANET', 'Rendering planet surface data');
+            this.overlayContext.putImageData(data.planetData, 0, 0);
+        }
+
+        // Then render weather overlay on top if enabled and not "off"
         if (data.overlayType && data.overlayType !== "off") {
             // Draw the overlay imageData if it exists
             if (data.overlayData) {

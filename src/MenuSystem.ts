@@ -53,6 +53,9 @@ export class MenuSystem {
         // Location controls
         this.setupLocationControls();
         
+        // Planet controls
+        this.setupPlanetControls();
+        
         console.log('[MENU] Menu handlers setup complete');
     }
 
@@ -100,13 +103,19 @@ export class MenuSystem {
         // Air mode
         d3.select("#wind-mode-enable").on("click", () => {
             console.log('[MENU] Switch to Air mode');
-            this.triggerConfigChange({ param: "wind" });
+            this.triggerConfigChange({ mode: "air", particleType: "wind", overlayType: "off" });
         });
 
         // Ocean mode
         d3.select("#ocean-mode-enable").on("click", () => {
             console.log('[MENU] Switch to Ocean mode');
-            this.triggerConfigChange({ param: "currents" });
+            this.triggerConfigChange({ mode: "ocean", particleType: "oceancurrent", overlayType: "off" });
+        });
+
+        // Planet mode
+        d3.select("#planet-mode-enable").on("click", () => {
+            console.log('[MENU] Switch to Planet mode');
+            this.triggerConfigChange({ mode: "planet", particleType: "off", overlayType: "off", planetType: "earth" });
         });
     }
 
@@ -212,6 +221,18 @@ export class MenuSystem {
         });
     }
 
+    private setupPlanetControls(): void {
+        // Planet selection
+        const planets = ["earth", "mars", "moon", "venus", "jupiter"];
+        
+        planets.forEach(planet => {
+            d3.select(`#planet-${planet}`).on("click", () => {
+                console.log(`[MENU] Set planet: ${planet}`);
+                this.triggerConfigChange({ planetType: planet });
+            });
+        });
+    }
+
     private navigateTime(hours: number): void {
         // This would implement time navigation logic
         // For now, just log the action
@@ -222,12 +243,14 @@ export class MenuSystem {
 
     private updateModeDisplay(mode: string): void {
         // Update UI to show current mode
-        d3.selectAll(".wind-mode").classed("invisible", mode !== "wind");
+        d3.selectAll(".wind-mode").classed("invisible", mode !== "air");
         d3.selectAll(".ocean-mode").classed("invisible", mode !== "ocean");
+        d3.selectAll(".planet-mode").classed("invisible", mode !== "planet");
         
         // Update button states
-        d3.select("#wind-mode-enable").classed("highlighted", mode === "wind");
+        d3.select("#wind-mode-enable").classed("highlighted", mode === "air");
         d3.select("#ocean-mode-enable").classed("highlighted", mode === "ocean");
+        d3.select("#planet-mode-enable").classed("highlighted", mode === "planet");
     }
 
     private updateSurfaceDisplay(surface: string): void {
@@ -285,6 +308,12 @@ export class MenuSystem {
     private updateValueUnitsDisplay(): void {
         // Update value units display based on current overlay
         // TODO: Implement based on overlay type
+    }
+
+    private updatePlanetDisplay(planetType: string): void {
+        // Update planet button highlighting
+        d3.selectAll("[id^='planet-']").classed("highlighted", false);
+        d3.select(`#planet-${planetType}`).classed("highlighted", true);
     }
 
     private triggerConfigChange(changes: any): void {
@@ -352,7 +381,7 @@ export class MenuSystem {
         console.log('[MENU] Updating menu state');
         
         // Update mode display
-        const mode = config.param === "currents" ? "ocean" : "wind";
+        const mode = config.mode || "air";
         this.updateModeDisplay(mode);
         
         // Update surface display
@@ -381,5 +410,10 @@ export class MenuSystem {
         // Update units displays
         this.updateWindUnitsDisplay(config.windUnits || "m/s");
         this.updateValueUnitsDisplay();
+
+        // Update planet display
+        if (config.planetType) {
+            this.updatePlanetDisplay(config.planetType);
+        }
     }
 } 
