@@ -28,6 +28,10 @@ export interface RenderData {
     overlayType?: string;
     overlayData?: ImageData | null;  // Direct overlay data - no more smuggling through field!
     planetData?: ImageData | null;   // Planet surface image data
+    
+    // WebGL canvas support - alternative to ImageData for GPU acceleration
+    overlayWebGLCanvas?: HTMLCanvasElement | null;  // WebGL-rendered overlay
+    planetWebGLCanvas?: HTMLCanvasElement | null;   // WebGL-rendered planet
 }
 
 export class RenderSystem {
@@ -139,6 +143,7 @@ export class RenderSystem {
      * Main rendering method - renders the complete frame
      */
     public renderFrame(data: RenderData): void {
+        const frameStart = performance.now();
         debugLog('FRAME', 'Rendering frame');
         
         if (!data.globe || !data.mesh) {
@@ -148,17 +153,30 @@ export class RenderSystem {
 
         try {
             // Clear animation canvas to prevent leftover particles from previous projections/data
+            const clearStart = performance.now();
             this.clearAnimationCanvas();
+            const clearTime = performance.now() - clearStart;
+            debugLog('RENDER-PERF', `Animation canvas clear time: ${clearTime.toFixed(2)}ms`);
             
             // Render SVG map elements
+            const mapStart = performance.now();
             this.renderMap(data.globe, data.mesh);
+            const mapTime = performance.now() - mapStart;
+            debugLog('RENDER-PERF', `SVG map render time: ${mapTime.toFixed(2)}ms`);
             
             // Render overlay if available
+            const overlayStart = performance.now();
             this.renderOverlay(data);
+            const overlayTime = performance.now() - overlayStart;
+            debugLog('RENDER-PERF', `Overlay render time: ${overlayTime.toFixed(2)}ms`);
             
+            const totalFrameTime = performance.now() - frameStart;
+            debugLog('RENDER-PERF', `Total frame render time: ${totalFrameTime.toFixed(2)}ms`);
             debugLog('FRAME', 'Frame render completed');
             
         } catch (error) {
+            const totalFrameTime = performance.now() - frameStart;
+            debugLog('RENDER-PERF', `Frame render failed after ${totalFrameTime.toFixed(2)}ms`);
             debugLog('FRAME', 'Frame render failed', error);
             throw error;
         }
@@ -201,6 +219,7 @@ export class RenderSystem {
      * Render overlay data and color scale
      */
     private renderOverlay(data: RenderData): void {
+        const overlayStart = performance.now();
         debugLog('OVERLAY', 'Rendering overlay', { overlayType: data.overlayType });
         
         if (!this.overlayContext) {
@@ -209,32 +228,46 @@ export class RenderSystem {
         }
 
         // Clear overlay canvas
+        const clearStart = performance.now();
         Utils.clearCanvas(this.overlayCanvas!);
         
         // Clear scale canvas
         if (this.scaleCanvas) {
             Utils.clearCanvas(this.scaleCanvas);
         }
+        const clearTime = performance.now() - clearStart;
+        debugLog('RENDER-PERF', `Canvas clear time: ${clearTime.toFixed(2)}ms`);
 
         // First, render planet surface data if available (background layer)
-        if (data.planetData) {
-            debugLog('PLANET', 'Rendering planet surface data');
-            this.overlayContext.putImageData(data.planetData, 0, 0);
-        }
+        // Use smart rendering to handle both ImageData and WebGL canvas
+        this.renderLayerData(
+            this.overlayContext,
+            data.planetData || null,
+            data.planetWebGLCanvas || null,
+            'planet'
+        );
 
         // Then render weather overlay on top if enabled and not "off"
         if (data.overlayType && data.overlayType !== "off") {
-            // Draw the overlay imageData if it exists
-            if (data.overlayData) {
-                debugLog('OVERLAY', 'Putting overlay imageData');
-                this.overlayContext.putImageData(data.overlayData, 0, 0);
-            }
+            // Use smart rendering for overlay data
+            this.renderLayerData(
+                this.overlayContext,
+                data.overlayData || null,
+                data.overlayWebGLCanvas || null,
+                'overlay'
+            );
             
             // Draw color scale if we have overlay grid
             if (data.overlayGrid) {
+                const scaleStart = performance.now();
                 this.drawColorScale(data.overlayGrid);
+                const scaleTime = performance.now() - scaleStart;
+                debugLog('RENDER-PERF', `Color scale draw time: ${scaleTime.toFixed(2)}ms`);
             }
         }
+        
+        const totalOverlayTime = performance.now() - overlayStart;
+        debugLog('RENDER-PERF', `Total overlay render time: ${totalOverlayTime.toFixed(2)}ms`);
     }
 
     /**
@@ -377,5 +410,35 @@ export class RenderSystem {
             width: display.width, 
             height: display.height 
         });
+    }
+
+    /**
+     * Smart layer rendering - handles both ImageData (CPU) and WebGL canvas (GPU) sources
+     */
+    private renderLayerData(
+        context: CanvasRenderingContext2D,
+        imageData: ImageData | null,
+        webglCanvas: HTMLCanvasElement | null,
+        layerName: string
+    ): number {
+        const renderStart = performance.now();
+        
+        if (webglCanvas) {
+            // GPU path: Direct canvas-to-canvas copy (much faster than ImageData)
+            debugLog(layerName.toUpperCase(), `Rendering ${layerName} from WebGL canvas`);
+            context.drawImage(webglCanvas, 0, 0);
+            const renderTime = performance.now() - renderStart;
+            debugLog('RENDER-PERF', `${layerName} WebGL canvas copy time: ${renderTime.toFixed(2)}ms`);
+            return renderTime;
+        } else if (imageData) {
+            // CPU path: ImageData (slower but compatible)
+            debugLog(layerName.toUpperCase(), `Rendering ${layerName} from ImageData`);
+            context.putImageData(imageData, 0, 0);
+            const renderTime = performance.now() - renderStart;
+            debugLog('RENDER-PERF', `${layerName} putImageData time: ${renderTime.toFixed(2)}ms`);
+            return renderTime;
+        }
+        
+        return 0; // No data to render
     }
 } 
