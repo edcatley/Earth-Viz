@@ -61,6 +61,7 @@ declare module 'd3-geo-projection' {
 
 export interface Globe {
     projection: d3.GeoProjection | null;
+    projectionType: 'orthographic' | 'equirectangular' | 'azimuthal_equidistant' | 'conic_equidistant' | 'stereographic' | 'waterman' | 'winkel3' | 'atlantis';
     newProjection(view: ViewportSize): d3.GeoProjection;
     bounds(view: ViewportSize): { x: number; y: number; xMax: number; yMax: number; width: number; height: number };
     fit(view: ViewportSize): number;
@@ -323,63 +324,65 @@ export class Globes {
 
     static equirectangular(): Globe {
         return Globes.newGlobe({
-        newProjection: function() {
+            projectionType: 'equirectangular',
+            newProjection: function() {
                 const pos = Globes.currentPosition();
-            return d3.geoEquirectangular().rotate([pos[0], pos[1], 0] as [number, number, number]).precision(0.1);
-        }
+                return d3.geoEquirectangular().rotate([pos[0], pos[1], 0] as [number, number, number]).precision(0.1);
+            }
         }, Utils.view());
-}
+    }
 
     static orthographic(): Globe {
         return Globes.newGlobe({
-        newProjection: function() {
+            projectionType: 'orthographic',
+            newProjection: function() {
                 const pos = Globes.currentPosition();
-            return d3.geoOrthographic().rotate([pos[0], pos[1], 0] as [number, number, number]).precision(0.1).clipAngle(90-0.0001);
-        },
-        defineMap: function(mapSvg: any, foregroundSvg: any) {
-            const projection = this.projection;
-            if (!projection) return;
-            
-            const path = d3.geoPath().projection(projection);
-            const defs = mapSvg.append("defs");
-            const gradientFill = defs.append("radialGradient")
-                .attr("id", "orthographic-fill")
-                .attr("gradientUnits", "objectBoundingBox")
-                .attr("cx", "50%").attr("cy", "49%").attr("r", "50%");
-            gradientFill.append("stop").attr("stop-color", "#303030").attr("offset", "69%");
-            gradientFill.append("stop").attr("stop-color", "#202020").attr("offset", "91%");
-            gradientFill.append("stop").attr("stop-color", "#000005").attr("offset", "96%");
-            defs.append("path")
-                .attr("id", "sphere")
-                .datum({type: "Sphere"})
-                .attr("d", path);
-            mapSvg.append("use")
-                .attr("xlink:href", "#sphere")
-                .attr("fill", "url(#orthographic-fill)");
-            mapSvg.append("path")
-                .attr("class", "graticule")
-                .datum(d3.geoGraticule())
-                .attr("d", path);
-            mapSvg.append("path")
-                .attr("class", "hemisphere")
-                .datum(d3.geoGraticule().step([90, 90]))
-                .attr("d", path);
-            mapSvg.append("path")
-                .attr("class", "coastline");
-            mapSvg.append("path")
-                .attr("class", "lakes");
-            foregroundSvg.append("use")
-                .attr("xlink:href", "#sphere")
-                .attr("class", "foreground-sphere");
-        },
-        locate: function(coord: [number, number]): [number, number, number] | null {
-            const projection = this.projection;
-            if (!projection) return null;
-            const rotate = projection.rotate();
-            return [-coord[0], -coord[1], rotate[2]];
-        }
+                return d3.geoOrthographic().rotate([pos[0], pos[1], 0] as [number, number, number]).precision(0.1).clipAngle(90-0.0001);
+            },
+            defineMap: function(mapSvg: any, foregroundSvg: any) {
+                const projection = this.projection;
+                if (!projection) return;
+                
+                const path = d3.geoPath().projection(projection);
+                const defs = mapSvg.append("defs");
+                const gradientFill = defs.append("radialGradient")
+                    .attr("id", "orthographic-fill")
+                    .attr("gradientUnits", "objectBoundingBox")
+                    .attr("cx", "50%").attr("cy", "49%").attr("r", "50%");
+                gradientFill.append("stop").attr("stop-color", "#303030").attr("offset", "69%");
+                gradientFill.append("stop").attr("stop-color", "#202020").attr("offset", "91%");
+                gradientFill.append("stop").attr("stop-color", "#000005").attr("offset", "96%");
+                defs.append("path")
+                    .attr("id", "sphere")
+                    .datum({type: "Sphere"})
+                    .attr("d", path);
+                mapSvg.append("use")
+                    .attr("xlink:href", "#sphere")
+                    .attr("fill", "url(#orthographic-fill)");
+                mapSvg.append("path")
+                    .attr("class", "graticule")
+                    .datum(d3.geoGraticule())
+                    .attr("d", path);
+                mapSvg.append("path")
+                    .attr("class", "hemisphere")
+                    .datum(d3.geoGraticule().step([90, 90]))
+                    .attr("d", path);
+                mapSvg.append("path")
+                    .attr("class", "coastline");
+                mapSvg.append("path")
+                    .attr("class", "lakes");
+                foregroundSvg.append("use")
+                    .attr("xlink:href", "#sphere")
+                    .attr("class", "foreground-sphere");
+            },
+            locate: function(coord: [number, number]): [number, number, number] | null {
+                const projection = this.projection;
+                if (!projection) return null;
+                const rotate = projection.rotate();
+                return [-coord[0], -coord[1], rotate[2]];
+            }
         }, Utils.view());
-}
+    }
 
     static stereographic(): Globe {
         return Globes.newGlobe({
@@ -391,7 +394,7 @@ export class Globes {
                 .clipExtent([[0, 0], [view.width, view.height]]);
         }
         }, Utils.view());
-}
+    }
 
     static waterman(): Globe {
         return Globes.newGlobe({
@@ -439,7 +442,7 @@ export class Globes {
                 .attr("class", "foreground-sphere");
         }
         }, Utils.view());
-}
+    }
 
     static winkel3(): Globe {
         return Globes.newGlobe({
@@ -447,7 +450,7 @@ export class Globes {
             return d3GeoProjection.geoWinkel3().precision(0.1);
         }
         }, Utils.view());
-}
+    }
 
     // Utility methods for accessing projections
     static get(name: string): (() => Globe) | undefined {

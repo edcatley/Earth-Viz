@@ -98,33 +98,10 @@ vec2 invert(in vec2 point) {
 }
 `;
 
-// Equirectangular projection shader (main.js: H0)
-export const EQUIRECTANGULAR_PROJECTION_SHADER = `
-uniform vec2 u_translate;
-uniform float u_R;
-uniform float u_lon0;
 
-const vec2 BOUNDS = vec2(PI, PI / 2.0);
-
-/** @returns (lon, lat) in radians for the specified point (x, y), or (NIL, NIL) if the point is unprojectable. */
-vec2 invert(in vec2 point) {
-    // translate and scale
-    vec2 p = (point - u_translate) / u_R;
-    if (all(lessThanEqual(abs(p), BOUNDS))) {
-        // project
-        float lambda = p.x;
-        float phi = p.y;
-        // rotate
-        float lon = lambda - u_lon0;
-        float lat = phi;
-        return vec2(lon, lat);
-    }
-    return vec2(NIL);  // outside of projection
-}
-`;
 
 // Rotated orthographic projection shader (main.js: G0)
-export const ROTATED_ORTHOGRAPHIC_PROJECTION_SHADER = `
+export const EQUIRECTANGULAR_PROJECTION_SHADER = `
 uniform vec2 u_translate;
 uniform float u_R;
 uniform float u_lon0;
@@ -308,9 +285,7 @@ export function buildShader(config: ShaderConfig): [string, string] {
         case 'equirectangular':
             projectionShader = EQUIRECTANGULAR_PROJECTION_SHADER;
             break;
-        case 'rotated_orthographic':
-            projectionShader = ROTATED_ORTHOGRAPHIC_PROJECTION_SHADER;
-            break;
+
         default:
             throw new Error(`Unknown projection type: ${config.projectionType}`);
     }
@@ -535,6 +510,7 @@ export class WebGLSystem {
      * Create a shader program
      */
     public buildProgram(vertexSource: string, fragmentSource: string, name: string): ShaderProgram | null {
+        console.log('WebGLSystem: Building program', { vertexSource, fragmentSource, name });
         if (!this.gl) return null;
 
         const vertexShader = this.buildShader(vertexSource, this.gl.VERTEX_SHADER);
@@ -847,6 +823,9 @@ export class WebGLSystem {
             this.gl.deleteTexture(texture);
         }
         this.textures.clear();
+        
+        // Clear texture cache as well
+        this.textureCache.clear();
 
         this.gl = null;
         this.context = null;
@@ -987,13 +966,12 @@ export class WebGLSystem {
             // Reuse cached texture
             this.textures.set(name, cached.texture);
             if (this.DEBUG) {
-                console.log(`WebGLSystem: Reusing cached texture '${name}' (0ms)`);
+                console.log(`WebGLSystem: Reusing cached texture '${name}'`);
             }
             return true;
         }
         
         // Create new texture
-        const startTime = performance.now();
         const texture = this.createTexture(image, config);
         if (!texture) return false;
         
@@ -1006,11 +984,185 @@ export class WebGLSystem {
         // Store for immediate use
         this.textures.set(name, texture);
         
-        const createTime = performance.now() - startTime;
         if (this.DEBUG) {
-            console.log(`WebGLSystem: Created and cached new texture '${name}': ${createTime.toFixed(2)}ms`);
+            console.log(`WebGLSystem: Created and cached new texture '${name}'`);
         }
         
         return true;
+    }
+
+    /**
+     * High-level planet rendering - handles all WebGL complexity internally
+     */
+    public renderPlanet(image: HTMLImageElement, globe: any, view: any): boolean {
+        if (!this.gl || !this.isInitialized) return false;
+
+        try {
+            // Set texture using smart caching
+            if (!this.setTextureFromImage('u_Texture', image)) {
+                return false;
+            }
+
+            // Determine projection type from globe
+            const projectionType = this.getProjectionType(globe);
+            
+            // Build appropriate shader
+            const [vertexShader, fragmentShader] = buildShader({
+                projectionType,
+                renderType: 'texture',
+                samplingType: 'simple'
+            });
+
+            // Get projection uniforms from globe
+            const projectionUniforms = this.getProjectionUniforms(globe, view);
+
+            // Standard grid uniforms for coordinate transformation
+            const gridUniforms = {
+                u_Low: [-180.0, -90.0],  // [min_lon, min_lat] in degrees
+                u_Size: [360.0, 180.0]   // [lon_range, lat_range] in degrees
+            };
+
+            // Create layer internally
+            const planetLayer: WebGLLayer = {
+                shaderSource: [vertexShader, fragmentShader],
+                textures: {
+                    'u_Texture': {
+                        internalFormat: 6408, // GL_RGBA
+                        format: 6408, // GL_RGBA
+                        type: 5121, // GL_UNSIGNED_BYTE
+                        width: image.width,
+                        height: image.height
+                    }
+                },
+                uniforms: {
+                    u_canvasSize: [view.width, view.height],
+                    ...projectionUniforms,
+                    ...gridUniforms
+                }
+            };
+
+            // Render internally
+            return this.render([planetLayer], [view.width, view.height]);
+
+        } catch (error) {
+            if (this.DEBUG) {
+                console.error('WebGLSystem: Planet rendering failed:', error);
+            }
+            return false;
+        }
+    }
+
+    /**
+     * Determine projection type from globe object
+     */
+    private getProjectionType(globe: any): 'orthographic' | 'equirectangular' | 'rotated_orthographic' {
+        // Simply read the projectionType from the globe object
+        if (globe.projectionType) {
+            console.log('WebGLSystem: Using projection type from globe:', globe.projectionType);
+            
+            // Map known projection types to WebGL shader types
+            switch (globe.projectionType) {
+                case 'equirectangular':
+                    return 'equirectangular';
+                case 'orthographic':
+                    return 'orthographic';
+                // For now, map other projections to reasonable defaults
+                case 'azimuthal_equidistant':
+                case 'stereographic':
+                    return 'orthographic';  // Similar sphere-like projections
+                case 'conic_equidistant':
+                case 'waterman':
+                case 'winkel3':
+                case 'atlantis':
+                    return 'equirectangular';  // Flat map-like projections
+                default:
+                    console.warn('WebGLSystem: Unknown projection type:', globe.projectionType);
+                    return 'orthographic';
+            }
+        }
+        
+        console.log('WebGLSystem: No projectionType found, defaulting to orthographic');
+        return 'orthographic';
+    }
+
+    /**
+     * Normalize a value to the range [0, range)
+     * Equivalent to the qe function in main.js
+     */
+    private qe(value: number, range: number): number {
+        const normalized = value % range;
+        return normalized < 0 ? normalized + range : normalized;
+    }
+
+    /**
+     * Extract projection uniforms from globe and view
+     */
+    private getProjectionUniforms(globe: any, view: any): { [key: string]: any } {
+        const uniforms: { [key: string]: any } = {};
+        
+        // Get projection parameters
+        if (globe.projection) {
+            // Get basic D3 projection parameters
+            const rotate = globe.projection.rotate ? globe.projection.rotate() : [0, 0, 0];
+            const scale = globe.projection.scale ? globe.projection.scale() : 150;
+            const translate = globe.projection.translate ? globe.projection.translate() : [view.width / 2, view.height / 2];
+            
+            // Determine projection type and compute specific uniforms
+            const projectionType = this.getProjectionType(globe);
+            console.log('projectionType', projectionType);
+            
+            if (projectionType === 'orthographic') {
+                // Implement the EXACT pole-crossing logic from Ws function in main.js (lines 7447-7507)
+                let λ0 = rotate[0];  // longitude rotation (degrees)
+                let φ0 = rotate[1];  // latitude rotation (degrees)
+                let γ0 = rotate[2];  // gamma rotation (degrees)
+                
+                // Pole-crossing transformation logic from main.js Ws function
+                let i = this.qe(φ0 + 90, 360);
+                let flip = 180 < i ? -1 : 1;
+                
+                if (flip < 0) {
+                    // Crossing pole - adjust coordinates
+                    φ0 = 270 - i;
+                    λ0 += 180;
+                } else {
+                    φ0 = i - 90;
+                }
+                
+                // Convert to radians
+                φ0 *= Math.PI / 180;
+                λ0 = (this.qe(λ0 + 180, 360) - 180) * Math.PI / 180;
+                
+                // Calculate derived values
+                const sinlat0 = Math.sin(-φ0);
+                const coslat0 = Math.cos(-φ0);
+                
+                // Orthographic projection uniforms (exactly matching Ws function)
+                uniforms.u_translate = translate;
+                uniforms.u_R2 = scale * scale;
+                uniforms.u_lon0 = -λ0;
+                uniforms.u_sinlat0 = sinlat0;
+                uniforms.u_Rcoslat0 = scale * coslat0;
+                uniforms.u_coslat0dR = coslat0 / scale;
+                uniforms.u_flip = flip;
+                
+            } else {
+                // Convert to radians
+                const λ0 = rotate[0] * Math.PI / 180;  // longitude rotation
+                const φ0 = rotate[1] * Math.PI / 180;  // latitude rotation
+                
+                // Rotated orthographic or other projections
+                uniforms.u_translate = translate;
+                uniforms.u_R = scale;
+                uniforms.u_lon0 = -λ0;  // Negate longitude to match D3 behavior
+                uniforms.u_sinlat0 = Math.sin(-φ0);
+                uniforms.u_coslat0 = Math.cos(-φ0);
+                // For rotated orthographic, we'd need gamma rotation too
+                uniforms.u_singam0 = Math.sin(rotate[2] * Math.PI / 180);
+                uniforms.u_cosgam0 = Math.cos(rotate[2] * Math.PI / 180);
+            }
+        }
+        
+        return uniforms;
     }
 } 

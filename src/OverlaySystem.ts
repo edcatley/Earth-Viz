@@ -10,6 +10,7 @@
 
 import * as d3 from 'd3';
 import { Utils } from './utils/Utils';
+import { WebGLSystem, WebGLLayer, buildShader } from './services/WebGLSystem';
 
 // Debug logging
 function debugLog(category: string, message: string, data?: any): void {
@@ -24,13 +25,19 @@ const OVERLAY_ALPHA = Math.floor(0.4 * 255); // overlay transparency (on scale [
 export interface OverlayResult {
     imageData: ImageData | null;
     overlayType: string;
-    overlayProduct: any; // Include the product for scale information
+    overlayProduct: any;
+    webglCanvas?: HTMLCanvasElement | null;  // WebGL canvas for GPU acceleration
 }
 
 export class OverlaySystem {
-    private canvas: HTMLCanvasElement;
-    private ctx: CanvasRenderingContext2D;
+    private canvas: HTMLCanvasElement;  // 2D canvas for ImageData operations
+    private ctx: CanvasRenderingContext2D | null = null;
+    private webglCanvas: HTMLCanvasElement | null = null;  // Invisible WebGL canvas
     private overlayImageData: ImageData | null = null;
+    
+    // WebGL system for GPU acceleration
+    private webglSystem: WebGLSystem | null = null;
+    private useWebGL: boolean = false;
     
     // External state references (we observe these)
     private stateProvider: any = null;
@@ -39,13 +46,62 @@ export class OverlaySystem {
     private eventHandlers: { [key: string]: Function[] } = {};
     
     constructor() {
-        // Create canvas and context once - reuse for all overlay generation
+        // Create 2D canvas for ImageData operations
         this.canvas = document.createElement("canvas");
         const ctx = this.canvas.getContext("2d");
         if (!ctx) {
-            throw new Error("Failed to create canvas context for OverlaySystem");
+            throw new Error("Failed to create 2D canvas context for OverlaySystem");
         }
         this.ctx = ctx;
+        
+        // Try to initialize WebGL system with separate canvas
+        this.initializeWebGL();
+    }
+    
+    /**
+     * Initialize WebGL system with testing
+     */
+    private initializeWebGL(): void {
+        debugLog('OVERLAY-WEBGL', 'Attempting to initialize WebGL system');
+        
+        try {
+            // Create separate invisible canvas for WebGL
+            this.webglCanvas = document.createElement("canvas");
+            
+            this.webglSystem = new WebGLSystem();
+            const webglInitialized = this.webglSystem.initialize(this.webglCanvas);
+            
+            if (webglInitialized) {
+                // Test WebGL with a simple render
+                const testResult = this.webglSystem.testRender([512, 512]);
+                
+                if (testResult.success) {
+                    this.useWebGL = true;
+                    debugLog('OVERLAY-WEBGL', `WebGL test passed! Render time: ${testResult.renderTime.toFixed(2)}ms`);
+                    debugLog('OVERLAY-WEBGL', 'WebGL acceleration enabled for overlays');
+                } else {
+                    debugLog('OVERLAY-WEBGL', `WebGL test failed: ${testResult.error}`);
+                    this.webglSystem.dispose();
+                    this.webglSystem = null;
+                    this.webglCanvas = null;
+                }
+            } else {
+                debugLog('OVERLAY-WEBGL', 'WebGL initialization failed');
+                this.webglSystem = null;
+                this.webglCanvas = null;
+            }
+        } catch (error) {
+            debugLog('OVERLAY-WEBGL', 'WebGL setup error:', error);
+            if (this.webglSystem) {
+                this.webglSystem.dispose();
+                this.webglSystem = null;
+            }
+            this.webglCanvas = null;
+        }
+        
+        if (!this.useWebGL) {
+            debugLog('OVERLAY-WEBGL', 'Falling back to 2D canvas rendering for overlays');
+        }
     }
     
     /**
@@ -115,7 +171,7 @@ export class OverlaySystem {
     }
     
     /**
-     * Internal overlay generation (same logic as before)
+     * Internal overlay generation with WebGL support
      */
     private generateOverlay(
         overlayProduct: any,
@@ -124,13 +180,13 @@ export class OverlaySystem {
         view: ViewportSize,
         overlayType: string
     ): OverlayResult {
+        debugLog('OVERLAY', `Generating ${overlayType} overlay`);
+        
         // No overlay requested
         if (!overlayProduct || !overlayType || overlayType === "off") {
             debugLog('GENERATE', 'No overlay requested');
-            return { imageData: null, overlayType, overlayProduct: null };
+            return { imageData: null, overlayType, overlayProduct: null, webglCanvas: null };
         }
-
-        debugLog('GENERATE', `Generating ${overlayType} overlay`);
         
         // DEBUG: Log overlay product details
         if (overlayProduct.scale) {
@@ -140,14 +196,39 @@ export class OverlaySystem {
         
         const bounds = globe.bounds(view);
         
-        // Resize canvas if needed and create/reuse ImageData
+        // Resize canvases if needed
         if (this.canvas.width !== view.width || this.canvas.height !== view.height) {
             this.canvas.width = view.width;
             this.canvas.height = view.height;
             this.overlayImageData = null; // Force recreation
+            
+            // Also resize WebGL canvas if using WebGL
+            if (this.useWebGL && this.webglCanvas) {
+                this.webglCanvas.width = view.width;
+                this.webglCanvas.height = view.height;
+            }
         }
         
+        // Try WebGL rendering first
+        if (this.useWebGL && this.webglSystem && this.webglCanvas && overlayProduct.scale) {
+            debugLog('OVERLAY-WEBGL', 'Using WebGL rendering path for overlay');
+            
+            try {
+                // TODO: Implement WebGL overlay rendering
+                // For now, fall back to 2D rendering
+                debugLog('OVERLAY-WEBGL', 'WebGL overlay rendering not implemented yet, falling back to 2D');
+            } catch (error) {
+                debugLog('OVERLAY-WEBGL', 'WebGL overlay rendering failed, falling back to 2D:', error);
+            }
+        }
+        
+        // 2D fallback rendering (existing logic)
+        debugLog('OVERLAY', 'Using 2D canvas rendering for overlay');
+        
         if (!this.overlayImageData) {
+            if (!this.ctx) {
+                throw new Error("2D context not available for overlay generation");
+            }
             this.overlayImageData = this.ctx.createImageData(view.width, view.height);
         }
         
@@ -171,24 +252,18 @@ export class OverlaySystem {
                                 // Handle both scalar and vector products
                                 let rawValue: number;
                             
-                                    // Scalar product (temperature, humidity, etc.) - use value directly
+                                // Scalar product (temperature, humidity, etc.) - use value directly
                                 rawValue = overlayValue;
-                                
                                 
                                 // Skip if no valid value
                                 if (rawValue == null || !isFinite(rawValue)) {
                                     continue;
                                 }
-
                                 
                                 // Convert value to color
                                 const overlayColor = overlayProduct.scale.gradient(rawValue, OVERLAY_ALPHA);
                                 
-
-                                
                                 if (overlayColor && overlayColor.length >= 3) {
-
-                                    
                                     // Store color in 2x2 pixel block (matching original behavior)
                                     this.setPixelColor(overlayData, view.width, x, y, overlayColor);
                                     this.setPixelColor(overlayData, view.width, x+1, y, overlayColor);
@@ -205,7 +280,8 @@ export class OverlaySystem {
         return {
             imageData: this.overlayImageData,
             overlayType,
-            overlayProduct
+            overlayProduct,
+            webglCanvas: null  // Will be WebGL canvas when implemented
         };
     }
     
@@ -225,6 +301,26 @@ export class OverlaySystem {
             data[i + 1] = rgba[1] || 0; // green
             data[i + 2] = rgba[2] || 0; // blue
             data[i + 3] = rgba[3] || 0; // alpha
+        }
+    }
+    
+    /**
+     * Reinitialize WebGL system - call when projection changes
+     * Completely disposes and recreates the WebGL system for clean state
+     */
+    public reinitializeWebGL(): void {
+        if (this.webglSystem) {
+            debugLog('OVERLAY-WEBGL', 'Reinitializing WebGL system due to projection change');
+            
+            // Dispose the old WebGL system completely
+            this.webglSystem.dispose();
+            this.webglSystem = null;
+            this.useWebGL = false;
+            
+            // Recreate WebGL system from scratch
+            this.initializeWebGL();
+            
+            debugLog('OVERLAY-WEBGL', `WebGL reinitialization complete. Using WebGL: ${this.useWebGL}`);
         }
     }
 } 

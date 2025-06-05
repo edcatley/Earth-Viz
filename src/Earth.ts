@@ -74,6 +74,7 @@ class EarthModernApp {
     private overlayProduct: any = null;
     private particleProduct: any = null;
     private overlayData: ImageData | null = null;
+    private overlayWebGLCanvas: HTMLCanvasElement | null = null;
     
     // Planet data - support both CPU and GPU paths
     private planetData: ImageData | null = null;
@@ -137,6 +138,7 @@ class EarthModernApp {
         this.overlaySystem.observeState(this);
         this.overlaySystem.on('overlayChanged', (result: any) => {
             this.overlayData = result.imageData;
+            this.overlayWebGLCanvas = result.webglCanvas;
             this.overlayProduct = result.overlayProduct;
             this.emit('overlayChanged');
         });
@@ -180,6 +182,7 @@ class EarthModernApp {
             overlayGrid: this.overlayProduct, // Use stored overlay product
             overlayType: this.config.overlayType,
             overlayData: this.overlayData,
+            overlayWebGLCanvas: this.overlayWebGLCanvas,
             planetData: this.planetData,
             planetWebGLCanvas: this.planetWebGLCanvas
         });

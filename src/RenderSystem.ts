@@ -227,43 +227,56 @@ export class RenderSystem {
             return;
         }
 
-        // Clear overlay canvas
-        const clearStart = performance.now();
-        Utils.clearCanvas(this.overlayCanvas!);
+        // Try full WebGL composition first
+        const webglComposed = this.renderFullWebGLComposition(data);
         
-        // Clear scale canvas
-        if (this.scaleCanvas) {
-            Utils.clearCanvas(this.scaleCanvas);
-        }
-        const clearTime = performance.now() - clearStart;
-        debugLog('RENDER-PERF', `Canvas clear time: ${clearTime.toFixed(2)}ms`);
+        if (!webglComposed) {
+            // Fall back to smart layer rendering
+            debugLog('OVERLAY', 'Using smart layer rendering fallback');
+            
+            // Clear overlay canvas
+            const clearStart = performance.now();
+            Utils.clearCanvas(this.overlayCanvas!);
+            
+            // Clear scale canvas
+            if (this.scaleCanvas) {
+                Utils.clearCanvas(this.scaleCanvas);
+            }
+            const clearTime = performance.now() - clearStart;
+            debugLog('RENDER-PERF', `Canvas clear time: ${clearTime.toFixed(2)}ms`);
 
-        // First, render planet surface data if available (background layer)
-        // Use smart rendering to handle both ImageData and WebGL canvas
-        this.renderLayerData(
-            this.overlayContext,
-            data.planetData || null,
-            data.planetWebGLCanvas || null,
-            'planet'
-        );
-
-        // Then render weather overlay on top if enabled and not "off"
-        if (data.overlayType && data.overlayType !== "off") {
-            // Use smart rendering for overlay data
+            // First, render planet surface data if available (background layer)
+            // Use smart rendering to handle both ImageData and WebGL canvas
             this.renderLayerData(
                 this.overlayContext,
-                data.overlayData || null,
-                data.overlayWebGLCanvas || null,
-                'overlay'
+                data.planetData || null,
+                data.planetWebGLCanvas || null,
+                'planet'
             );
-            
-            // Draw color scale if we have overlay grid
-            if (data.overlayGrid) {
-                const scaleStart = performance.now();
-                this.drawColorScale(data.overlayGrid);
-                const scaleTime = performance.now() - scaleStart;
-                debugLog('RENDER-PERF', `Color scale draw time: ${scaleTime.toFixed(2)}ms`);
+
+            // Then render weather overlay on top if enabled and not "off"
+            if (data.overlayType && data.overlayType !== "off") {
+                // Use smart rendering for overlay data
+                this.renderLayerData(
+                    this.overlayContext,
+                    data.overlayData || null,
+                    data.overlayWebGLCanvas || null,
+                    'overlay'
+                );
             }
+        }
+        
+        // Draw color scale if we have overlay grid (always needed)
+        if (data.overlayGrid && data.overlayType && data.overlayType !== "off") {
+            // Clear scale canvas
+            if (this.scaleCanvas) {
+                Utils.clearCanvas(this.scaleCanvas);
+            }
+            
+            const scaleStart = performance.now();
+            this.drawColorScale(data.overlayGrid);
+            const scaleTime = performance.now() - scaleStart;
+            debugLog('RENDER-PERF', `Color scale draw time: ${scaleTime.toFixed(2)}ms`);
         }
         
         const totalOverlayTime = performance.now() - overlayStart;
@@ -440,5 +453,51 @@ export class RenderSystem {
         }
         
         return 0; // No data to render
+    }
+
+    /**
+     * Full WebGL composition - combines multiple WebGL canvases directly for maximum performance
+     */
+    private renderFullWebGLComposition(data: RenderData): boolean {
+        if (!this.overlayContext) return false;
+        
+        const hasWebGLPlanet = data.planetWebGLCanvas;
+        const hasWebGLOverlay = data.overlayWebGLCanvas;
+        
+        // Only use full WebGL composition if we have at least one WebGL canvas
+        if (!hasWebGLPlanet && !hasWebGLOverlay) {
+            return false;
+        }
+        
+        debugLog('WEBGL-COMPOSITION', 'Using full WebGL composition pipeline');
+        const compositeStart = performance.now();
+        
+        // Clear overlay canvas
+        Utils.clearCanvas(this.overlayCanvas!);
+        
+        // Layer 1: Planet surface (background)
+        if (hasWebGLPlanet) {
+            debugLog('WEBGL-COMPOSITION', 'Compositing planet WebGL canvas');
+            this.overlayContext.drawImage(data.planetWebGLCanvas!, 0, 0);
+        } else if (data.planetData) {
+            debugLog('WEBGL-COMPOSITION', 'Falling back to planet ImageData');
+            this.overlayContext.putImageData(data.planetData, 0, 0);
+        }
+        
+        // Layer 2: Weather overlay (foreground)
+        if (data.overlayType && data.overlayType !== "off") {
+            if (hasWebGLOverlay) {
+                debugLog('WEBGL-COMPOSITION', 'Compositing overlay WebGL canvas');
+                this.overlayContext.drawImage(data.overlayWebGLCanvas!, 0, 0);
+            } else if (data.overlayData) {
+                debugLog('WEBGL-COMPOSITION', 'Falling back to overlay ImageData');
+                this.overlayContext.putImageData(data.overlayData, 0, 0);
+            }
+        }
+        
+        const compositeTime = performance.now() - compositeStart;
+        debugLog('RENDER-PERF', `Full WebGL composition time: ${compositeTime.toFixed(2)}ms`);
+        
+        return true;
     }
 } 
