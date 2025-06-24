@@ -76,7 +76,7 @@ export class OverlaySystem {
                 const testResult = this.webglSystem.testRender([512, 512]);
                 
                 if (testResult.success) {
-                    this.useWebGL = true;
+                    //this.useWebGL = true;
                     debugLog('OVERLAY-WEBGL', `WebGL test passed! Render time: ${testResult.renderTime.toFixed(2)}ms`);
                     debugLog('OVERLAY-WEBGL', 'WebGL acceleration enabled for overlays');
                 } else {
@@ -213,12 +213,37 @@ export class OverlaySystem {
         if (this.useWebGL && this.webglSystem && this.webglCanvas && overlayProduct.scale) {
             debugLog('OVERLAY-WEBGL', 'Using WebGL rendering path for overlay');
             
+            // Debug: Log what we're passing to WebGL
+            console.log('[OVERLAY-DEBUG] About to call WebGL renderOverlay with:', {
+                overlayProduct,
+                hasInterpolate: typeof overlayProduct.interpolate === 'function',
+                hasScale: !!overlayProduct.scale,
+                scaleBounds: overlayProduct.scale?.bounds,
+                overlayType
+            });
+            
             try {
-                // TODO: Implement WebGL overlay rendering
-                // For now, fall back to 2D rendering
-                debugLog('OVERLAY-WEBGL', 'WebGL overlay rendering not implemented yet, falling back to 2D');
+                // Use WebGL system to render overlay data - similar to planet rendering
+                const renderSuccess = this.webglSystem.renderOverlay(overlayProduct, globe, view);
+                
+                if (renderSuccess) {
+                    debugLog('OVERLAY-WEBGL', 'WebGL overlay rendering completed successfully');
+                    
+                    // Return WebGL canvas directly - no ImageData conversion needed!
+                    return {
+                        imageData: null,  // No ImageData when using WebGL
+                        overlayType,
+                        overlayProduct,
+                        webglCanvas: this.webglCanvas
+                    };
+                } else {
+                    debugLog('OVERLAY-WEBGL', 'WebGL overlay rendering failed, falling back to 2D');
+                    // Fall through to 2D rendering
+                }
+                
             } catch (error) {
                 debugLog('OVERLAY-WEBGL', 'WebGL overlay rendering failed, falling back to 2D:', error);
+                // Fall through to 2D rendering
             }
         }
         

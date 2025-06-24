@@ -327,8 +327,6 @@ export function buildShader(config: ShaderConfig): [string, string] {
         // Data rendering with colorization
         uniforms = `
             uniform sampler2D u_DataTexture;
-            uniform sampler2D u_Palette;
-            uniform vec2 u_Range;
             uniform vec2 u_canvasSize;
         `;
         
@@ -340,7 +338,8 @@ export function buildShader(config: ShaderConfig): [string, string] {
                 if (coord.x == NIL || coord.y == NIL) {
                     discard;
                 }
-                
+                // Convert from radians to degrees for grid function
+                vec2 coordDegrees = coord * 180.0 / PI;
                 vec2 texCoord = grid(coord);
                 float value = lookup(texCoord);
                 
@@ -407,23 +406,16 @@ export class WebGLSystem {
     private DEBUG = false;
     
     // Texture caching by image source
-    private textureCache: Map<string, { texture: WebGLTexture; timestamp: number }> = new Map();
+    private textureCache: Map<string, { texture: WebGLTexture; timestamp: number; bounds?: any }> = new Map();
 
     constructor() {
         this.DEBUG = !!(window as any).DEBUG;
-        if (this.DEBUG) {
-            console.log('WebGLSystem: Constructor called');
-        }
     }
 
     /**
      * Initialize WebGL context and capabilities
      */
     public initialize(canvas: HTMLCanvasElement): boolean {
-        if (this.DEBUG) {
-            console.log('WebGLSystem: Initializing WebGL context');
-        }
-
         try {
             // Store canvas reference
             this.canvas = canvas;
@@ -460,14 +452,6 @@ export class WebGLSystem {
             this.gl.blendFunc(this.gl.SRC_ALPHA, this.gl.ONE_MINUS_SRC_ALPHA);
 
             this.isInitialized = true;
-            
-            if (this.DEBUG) {
-                console.log('WebGLSystem: Initialized successfully', {
-                    isWebGL2,
-                    maxTextureSize: this.context.maxTextureSize,
-                    extensions: Object.keys(extensions)
-                });
-            }
 
             return true;
         } catch (error) {
@@ -1164,5 +1148,286 @@ export class WebGLSystem {
         }
         
         return uniforms;
+    }
+
+    /**
+     * High-level overlay rendering - handles weather data interpolation and coloring
+     */
+    public renderOverlay(overlayProduct: any, globe: any, view: any): boolean {
+        if (!this.gl || !this.isInitialized || !overlayProduct || !overlayProduct.scale) {
+            return false;
+        }
+
+        try {
+            // Upload weather data to GPU as texture
+            const weatherDataResult = this.createWeatherDataTexture(overlayProduct);
+            if (!weatherDataResult || !weatherDataResult.texture) {
+                console.warn('WebGL overlay: Failed to create weather data texture, falling back to CPU');
+                return false;
+            }
+            
+            // Store weather data texture
+            this.textures.set('u_DataTexture', weatherDataResult.texture);
+
+            // Create gradient texture from overlay product's color scale
+            const gradientTexture = this.createGradientTexture(overlayProduct.scale);
+            if (!gradientTexture) {
+                return false;
+            }
+            
+            // Store gradient texture
+            this.textures.set('u_Palette', gradientTexture);
+
+            // Determine projection type from globe
+            const projectionType = this.getProjectionType(globe);
+            
+            // Build shader for data overlay rendering
+            const [vertexShader, fragmentShader] = buildShader({
+                projectionType,
+                renderType: 'data',  // We're rendering data values, not textures
+                samplingType: 'interpolated'  // Interpolated weather data
+            });
+
+            // Get projection uniforms from globe
+            const projectionUniforms = this.getProjectionUniforms(globe, view);
+
+            // Grid uniforms for weather data bounds (use actual data bounds)
+            const dataBounds = weatherDataResult.bounds;
+            const gridUniforms = {
+                u_Low: [dataBounds.west, dataBounds.south],
+                u_Size: [dataBounds.east - dataBounds.west, dataBounds.north - dataBounds.south],
+                u_TextureSize: [dataBounds.width, dataBounds.height]  // For interpolated sampling
+            };
+
+            // Color scale uniforms
+            const [minValue, maxValue] = overlayProduct.scale.bounds;
+            const colorUniforms = {
+                u_Range: [minValue, maxValue - minValue],  // [min, size] format for shader
+                u_Alpha: 0.4  // Overlay transparency
+            };
+
+            // Create layer for overlay rendering
+            const overlayLayer: WebGLLayer = {
+                shaderSource: [vertexShader, fragmentShader],
+                textures: {
+                    'u_DataTexture': {
+                        internalFormat: this.context?.isWebGL2 ? 33326 : 6408, // R32F or RGBA
+                        format: this.context?.isWebGL2 ? 6403 : 6408, // RED or RGBA
+                        type: this.context?.isWebGL2 ? 5126 : 5121, // FLOAT or UNSIGNED_BYTE
+                        width: dataBounds.width,
+                        height: dataBounds.height
+                    },
+                    'u_Palette': {
+                        internalFormat: 6408, // GL_RGBA
+                        format: 6408, // GL_RGBA
+                        type: 5121, // GL_UNSIGNED_BYTE
+                        width: 256,  // Gradient texture width
+                        height: 1    // Gradient texture height
+                    }
+                },
+                uniforms: {
+                    u_canvasSize: [view.width, view.height],
+                    ...projectionUniforms,
+                    ...gridUniforms,
+                    ...colorUniforms
+                }
+            };
+
+            console.log('WebGL overlay: Rendering with actual weather data', {
+                dataBounds,
+                colorRange: overlayProduct.scale.bounds,
+                gridSize: [dataBounds.width, dataBounds.height]
+            });
+            
+            // Render the overlay with actual weather data
+            return this.render([overlayLayer], [view.width, view.height]);
+
+        } catch (error) {
+            if (this.DEBUG) {
+                console.error('WebGLSystem: Overlay rendering failed:', error);
+            }
+            return false;
+        }
+    }
+
+    /**
+     * Convert weather data grid to GPU texture format using forEachPoint
+     */
+    private createWeatherDataTexture(overlayProduct: any): { texture: WebGLTexture | null, bounds: any } | null {
+        if (!this.gl || !overlayProduct) return null;
+
+        // Check if we have the forEachPoint method which indicates a loaded grid
+        if (!overlayProduct.forEachPoint || typeof overlayProduct.forEachPoint !== 'function') {
+            console.warn('WebGL overlay: overlayProduct missing forEachPoint method, cannot extract grid data');
+            return null;
+        }
+
+        // Generate cache key from overlay product properties
+        const cacheKey = `weather_${overlayProduct.type || 'unknown'}_${overlayProduct.date?.getTime() || 'nodate'}_${overlayProduct.field || 'scalar'}`;
+        
+        // Check if we already have this weather data cached
+        const cached = this.textureCache.get(cacheKey);
+        if (cached) {
+            console.log('WebGL overlay: Reusing cached weather data texture');
+            return {
+                texture: cached.texture,
+                bounds: (cached as any).bounds // Store bounds in cache metadata
+            };
+        }
+
+        console.log('WebGL overlay: Extracting grid data using forEachPoint method');
+
+        // First pass: determine grid bounds and collect all data points
+        const dataPoints: Array<{ lon: number; lat: number; value: number }> = [];
+        let minLon = Infinity, maxLon = -Infinity;
+        let minLat = Infinity, maxLat = -Infinity;
+        let minValue = Infinity, maxValue = -Infinity;
+
+        // Use forEachPoint to collect all data
+        overlayProduct.forEachPoint((lon: number, lat: number, value: any) => {
+            // Handle both scalar and vector values
+            const scalarValue = Array.isArray(value) ? value[0] : value;
+            
+            if (scalarValue != null && isFinite(scalarValue)) {
+                dataPoints.push({ lon, lat, value: scalarValue });
+                
+                minLon = Math.min(minLon, lon);
+                maxLon = Math.max(maxLon, lon);
+                minLat = Math.min(minLat, lat);
+                maxLat = Math.max(maxLat, lat);
+                minValue = Math.min(minValue, scalarValue);
+                maxValue = Math.max(maxValue, scalarValue);
+            }
+        });
+
+        if (dataPoints.length === 0) {
+            console.warn('WebGL overlay: No valid data points found');
+            return null;
+        }
+
+        console.log('WebGL overlay: Collected data points', {
+            count: dataPoints.length,
+            lonRange: [minLon, maxLon],
+            latRange: [minLat, maxLat],
+            valueRange: [minValue, maxValue]
+        });
+
+        // Determine grid dimensions from the data points
+        // Find unique longitude and latitude values to determine grid size
+        const uniqueLons = [...new Set(dataPoints.map(p => p.lon))].sort((a, b) => a - b);
+        const uniqueLats = [...new Set(dataPoints.map(p => p.lat))].sort((a, b) => b - a); // Descending for lat
+
+        const width = uniqueLons.length;
+        const height = uniqueLats.length;
+
+        console.log('WebGL overlay: Grid dimensions', { width, height });
+
+        if (width === 0 || height === 0) {
+            console.warn('WebGL overlay: Invalid grid dimensions');
+            return null;
+        }
+
+        // Create lookup maps for fast indexing
+        const lonIndexMap = new Map<number, number>();
+        const latIndexMap = new Map<number, number>();
+        
+        uniqueLons.forEach((lon, i) => lonIndexMap.set(lon, i));
+        uniqueLats.forEach((lat, i) => latIndexMap.set(lat, i));
+
+        // Create grid data array
+        const gridData = new Float32Array(width * height);
+        gridData.fill(NIL); // Initialize with NIL values
+
+        // Fill grid with actual data
+        for (const point of dataPoints) {
+            const x = lonIndexMap.get(point.lon);
+            const y = latIndexMap.get(point.lat);
+            
+            if (x !== undefined && y !== undefined) {
+                const index = y * width + x;
+                gridData[index] = point.value;
+            }
+        }
+
+        // Create WebGL texture
+        const texture = this.gl.createTexture();
+        if (!texture) return null;
+
+        this.gl.bindTexture(this.gl.TEXTURE_2D, texture);
+        this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_WRAP_S, this.gl.CLAMP_TO_EDGE);
+        this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_WRAP_T, this.gl.CLAMP_TO_EDGE);
+        this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_MIN_FILTER, this.gl.LINEAR);
+        this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_MAG_FILTER, this.gl.LINEAR);
+
+        // Upload texture data
+        if (this.context?.isWebGL2) {
+            // Use R32F format for WebGL2
+            this.gl.texImage2D(this.gl.TEXTURE_2D, 0, (this.gl as WebGL2RenderingContext).R32F, 
+                             width, height, 0, (this.gl as WebGL2RenderingContext).RED, this.gl.FLOAT, gridData);
+        } else {
+            // Fallback to RGBA packing for WebGL1
+            const rgbaData = this.packFloatToRGBA(gridData);
+            this.gl.texImage2D(this.gl.TEXTURE_2D, 0, this.gl.RGBA, 
+                             width, height, 0, this.gl.RGBA, this.gl.UNSIGNED_BYTE, rgbaData);
+        }
+
+        const bounds = {
+            west: minLon,
+            east: maxLon,
+            south: minLat,
+            north: maxLat,
+            width,
+            height
+        };
+
+        // Cache the texture with bounds metadata
+        this.textureCache.set(cacheKey, {
+            texture,
+            timestamp: Date.now(),
+            bounds // Store bounds as metadata for reuse
+        } as any);
+
+        console.log('WebGL overlay: Successfully created and cached weather data texture', {
+            cacheKey,
+            width,
+            height,
+            dataPoints: gridData.length,
+            validPoints: dataPoints.length,
+            valueRange: [minValue, maxValue]
+        });
+
+        return { texture, bounds };
+    }
+
+    /**
+     * Pack float values into RGBA bytes for WebGL1 compatibility
+     */
+    private packFloatToRGBA(floatData: Float32Array): Uint8Array {
+        const rgbaData = new Uint8Array(floatData.length * 4);
+        
+        for (let i = 0; i < floatData.length; i++) {
+            const value = floatData[i];
+            const baseIndex = i * 4;
+            
+            if (value === NIL) {
+                // Special encoding for NIL values
+                rgbaData[baseIndex] = 255;     // R = 255 indicates NIL
+                rgbaData[baseIndex + 1] = 0;   // G
+                rgbaData[baseIndex + 2] = 0;   // B  
+                rgbaData[baseIndex + 3] = 0;   // A
+            } else {
+                // Pack float into 3 bytes (RGB), use A for sign
+                const absValue = Math.abs(value);
+                const sign = value < 0 ? 0 : 255;
+                
+                const scaled = Math.min(absValue * 65535, 16777215); // 24-bit max
+                rgbaData[baseIndex] = (scaled >> 16) & 255;     // R - high byte
+                rgbaData[baseIndex + 1] = (scaled >> 8) & 255;  // G - mid byte
+                rgbaData[baseIndex + 2] = scaled & 255;         // B - low byte
+                rgbaData[baseIndex + 3] = sign;                 // A - sign
+            }
+        }
+        
+        return rgbaData;
     }
 } 

@@ -7,12 +7,9 @@ import * as d3 from 'd3';
 import { Utils } from './utils/Utils';
 import { Globe, DisplayOptions, Point, GeoPoint, ViewportSize } from './Globes';
 
-// Debug logging
-const DEBUG = true;
+// Debug logging - disabled
 function debugLog(section: string, message: string, data?: any): void {
-    if (DEBUG) {
-        console.log(`[RENDER-SYSTEM] ${section}: ${message}`, data || '');
-    }
+    // Disabled to reduce console noise
 }
 
 // Constants from original

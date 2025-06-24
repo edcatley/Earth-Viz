@@ -70,6 +70,9 @@ class EarthModernApp {
     // Mesh data (loaded once)
     private mesh: any = null;
     
+    // Mask data (regenerated when globe changes)
+    private mask: any = null;
+    
     // Weather data - cleanly separated
     private overlayProduct: any = null;
     private particleProduct: any = null;
@@ -96,6 +99,7 @@ class EarthModernApp {
         this.overlaySystem = new OverlaySystem();
         this.planetSystem = new PlanetSystem();
         this.inputHandler = new InputHandler();
+        this.particleSystem = new ParticleSystem();
         this.renderSystem = new RenderSystem({ 
             width: this.view.width, 
             height: this.view.height,
@@ -121,11 +125,14 @@ class EarthModernApp {
         
         // 2. Input changes → Globe manipulation
         this.inputHandler.on('zoomStart', () => this.stopAnimation());
-        this.inputHandler.on('zoom', () => {
-            // Globe is changing - emit globe changed event
-            this.emit('globeChanged');
+        // this.inputHandler.on('zoom', () => {
+        //     // Globe is changing - emit globe changed event
+        //     this.emit('globeChanged');
+        // });
+        this.inputHandler.on('zoomEnd', () => {
+            this.handleGlobeChange();
+            this.emit('zoomEnd');
         });
-        this.inputHandler.on('zoomEnd', () => this.handleGlobeChange());
         this.inputHandler.on('click', (point, coord) => {
             if (coord) {
                 this.renderSystem.drawLocationMark(point, coord);
@@ -151,7 +158,13 @@ class EarthModernApp {
             this.emit('planetChanged');
         });
         
-        // 5. ParticleSystem → Reactive particle updates (handled in initializeSystems)
+        // 5. ParticleSystem → Pure observer of state changes
+        if (this.particleSystem) {
+            this.particleSystem.observeState(this);
+            this.particleSystem.on('particlesEvolved', (buckets, colorStyles, globe) => {
+                this.renderSystem.drawParticles(buckets, colorStyles, globe);
+            });
+        }
         
         // 6. Subscribe RenderSystem to actual visual state changes
         this.setupRenderSubscriptions();
@@ -162,11 +175,19 @@ class EarthModernApp {
      */
     private setupRenderSubscriptions(): void {
         // Any visual state change just triggers a render of current state
-        this.on('globeChanged', () => this.performRender());
+
         this.on('overlayChanged', () => this.performRender());
         this.on('planetChanged', () => this.performRender());
         this.on('meshChanged', () => this.performRender());
         this.on('systemsReady', () => this.performRender());
+        
+        this.on('globeChanged', () => {
+            if (this.globe) {
+                this.mask = Utils.createMask(this.globe, this.view);
+                // Emit maskChanged after mask is updated
+                this.emit('maskChanged');
+            }
+        });
     }
 
     /**
@@ -223,17 +244,17 @@ class EarthModernApp {
             // Load weather data
             await this.loadWeatherData();
             
-            // Initialize systems that need data
-            this.initializeSystems();
-            
             // Setup rendering
             this.renderSystem.setupCanvases();
+            
+            // Update menu to reflect initial configuration
+            this.menuSystem.updateMenuState(this.config);
             
             // Everything ready - emit event
             this.emit('systemsReady');
             
             // Start animation
-                this.startAnimation();
+            this.startAnimation();
             
             console.log('[EARTH-MODERN] Application started successfully');
             
@@ -289,8 +310,8 @@ class EarthModernApp {
         // Update globe if projection changed
         if (changes.projection) {
             this.createGlobe();
-            // Globe changed - emit event (observers will automatically respond)
-            if (this.globe) this.emit('globeChanged');
+            // Handle globe change (will emit globeChanged and update mask)
+            this.handleGlobeChange();
         }
         
         // Emit config changed event (observers will automatically respond)
@@ -302,7 +323,6 @@ class EarthModernApp {
                 // Weather data changed - emit event (observers will automatically respond)
                 this.emit('weatherDataChanged');
                 // Reinitialize systems after data loads
-                this.initializeSystems();
                 // Systems ready - emit event
                 this.emit('systemsReady');
                 this.startAnimation();
@@ -311,7 +331,7 @@ class EarthModernApp {
             });
         } else {
             // No data reload needed, just reinitialize
-            this.initializeSystems();
+
             // Systems ready - emit event
             this.emit('systemsReady');
             this.startAnimation();
@@ -326,14 +346,8 @@ class EarthModernApp {
         
         if (!this.globe) return;
         
-        // Update configuration with new orientation
-        const orientation = this.globe.orientation();
-        if (typeof orientation === 'string') {
-            this.config.orientation = orientation;
-        }
-        
-        // Reinitialize systems that depend on projection
-        this.initializeSystems();
+        // Don't save orientation back to config - let it stay as initial value
+        // This allows the globe to use fit() calculation on subsequent recreations
         
         // Globe changed - emit event
         this.emit('globeChanged');
@@ -358,8 +372,8 @@ class EarthModernApp {
         
         this.globe = globeBuilder();
         
-        // Set orientation if specified
-        if (this.config.orientation && this.globe) {
+        // Always set orientation to ensure proper scaling and positioning
+        if (this.globe) {
             this.globe.orientation(this.config.orientation, this.view);
         }
         
@@ -413,34 +427,7 @@ class EarthModernApp {
         }
     }
 
-    /**
-     * Initialize systems that need data - single responsibility
-     */
-    private initializeSystems(): void {
-        console.log('[EARTH-MODERN] Initializing systems');
-        
-        if (!this.globe) return;
-        
-        // Create mask for visibility testing
-        const mask = this.createMask();
-        
-        // Initialize particle system
-        if (this.particleProduct) {
-            this.particleSystem = new ParticleSystem(this.config, this.globe, mask, this.view, [this.particleProduct]);
-            
-            // Wire up particle system callbacks for continuous animation
-            this.particleSystem.on('particlesEvolved', (buckets, colorStyles, globe) => {
-                this.renderSystem.drawParticles(buckets, colorStyles, globe);
-            });
-        } else {
-            this.particleSystem = null;
-        }
-        
-        // OverlaySystem is now a pure observer - no manual initialization needed
-        // It automatically responds to state changes via the events we emit
-        
-        console.log('[EARTH-MODERN] Systems initialized');
-    }
+
 
     // ===== ANIMATION (Simple and clean) =====
 
@@ -480,7 +467,7 @@ class EarthModernApp {
     private createInitialConfig(): Configuration {
         return {
             projection: "orthographic",
-            orientation: "0,0,0",
+            orientation: "0,0,NaN",  // NaN scale will trigger fit() calculation
             date: "current",
             hour: "current",
             mode: "air",
@@ -527,34 +514,7 @@ class EarthModernApp {
         console.log('[EARTH-MODERN] Mesh loaded');
     }
 
-    private createMask(): any {
-        if (!this.globe) return null;
-        
-        const canvas = document.createElement("canvas");
-        canvas.width = this.view.width;
-        canvas.height = this.view.height;
-        
-        const ctx = canvas.getContext("2d");
-        if (!ctx) return null;
-        
-        const context = this.globe.defineMask(ctx);
-        if (!context) return null;
-        
-        context.fillStyle = "rgba(255, 0, 0, 1)";
-        context.fill();
-        
-        const imageData = context.getImageData(0, 0, this.view.width, this.view.height);
-        const data = imageData.data;
-        
-        return {
-            imageData: imageData,
-            isVisible: (x: number, y: number): boolean => {
-                if (x < 0 || x >= this.view.width || y < 0 || y >= this.view.height) return false;
-                const i = (Math.floor(y) * this.view.width + Math.floor(x)) * 4;
-                return data[i + 3] > 0;
-            }
-        };
-    }
+
 
     // ===== STATE ACCESS METHODS (for observers) =====
 
@@ -563,7 +523,7 @@ class EarthModernApp {
     }
 
     getMask(): any {
-        return this.createMask();
+        return this.mask;
     }
 
     getView(): ViewportSize {

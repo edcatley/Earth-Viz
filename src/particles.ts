@@ -45,26 +45,55 @@ export class ParticleSystem {
     private particles: Particle[] = [];
     private colorStyles: any = null;
     private buckets: Particle[][] = [];
-    private config: any;
-    private products: any[] = [];
-    private globe: Globe | null = null;
+    
+    // External state references (we observe these)
+    private stateProvider: any = null;
+    
+    // Event callbacks
     private events: Partial<ParticleSystemEvents> = {};
 
-    constructor(
-        config: any,
-        globe: Globe,
-        mask: any,
-        view: ViewportSize,
-        products: any[]  // Accept products from parent instead of loading them
-    ) {
-        this.config = config;
-        this.globe = globe;
-        this.products = products;  // Store the products passed from parent
+    constructor() {
+        // No initialization here - we're an observer that initializes when state is ready
+    }
+
+    /**
+     * Subscribe to external state provider - becomes a pure observer
+     */
+    observeState(stateProvider: any): void {
+        this.stateProvider = stateProvider;
         
-        const windProduct = this.products.find(p => p && p.field === "vector");
-        if (windProduct) {
-            this.initialize(windProduct, globe, mask, view);
+        // Subscribe to all relevant state changes
+        stateProvider.on('maskChanged', () => this.regenerateParticles()); // Use maskChanged instead of globeChanged
+        stateProvider.on('weatherDataChanged', () => this.regenerateParticles());
+        stateProvider.on('configChanged', () => this.regenerateParticles());
+        stateProvider.on('systemsReady', () => this.regenerateParticles());
+        
+        debugLog('PARTICLES', 'Now observing external state changes');
+    }
+
+    /**
+     * Automatically regenerate particles when observed state changes
+     */
+    private regenerateParticles(): void {
+        if (!this.stateProvider) return;
+        
+        // Get current state from provider
+        const globe = this.stateProvider.getGlobe();
+        const mask = this.stateProvider.getMask();
+        const view = this.stateProvider.getView();
+        const config = this.stateProvider.getConfig();
+        const particleProduct = this.stateProvider.getParticleProduct();
+        
+        // Need all required state to generate particles
+        if (!globe || !mask || !view || !config || !particleProduct) {
+            // Clear particles if we don't have the required state
+            this.field = null;
+            this.particles = [];
+            this.buckets = [];
+            return;
         }
+        
+        this.initialize(particleProduct, globe, mask, view);
     }
 
     public on<K extends keyof ParticleSystemEvents>(event: K, handler: ParticleSystemEvents[K]): void {
@@ -256,7 +285,11 @@ export class ParticleSystem {
             particle.age += 1;
         });
 
-        this.emit('particlesEvolved', this.buckets, this.colorStyles, this.globe!);
+        // Get current globe from state provider
+        const globe = this.stateProvider?.getGlobe();
+        if (globe) {
+            this.emit('particlesEvolved', this.buckets, this.colorStyles, globe);
+        }
     }
 
     private reportStatus(message: string): void {

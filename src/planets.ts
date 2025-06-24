@@ -157,6 +157,19 @@ export class PlanetSystem {
             return;
         }
         
+        // Only render planet when explicitly in planet mode
+        if (config.mode !== "planet") {
+            debugLog('PLANET', `Skipping planet render - not in planet mode: ${config.mode}`);
+            
+            // Emit empty result to clear any existing planet data
+            this.emit('planetChanged', {
+                imageData: null,
+                planetType: null,
+                webglCanvas: null
+            });
+            return;
+        }
+        
         // Get planet type from config (default to earth)
         const planetType = config.planetType || 'earth';
         

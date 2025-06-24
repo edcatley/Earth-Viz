@@ -411,9 +411,44 @@ export class Utils {
         const configuration = Utils.parse("", projectionNames, overlayTypes);
         configuration.projection = "orthographic";
         configuration.orientation = "0,0,0";
-        configuration.overlayType = "default";
+        configuration.overlayType = "off";
         configuration.showGridPoints = false;
         configuration.topology = Utils.TOPOLOGY;
         return configuration;
+    }
+
+    /**
+     * Creates a mask for determining which pixels are visible on the globe
+     * @param globe The globe object with defineMask method
+     * @param view The viewport size
+     * @returns Object with imageData and isVisible method, or null if creation fails
+     */
+    static createMask(globe: any, view: ViewportSize): any {
+        if (!globe) return null;
+        
+        const canvas = document.createElement("canvas");
+        canvas.width = view.width;
+        canvas.height = view.height;
+        
+        const ctx = canvas.getContext("2d");
+        if (!ctx) return null;
+        
+        const context = globe.defineMask(ctx);
+        if (!context) return null;
+        
+        context.fillStyle = "rgba(255, 0, 0, 1)";
+        context.fill();
+        
+        const imageData = context.getImageData(0, 0, view.width, view.height);
+        const data = imageData.data;
+        
+        return {
+            imageData: imageData,
+            isVisible: (x: number, y: number): boolean => {
+                if (x < 0 || x >= view.width || y < 0 || y >= view.height) return false;
+                const i = (Math.floor(y) * view.width + Math.floor(x)) * 4;
+                return data[i + 3] > 0;
+            }
+        };
     }
 } 

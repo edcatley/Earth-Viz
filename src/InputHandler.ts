@@ -17,10 +17,61 @@ export interface InputEvents {
     locationError: (error: GeolocationPositionError) => void;
 }
 
+/**
+ * Simple throttle utility to prevent event flooding
+ */
+class MouseThrottler {
+    private isProcessing = false;
+    private pendingUpdate = false;
+    private lastUpdateTime = 0;
+    private readonly targetFPS = 20;
+    private readonly frameTime = 1000 / this.targetFPS;
+
+    public requestUpdate(updateFn: () => void): void {
+        // If already processing, just mark that we need another update
+        if (this.isProcessing) {
+            this.pendingUpdate = true;
+            return;
+        }
+
+        // Throttle to target FPS
+        const now = performance.now();
+        const timeSinceLastUpdate = now - this.lastUpdateTime;
+        
+        if (timeSinceLastUpdate < this.frameTime) {
+            // Too soon - schedule for later
+            if (!this.pendingUpdate) {
+                this.pendingUpdate = true;
+                setTimeout(() => {
+                    if (this.pendingUpdate) {
+                        this.executeUpdate(updateFn);
+                    }
+                }, this.frameTime - timeSinceLastUpdate);
+            }
+            return;
+        }
+
+        this.executeUpdate(updateFn);
+    }
+
+    private executeUpdate(updateFn: () => void): void {
+        this.isProcessing = true;
+        this.pendingUpdate = false;
+        this.lastUpdateTime = performance.now();
+
+        try {
+            updateFn();
+        } finally {
+            this.isProcessing = false;
+        }
+    }
+}
+
 export class InputHandler {
     private operation: any = null;
     private globe: Globe | null = null;
     private events: Partial<InputEvents> = {};
+    private mouseThrottler = new MouseThrottler();
 
     constructor() {
         this.setupInput();
@@ -94,23 +145,28 @@ export class InputHandler {
         const mouse = d3.pointer(event, event.target as any) as Point;
         const scale = event.transform.k;
         
-        // Determine operation type
-        const distanceMoved = Utils.distance(mouse, this.operation.startMouse);
-        if (scale !== this.operation.startScale) {
-            this.operation.type = "zoom";
-        } else if (distanceMoved > 4) {
-            this.operation.type = "drag";
-        }
+        // Use throttler to prevent event flooding
+        this.mouseThrottler.requestUpdate(() => {
+            if (!this.operation) return; // Operation might have ended during throttling
+            
+            // Determine operation type
+            const distanceMoved = Utils.distance(mouse, this.operation.startMouse);
+            if (scale !== this.operation.startScale) {
+                this.operation.type = "zoom";
+            } else if (distanceMoved > 4) {
+                this.operation.type = "drag";
+            }
 
-        // Apply manipulation
-        if (this.operation.manipulator) {
-            this.operation.manipulator.move(
-                this.operation.type === "zoom" ? null : mouse,
-                scale
-            );
-        }
+            // Apply manipulation
+            if (this.operation.manipulator) {
+                this.operation.manipulator.move(
+                    this.operation.type === "zoom" ? null : mouse,
+                    scale
+                );
+            }
 
-        this.emit('zoom', event);
+            this.emit('zoom', event);
+        });
     }
 
     private handleZoomEnd(event: d3.D3ZoomEvent<HTMLElement, unknown>): void {
