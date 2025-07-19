@@ -31,8 +31,6 @@
         "@geo-maps/earth-lakes-2km5": "^0.6.0",
         "@geo-maps/earth-rivers-10km": "^0.6.0",
         "@geo-maps/earth-rivers-2km5": "^0.6.0",
-        "@types/backbone": "^1.4.23",
-        "backbone": "^1.6.1",
         "cors": "^2.8.5",
         "d3": "^7.9.0",
         "d3-geo-polygon": "^1.12.1",

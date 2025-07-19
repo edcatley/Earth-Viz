@@ -139,16 +139,12 @@
     </div>
 
     <script type="module">
-        import _ from 'underscore';
-        import Backbone from 'backbone';
         import * as d3 from 'd3';
         import * as topojson from 'topojson-client';
         import * as d3GeoProjection from 'd3-geo-projection';
         import * as d3GeoPolygon from 'd3-geo-polygon';
         
         // Set up global objects
-        window._ = _;
-        window.Backbone = Backbone;
         window.d3 = {
             ...d3,
             ...d3GeoProjection,
