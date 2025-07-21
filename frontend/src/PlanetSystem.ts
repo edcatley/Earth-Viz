@@ -423,34 +423,27 @@ export class PlanetSystem {
     // ===== PUBLIC API (same as original) =====
 
     /**
-     * Subscribe to external state provider
+     * Set external state provider (no longer subscribing to events)
      */
-    observeState(stateProvider: any): void {
+    setStateProvider(stateProvider: any): void {
         this.stateProvider = stateProvider;
-
-        // Subscribe to state changes that require re-rendering
-        stateProvider.on('rotate', () => this.handleStateChange());
-
-        // Subscribe to data changes that require re-initialization
-        stateProvider.on('maskChanged', () => this.handleDataChange());
-        stateProvider.on('configChanged', () => this.handleDataChange());
-        stateProvider.on('systemsReady', () => this.handleDataChange());
-
-        debugLog('PLANET', 'Now observing external state changes');
+        debugLog('PLANET', 'State provider set');
     }
 
     /**
      * Handle state changes that require re-rendering (not re-initialization)
+     * Now called directly from Earth.ts centralized functions
      */
-    private handleStateChange(): void {
+    public handleStateChange(): void {
         debugLog('PLANET', 'Handling state change - regenerating frame');
         this.regeneratePlanet();
     }
 
     /**
      * Handle data changes that require re-initialization
+     * Now called directly from Earth.ts centralized functions
      */
-    private handleDataChange(): void {
+    public handleDataChange(): void {
         debugLog('PLANET', 'Handling data change - reinitializing system');
 
         // Load planet image first, then initialize

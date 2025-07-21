@@ -8,7 +8,6 @@
  * - generateFrame() - Produces final canvas output
  */
 
-import { Utils } from './utils/Utils';
 import { WebGLRenderer } from './services/WebGLRenderer';
 import { Globe, ViewportSize } from './Globes';
 
@@ -399,35 +398,27 @@ export class OverlaySystem {
     // ===== PUBLIC API (same as original) =====
     
     /**
-     * Subscribe to external state provider
+     * Set external state provider (no longer subscribing to events)
      */
-    observeState(stateProvider: any): void {
+    setStateProvider(stateProvider: any): void {
         this.stateProvider = stateProvider;
-        
-        // Subscribe to state changes that require re-rendering
-        stateProvider.on('maskChanged', () => this.handleStateChange());
-        stateProvider.on('rotate', () => this.handleStateChange());
-        
-        // Subscribe to data changes that require re-initialization
-        stateProvider.on('weatherDataChanged', () => this.handleDataChange());
-        stateProvider.on('configChanged', () => this.handleDataChange());
-        stateProvider.on('systemsReady', () => this.handleDataChange());
-        
-        debugLog('OVERLAY', 'Now observing external state changes');
+        debugLog('OVERLAY', 'State provider set');
     }
     
     /**
      * Handle state changes that require re-rendering (not re-initialization)
+     * Now called directly from Earth.ts centralized functions
      */
-    private handleStateChange(): void {
+    public handleStateChange(): void {
         debugLog('OVERLAY', 'Handling state change - regenerating frame');
         this.regenerateOverlay();
     }
     
     /**
      * Handle data changes that require re-initialization
+     * Now called directly from Earth.ts centralized functions
      */
-    private handleDataChange(): void {
+    public handleDataChange(): void {
         debugLog('OVERLAY', 'Handling data change - reinitializing system');
         this.initialize();
         this.regenerateOverlay();

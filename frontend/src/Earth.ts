@@ -153,8 +153,8 @@ class EarthModernApp {
             this.emit('globeChanged');
         });
         this.inputHandler.on('rotate', () => {
-            // Globe is rotating - emit rotate event for overlay/planet regeneration
-            this.emit('rotate');
+            // Globe is rotating - trigger centralized state change updates
+            this.updateSystemsOnStateChange();
         });
         this.inputHandler.on('zoomEnd', () => {
             // No need for handleGlobeChange - mask regeneration and animation restart 
@@ -169,8 +169,7 @@ class EarthModernApp {
             }
         });
 
-        // 3. OverlaySystem → Pure observer of state changes
-        this.overlaySystem.observeState(this);
+        // 3. OverlaySystem → Listen for results (no longer observing state directly)
         this.overlaySystem.on('overlayChanged', (result: any) => {
             console.log('[EARTH-DEBUG] Received overlayChanged event:', {
                 hasCanvas: !!result.canvas,
@@ -183,14 +182,13 @@ class EarthModernApp {
             this.emit('overlayChanged');
         });
 
-        // 4. PlanetSystem → Pure observer of state changes
-        this.planetSystem.observeState(this);
+        // 4. PlanetSystem → Listen for results (no longer observing state directly)
         this.planetSystem.on('planetChanged', (result: any) => {
             this.planetCanvas = result.canvas;
             this.emit('planetChanged');
         });
 
-        // 5. ParticleSystem → Pure observer of state changes
+        // 5. ParticleSystem → Pure observer of state changes (keep as is for now)
         if (this.particleSystem) {
             this.particleSystem.observeState(this);
             this.particleSystem.on('particlesEvolved', (buckets, colorStyles, globe) => {
@@ -198,8 +196,7 @@ class EarthModernApp {
             });
         }
 
-        // 6. MeshSystem → Pure observer of state changes
-        this.meshSystem.observeState(this);
+        // 6. MeshSystem → Listen for results (no longer observing state directly)
         this.meshSystem.on('meshChanged', (meshResult: any) => {
             console.log('[EARTH-MODERN] Received mesh change:', meshResult);
             // Store mesh canvas internally
@@ -228,15 +225,11 @@ class EarthModernApp {
         this.on('zoomEnd', () => {
             if (this.globe) {
                 this.mask = Utils.createMask(this.globe, this.view);
-                // Emit maskChanged after mask is updated
-                this.emit('maskChanged');
+                // Trigger centralized state change updates after mask is updated
+                this.updateSystemsOnStateChange();
+                this.performRender(); // Render immediately to show new mask
+                this.startAnimation();
             }
-        });
-
-        // Restart animation when mask changes (after zoom/projection changes are complete)
-        this.on('maskChanged', () => {
-            this.performRender(); // Render immediately to show new mask
-            this.startAnimation();
         });
     }
 
@@ -326,8 +319,8 @@ class EarthModernApp {
             // Update menu to reflect initial configuration
             this.menuSystem.updateMenuState(this.config);
 
-            // Everything ready - emit event
-            this.emit('systemsReady');
+            // Everything ready - trigger centralized system updates
+            this.updateSystemsOnDataChange();
 
             // Start animation
             this.startAnimation();
@@ -338,6 +331,44 @@ class EarthModernApp {
             console.error('[EARTH-MODERN] Failed to start:', error);
             throw error;
         }
+    }
+
+    // ===== CENTRALIZED SYSTEM UPDATE FUNCTIONS =====
+
+    /**
+     * Centralized function to call handleDataChange on all systems
+     * This replaces scattered calls from data providers
+     */
+    private updateSystemsOnDataChange(): void {
+        console.log('[EARTH-MODERN] Updating all systems on data change');
+
+        // Set state provider and call handleDataChange on all systems
+        this.overlaySystem.setStateProvider(this);
+        this.overlaySystem.handleDataChange();
+
+        this.meshSystem.setStateProvider(this);
+        this.meshSystem.handleDataChange();
+
+        this.planetSystem.setStateProvider(this);
+        this.planetSystem.handleDataChange();
+    }
+
+    /**
+     * Centralized function to call handleStateChange on all systems  
+     * This replaces scattered calls from data providers
+     */
+    private updateSystemsOnStateChange(): void {
+        console.log('[EARTH-MODERN] Updating all systems on state change');
+
+        // Set state provider and call handleStateChange on all systems
+        this.overlaySystem.setStateProvider(this);
+        this.overlaySystem.handleStateChange();
+
+        this.meshSystem.setStateProvider(this);
+        this.meshSystem.handleStateChange();
+
+        this.planetSystem.setStateProvider(this);
+        this.planetSystem.handleStateChange();
     }
 
     // ===== CALLBACK HANDLERS (Clean and focused) =====
@@ -386,32 +417,29 @@ class EarthModernApp {
         // Update globe if projection changed
         if (changes.projection) {
             this.createGlobe();
-            // Regenerate mask for new projection
+            // Regenerate mask for new projection and trigger state updates
             if (this.globe) {
                 this.mask = Utils.createMask(this.globe, this.view);
-                this.emit('maskChanged');
+                this.updateSystemsOnStateChange();
             }
         }
 
         // Reload weather data if parameters changed
         if (changes.date || changes.particleType || changes.surface || changes.level || changes.overlayType) {
             this.loadWeatherData().then(() => {
-                // Weather data loaded - now it's safe to emit config changed for overlay systems
-                console.log('[EARTH-MODERN] Weather data loaded, emitting events');
-                this.emit('configChanged');
-                this.emit('weatherDataChanged');
-                this.emit('systemsReady');
+                // Weather data loaded - now trigger centralized system updates
+                console.log('[EARTH-MODERN] Weather data loaded, updating systems');
+                this.updateSystemsOnDataChange();
                 this.startAnimation();
             }).catch(error => {
                 console.error('[EARTH-MODERN] Failed to reload weather data:', error);
-                // Even on error, emit events so systems don't get stuck
-                this.emit('configChanged');
+                // Even on error, update systems so they don't get stuck
+                this.updateSystemsOnDataChange();
                 this.startAnimation();
             });
         } else {
-            // No data reload needed, safe to emit immediately
-            this.emit('configChanged');
-            this.emit('systemsReady');
+            // No data reload needed, trigger centralized system updates immediately
+            this.updateSystemsOnDataChange();
             this.startAnimation();
         }
     }
