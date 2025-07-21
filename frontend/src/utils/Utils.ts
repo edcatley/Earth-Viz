@@ -161,7 +161,7 @@ export class Utils {
         const b = document && document.body;
         const x = w.innerWidth || (d && d.clientWidth) || (b && b.clientWidth) || 1024;
         const y = w.innerHeight || (d && d.clientHeight) || (b && b.clientHeight) || 768;
-        return {width: x, height: y};
+        return { width: x, height: y };
     }
 
     /**
@@ -181,7 +181,7 @@ export class Utils {
     static colorInterpolator(start: RGB, end: RGB): (i: number, a: number) => RGBA {
         const r = start[0], g = start[1], b = start[2];
         const Δr = end[0] - r, Δg = end[1] - g, Δb = end[2] - b;
-        return function(i: number, a: number): RGBA {
+        return function (i: number, a: number): RGBA {
             return [Math.floor(r + i * Δr), Math.floor(g + i * Δg), Math.floor(b + i * Δb), a];
         };
     }
@@ -197,7 +197,7 @@ export class Utils {
     static sinebowColor(hue: number, a: number): RGBA {
         // Map hue [0, 1] to radians [0, 5/6τ]. Don't allow a full rotation because that keeps hue == 0 and
         // hue == 1 from mapping to the same color.
-        let rad = hue * Utils.τ * 5/6;
+        let rad = hue * Utils.τ * 5 / 6;
         rad *= 0.75;  // increase frequency to 2/3 cycle per rad
 
         const s = Math.sin(rad);
@@ -214,7 +214,7 @@ export class Utils {
      */
     static extendedSinebowColor(i: number, a: number): RGBA {
         const BOUNDARY = 0.45;
-        
+
         if (i <= BOUNDARY) {
             // Use sinebow color from 0 to BOUNDARY, scaled to use full sinebow range
             return Utils.sinebowColor(i / BOUNDARY, a);
@@ -223,7 +223,7 @@ export class Utils {
             const finalSinebowColor = Utils.sinebowColor(1.0, 0); // Get final sinebow color (alpha=0 for RGB only)
             const whiteColor: RGB = [255, 255, 255];
             const fadeProgress = (i - BOUNDARY) / (1 - BOUNDARY);
-            
+
             // Interpolate between final sinebow color and white
             const interpolator = Utils.colorInterpolator(finalSinebowColor.slice(0, 3) as RGB, whiteColor);
             return interpolator(fadeProgress, a);
@@ -242,7 +242,7 @@ export class Utils {
         for (let j = 85; j <= 255; j += step) {
             result.push(Utils.asColorStyle(j, j, j, 1.0));
         }
-        result.indexFor = function(m: number): number {  // map wind speed to a style
+        result.indexFor = function (m: number): number {  // map wind speed to a style
             return Math.floor(Math.min(m, maxWind) / maxWind * (result.length - 1));
         };
         return result;
@@ -269,11 +269,11 @@ export class Utils {
         points.push(segments[segments.length - 1][0]);
         colors.push(segments[segments.length - 1][1]);
 
-        return function(point: number, alpha: number): RGBA {
+        return function (point: number, alpha: number): RGBA {
             // Handle values outside the range
             if (point <= points[0]) return [...colors[0], alpha] as RGBA;
             if (point >= points[points.length - 1]) return [...colors[colors.length - 1], alpha] as RGBA;
-            
+
             // Find the correct segment
             let i;
             for (i = 0; i < points.length - 1; i++) {
@@ -318,9 +318,9 @@ export class Utils {
         return new Promise((resolve, reject) => {
             d3.json(resource).then(resolve).catch(error => {
                 if (!error.status) {
-                    reject({status: -1, message: "Cannot load resource: " + resource, resource: resource});
+                    reject({ status: -1, message: "Cannot load resource: " + resource, resource: resource });
                 } else {
-                    reject({status: error.status, message: error.statusText, resource: resource});
+                    reject({ status: error.status, message: error.statusText, resource: resource });
                 }
             });
         });
@@ -380,7 +380,7 @@ export class Utils {
                 overlayType: "default",
                 showGridPoints: false
             };
-            (tokens[9] ?? "").split("/").forEach(function(segment) {
+            (tokens[9] ?? "").split("/").forEach(function (segment) {
                 if ((option = /^(\w+)(=([\d\-.,]*))?$/.exec(segment))) {
                     if (projectionNames.has(option[1])) {
                         result.projection = option[1];                 // non-empty alphanumeric _
@@ -425,24 +425,24 @@ export class Utils {
      */
     static createMask(globe: any, view: ViewportSize): any {
         if (!globe) return null;
-        
+
         const canvas = document.createElement("canvas");
         canvas.width = view.width;
         canvas.height = view.height;
-        
+
         const ctx = canvas.getContext("2d");
         if (!ctx) return null;
-        
+
         const context = globe.defineMask(ctx);
         if (!context) return null;
-        
+
         // Use 50% transparency red for mask visualization
         context.fillStyle = "rgba(255, 0, 0, 0.5)";
         context.fill();
-        
+
         const imageData = context.getImageData(0, 0, view.width, view.height);
         const data = imageData.data;
-        
+
         return {
             imageData: imageData,
             isVisible: (x: number, y: number): boolean => {

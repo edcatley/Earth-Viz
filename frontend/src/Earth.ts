@@ -18,7 +18,7 @@ import { ParticleSystem } from './Particles';
 import { InputHandler } from './InputHandler';
 import { RenderSystem } from './RenderSystem';
 import { OverlaySystem } from './OverlaySystem';
-import { PlanetSystem } from './Planets';
+import { PlanetSystem } from './PlanetSystem';
 import { MeshSystem } from './MeshSystem';
 
 // Import geo-maps data
@@ -64,7 +64,7 @@ interface SystemCallbacks {
     onDataReady: (data: WeatherData) => void;
     onProjectionChange: (projection: d3.GeoProjection, bounds: any) => void;
     onParticlesReady: (particles: any) => void;
-    onOverlayReady: (overlay: ImageData | null) => void;
+    onOverlayReady: (overlay: HTMLCanvasElement | null) => void;
     onRenderReady: () => void;
 }
 
@@ -86,9 +86,8 @@ class EarthModernApp {
     private renderSystem: RenderSystem;
     private meshSystem: MeshSystem;
 
-    // Mesh data - support both CPU and GPU paths
-    private meshWebGLCanvas: HTMLCanvasElement | null = null;
-    private meshData: HTMLCanvasElement | null = null;
+    // Mesh data - single canvas (system decides WebGL vs 2D internally)
+    private meshCanvas: HTMLCanvasElement | null = null;
 
     // Mesh data (loaded once)
     private mesh: any = null;
@@ -96,15 +95,13 @@ class EarthModernApp {
     // Mask data (regenerated when globe changes)
     private mask: any = null;
 
-    // Planet data - support both CPU and GPU paths
-    private planetData: ImageData | null = null;
-    private planetWebGLCanvas: HTMLCanvasElement | null = null;
+    // Planet data - single canvas (system decides WebGL vs 2D internally)
+    private planetCanvas: HTMLCanvasElement | null = null;
 
     // Weather data - cleanly separated
     private overlayProduct: any = null;
     private particleProduct: any = null;
-    private overlayData: ImageData | null = null;
-    private overlayWebGLCanvas: HTMLCanvasElement | null = null;
+    private overlayCanvas: HTMLCanvasElement | null = null;
 
     // Animation
     private animationId: number | null = null;
@@ -176,24 +173,20 @@ class EarthModernApp {
         this.overlaySystem.observeState(this);
         this.overlaySystem.on('overlayChanged', (result: any) => {
             console.log('[EARTH-DEBUG] Received overlayChanged event:', {
-                hasImageData: !!result.imageData,
-                hasWebGLCanvas: !!result.webglCanvas,
+                hasCanvas: !!result.canvas,
                 overlayType: result.overlayType,
-                webglCanvasSize: result.webglCanvas ? [result.webglCanvas.width, result.webglCanvas.height] : null
+                canvasSize: result.canvas ? `${result.canvas.width}x${result.canvas.height}` : null
             });
 
-            this.overlayData = result.imageData;
-            this.overlayWebGLCanvas = result.webglCanvas;
+            this.overlayCanvas = result.canvas;
             this.overlayProduct = result.overlayProduct;
-            console.log(`[EARTH] Received overlay result: type=${result.overlayType}, hasWebGLCanvas=${!!result.webglCanvas}, canvasSize=${result.webglCanvas?.width}x${result.webglCanvas?.height}`);
             this.emit('overlayChanged');
         });
 
         // 4. PlanetSystem → Pure observer of state changes
         this.planetSystem.observeState(this);
         this.planetSystem.on('planetChanged', (result: any) => {
-            this.planetData = result.imageData;
-            this.planetWebGLCanvas = result.webglCanvas;
+            this.planetCanvas = result.canvas;
             this.emit('planetChanged');
         });
 
@@ -209,9 +202,8 @@ class EarthModernApp {
         this.meshSystem.observeState(this);
         this.meshSystem.on('meshChanged', (meshResult: any) => {
             console.log('[EARTH-MODERN] Received mesh change:', meshResult);
-            // Store mesh data internally like other systems
-            this.meshWebGLCanvas = meshResult.webglCanvas;
-            this.meshData = meshResult.canvas2D;
+            // Store mesh canvas internally
+            this.meshCanvas = meshResult.canvas;
             this.emit('meshChanged');
         });
 
@@ -258,57 +250,35 @@ class EarthModernApp {
         const mode = this.config.mode || 'air';
         const overlayType = this.config.overlayType || 'off';
 
-        // Determine what data to pass based on mode
-        let planetData = null;
-        let planetWebGLCanvas = null;
+        // Determine what canvases to pass based on mode
+        let planetCanvas = null;
+        let overlayCanvas = null;
+        let meshCanvas = null;
         let overlayGrid = null;
-        let overlayData = null;
-        let overlayWebGLCanvas = null;
-        let meshWebGLCanvas = null;
-        let meshData = null;
 
         // Planet mode: only show planet surface, no mesh or overlay
         if (mode === 'planet') {
-            planetData = this.planetData;
-            planetWebGLCanvas = this.planetWebGLCanvas;
+            planetCanvas = this.planetCanvas;
             // No overlay or mesh in planet mode - pure planet view
         }
         // Air/Ocean modes: show mesh and overlay if enabled, no planet
         else if (mode === 'air' || mode === 'ocean') {
             // Always show mesh (coastlines, etc.) in air/ocean modes
-            meshData = this.meshData;
-            meshWebGLCanvas = this.meshWebGLCanvas;
+            meshCanvas = this.meshCanvas;
 
             if (overlayType !== 'off') {
+                overlayCanvas = this.overlayCanvas;
                 overlayGrid = this.overlayProduct;
-                overlayData = this.overlayData;
-                overlayWebGLCanvas = this.overlayWebGLCanvas;
             }
         }
-        // Future modes can be added here
 
-        console.log('[EARTH-DEBUG] Render decision:', {
-            mode,
-            overlayType,
-            willShowPlanet: !!planetData || !!planetWebGLCanvas,
-            willShowOverlay: !!overlayData || !!overlayWebGLCanvas,
-            hasPlanetData: !!this.planetData,
-            hasPlanetWebGLCanvas: !!this.planetWebGLCanvas,
-            hasOverlayData: !!this.overlayData,
-            hasOverlayWebGLCanvas: !!this.overlayWebGLCanvas
-        });
-
-        // Pass only the determined data to render system
+        // Pass single canvases to render system
         this.renderSystem.renderFrame({
             globe: this.globe,
-            planetData: planetData,
-            planetWebGLCanvas: planetWebGLCanvas,
-            overlayGrid: overlayGrid,
-            overlayData: overlayData,
-            overlayWebGLCanvas: overlayWebGLCanvas,
-            meshWebGLCanvas: meshWebGLCanvas,
-            meshData: meshData,
-            maskData: this.mask?.imageData || null  // Include mask visualization
+            planetCanvas: planetCanvas,
+            overlayCanvas: overlayCanvas,
+            meshCanvas: meshCanvas,
+            overlayGrid: overlayGrid
         });
     }
 
@@ -583,20 +553,8 @@ class EarthModernApp {
     }
 
     private setupMeshSystem(): void {
-        // Get the canvas from MeshSystem (WebGL or 2D) and set its size
-        const meshCanvas = this.meshSystem.getWebGLCanvas();
-        if (meshCanvas) {
-            meshCanvas.width = this.view.width;
-            meshCanvas.height = this.view.height;
-
-            // Insert the mesh canvas into the DOM structure
-            const existingWebglMesh = d3.select("#webgl-mesh").node() as HTMLCanvasElement;
-            if (existingWebglMesh && existingWebglMesh.parentNode) {
-                existingWebglMesh.parentNode.replaceChild(meshCanvas, existingWebglMesh);
-                meshCanvas.id = "webgl-mesh";
-            }
-        }
-
+        // MeshSystem handles canvas creation internally
+        // Just ensure the system is ready to observe state
         console.log('[EARTH-MODERN] MeshSystem setup complete');
     }
 

@@ -75,7 +75,10 @@ export class ParticleSystem {
      * Automatically regenerate particles when observed state changes
      */
     private regenerateParticles(): void {
-        if (!this.stateProvider) return;
+        if (!this.stateProvider) {
+            debugLog('PARTICLES', 'No state provider available');
+            return;
+        }
 
         // Get current state from provider
         const globe = this.stateProvider.getGlobe();
@@ -84,8 +87,20 @@ export class ParticleSystem {
         const config = this.stateProvider.getConfig();
         const particleProduct = this.stateProvider.getParticleProduct();
 
+        debugLog('PARTICLES', 'Regenerating particles - State check:', {
+            hasGlobe: !!globe,
+            hasMask: !!mask,
+            hasView: !!view,
+            hasConfig: !!config,
+            hasParticleProduct: !!particleProduct,
+            particleType: config?.particleType,
+            globeProjection: globe?.projection?.constructor?.name,
+            globeBounds: globe ? `${globe.bounds(view).width}x${globe.bounds(view).height}` : 'none'
+        });
+
         // Need all required state to generate particles
         if (!globe || !mask || !view || !config || !particleProduct) {
+            debugLog('PARTICLES', 'Missing required state - clearing particles');
             // Clear particles if we don't have the required state
             this.field = null;
             this.particles = [];
@@ -93,6 +108,7 @@ export class ParticleSystem {
             return;
         }
 
+        debugLog('PARTICLES', 'All state available - initializing particles');
         this.initialize(particleProduct, globe, mask, view);
     }
 
@@ -140,7 +156,7 @@ export class ParticleSystem {
                 if (mask.isVisible(x, y)) {
                     visiblePixels++;
                     const coord = globe.projection?.invert?.([x, y]);
-                    if (coord) {
+                    if (coord != null) {
                         const λ = coord[0], φ = coord[1];
 
                         if (isFinite(λ) && isFinite(φ)) {
@@ -149,15 +165,31 @@ export class ParticleSystem {
                                 windDataPixels++;
                                 if (globe.projection) {
                                     const distortedWind = this.distort(globe.projection, λ, φ, x, y, velocityScale, rawWind);
-                                    if (distortedWind) {
+                                    if (distortedWind != null && distortedWind[2] != null) {
+                                        // Calculate vector magnitude from x,y components (pixels per frame)
+                                        const vectorMagnitude = Math.sqrt(distortedWind[0] * distortedWind[0] + distortedWind[1] * distortedWind[1]);
+                                        // if (vectorMagnitude > 200) {
+                                        //     console.log("Mega distorted wind vector:", {
+                                        //         position: { x, y, λ, φ },
+                                        //         rawWind: rawWind,
+                                        //         distortedWind: distortedWind,
+                                        //         vectorMagnitude: vectorMagnitude.toFixed(1),
+                                        //         windMagnitude: distortedWind[2]
+                                        //     });
+                                        // }
+                                        if (vectorMagnitude < 200) {
+                                            wind = distortedWind;
                                             validPositions.push([x, y]);
+                                            filteredPixels++;
+                                        }
                                     }
                                 }
                             }
                         }
                     }
+
                 }
-                    column[y + 1] = column[y] = wind;
+                column[y + 1] = column[y] = wind;
             }
             columns[x + 1] = columns[x] = column;
         }
@@ -197,6 +229,7 @@ export class ParticleSystem {
 
     private createField(columns: any[][], bounds: Bounds, validPositions: Array<[number, number]>): Field {
         const NULL_WIND_VECTOR: Vector = [NaN, NaN, null];
+        const stateProvider = this.stateProvider; // Capture reference for closure
 
         function field(x: number, y: number): Vector {
             const column = columns[Math.round(x)];
@@ -242,7 +275,14 @@ export class ParticleSystem {
 
     // Fixed evolveParticles to use internal data properly
     evolveParticles(): void {
-        if (!this.field || !this.colorStyles) return;
+        if (!this.field || !this.colorStyles) {
+            debugLog('PARTICLES', 'Cannot evolve particles - missing field or colorStyles', {
+                hasField: !!this.field,
+                hasColorStyles: !!this.colorStyles,
+                particleCount: this.particles.length
+            });
+            return;
+        }
 
         // Clear buckets
         this.buckets.forEach(bucket => { bucket.length = 0; });
@@ -265,6 +305,18 @@ export class ParticleSystem {
                     const xt = x + v[0];
                     const yt = y + v[1];
 
+                    // Check for large jumps (>200 pixels)
+                    const distance = Math.sqrt((xt - x) * (xt - x) + (yt - y) * (yt - y));
+                    if (distance > 200) {
+                        console.log("Large particle jump detected:", {
+                            from: { x, y },
+                            to: { x: xt, y: yt },
+                            distance: distance.toFixed(1),
+                            windVector: v,
+                            magnitude: m
+                        });
+                    }
+
                     if (this.field!.isDefined(xt, yt)) {
                         particle.xt = xt;
                         particle.yt = yt;
@@ -280,9 +332,9 @@ export class ParticleSystem {
 
         // Get current globe from state provider
         const globe = this.stateProvider?.getGlobe();
-        if (globe) {
-            this.emit('particlesEvolved', this.buckets, this.colorStyles, globe);
-        }
+        //if (globe) {
+        this.emit('particlesEvolved', this.buckets, this.colorStyles, globe);
+        //}
     }
 
     private reportStatus(message: string): void {
