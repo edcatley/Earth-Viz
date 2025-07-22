@@ -14,7 +14,7 @@ import { Globes, Globe, ViewportSize } from './Globes';
 import { Products } from './Products';
 import { Utils } from './utils/Utils';
 import { MenuSystem } from './MenuSystem';
-import { ParticleSystem } from './Particles';
+import { Particles } from './Particles';
 import { InputHandler } from './InputHandler';
 import { RenderSystem } from './RenderSystem';
 import { OverlaySystem } from './OverlaySystem';
@@ -79,7 +79,7 @@ class EarthModernApp {
     private products: Products;
     private globe: Globe | null = null;
     private menuSystem: MenuSystem;
-    private particleSystem: ParticleSystem | null = null;
+    private particleSystem: Particles;
     private overlaySystem: OverlaySystem;
     private planetSystem: PlanetSystem;
     private inputHandler: InputHandler;
@@ -98,13 +98,15 @@ class EarthModernApp {
     // Planet data - single canvas (system decides WebGL vs 2D internally)
     private planetCanvas: HTMLCanvasElement | null = null;
 
+    // Particle data - single canvas (system decides WebGL vs 2D internally)
+    private particleCanvas: HTMLCanvasElement | null = null;
+
     // Weather data - cleanly separated
     private overlayProduct: any = null;
     private particleProduct: any = null;
     private overlayCanvas: HTMLCanvasElement | null = null;
 
-    // Animation
-    private animationId: number | null = null;
+
 
     constructor() {
         console.log('[EARTH-MODERN] Initializing clean architecture');
@@ -119,7 +121,7 @@ class EarthModernApp {
         this.overlaySystem = new OverlaySystem();
         this.planetSystem = new PlanetSystem();
         this.inputHandler = new InputHandler();
-        this.particleSystem = new ParticleSystem();
+        this.particleSystem = new Particles();
         this.renderSystem = new RenderSystem({
             width: this.view.width,
             height: this.view.height,
@@ -146,7 +148,7 @@ class EarthModernApp {
 
         // 2. Input changes → Globe manipulation
         this.inputHandler.on('zoomStart', () => {
-            this.stopAnimation();
+            // ParticlesNew will handle its own animation stopping via handleStateChange
         });
         this.inputHandler.on('zoom', () => {
             // Globe is changing during drag - emit globe changed event for immediate redraw
@@ -157,8 +159,7 @@ class EarthModernApp {
             this.updateSystemsOnStateChange();
         });
         this.inputHandler.on('zoomEnd', () => {
-            // No need for handleGlobeChange - mask regeneration and animation restart 
-            // will happen via zoomEnd -> maskChanged -> startAnimation
+            // No need for handleGlobeChange - mask regeneration will happen via zoomEnd
             this.emit('zoomEnd');
         });
         this.inputHandler.on('click', (point, coord) => {
@@ -171,12 +172,6 @@ class EarthModernApp {
 
         // 3. OverlaySystem → Listen for results (no longer observing state directly)
         this.overlaySystem.on('overlayChanged', (result: any) => {
-            console.log('[EARTH-DEBUG] Received overlayChanged event:', {
-                hasCanvas: !!result.canvas,
-                overlayType: result.overlayType,
-                canvasSize: result.canvas ? `${result.canvas.width}x${result.canvas.height}` : null
-            });
-
             this.overlayCanvas = result.canvas;
             this.overlayProduct = result.overlayProduct;
             this.emit('overlayChanged');
@@ -188,13 +183,11 @@ class EarthModernApp {
             this.emit('planetChanged');
         });
 
-        // 5. ParticleSystem → Pure observer of state changes (keep as is for now)
-        if (this.particleSystem) {
-            this.particleSystem.observeState(this);
-            this.particleSystem.on('particlesEvolved', (buckets, colorStyles, globe) => {
-                this.renderSystem.drawParticles(buckets, colorStyles, globe);
-            });
-        }
+        // 5. ParticleSystem → Listen for results (no longer observing state directly)
+        this.particleSystem.on('particlesChanged', (result: any) => {
+            this.particleCanvas = result.canvas;
+            this.emit('particlesChanged');
+        });
 
         // 6. MeshSystem → Listen for results (no longer observing state directly)
         this.meshSystem.on('meshChanged', (meshResult: any) => {
@@ -219,6 +212,7 @@ class EarthModernApp {
         this.on('overlayChanged', () => this.performRender());
         this.on('planetChanged', () => this.performRender());
         this.on('meshChanged', () => this.performRender());
+        this.on('particlesChanged', () => this.performRender());
         this.on('systemsReady', () => this.performRender());
 
         // Only regenerate mask on zoom end (scale changes)
@@ -226,9 +220,9 @@ class EarthModernApp {
             if (this.globe) {
                 this.mask = Utils.createMask(this.globe, this.view);
                 // Trigger centralized state change updates after mask is updated
-                this.updateSystemsOnStateChange();
+                this.updateSystemsOnDataChange();
                 this.performRender(); // Render immediately to show new mask
-                this.startAnimation();
+                // ParticlesNew will handle its own animation restarting via handleStateChange
             }
         });
     }
@@ -247,14 +241,15 @@ class EarthModernApp {
         let planetCanvas = null;
         let overlayCanvas = null;
         let meshCanvas = null;
+        let particleCanvas = null;
         let overlayGrid = null;
 
-        // Planet mode: only show planet surface, no mesh or overlay
+        // Planet mode: only show planet surface, no mesh or overlay or particles
         if (mode === 'planet') {
             planetCanvas = this.planetCanvas;
-            // No overlay or mesh in planet mode - pure planet view
+            // No overlay, mesh, or particles in planet mode - pure planet view
         }
-        // Air/Ocean modes: show mesh and overlay if enabled, no planet
+        // Air/Ocean modes: show mesh, overlay, and particles if enabled, no planet
         else if (mode === 'air' || mode === 'ocean') {
             // Always show mesh (coastlines, etc.) in air/ocean modes
             meshCanvas = this.meshCanvas;
@@ -262,6 +257,12 @@ class EarthModernApp {
             if (overlayType !== 'off') {
                 overlayCanvas = this.overlayCanvas;
                 overlayGrid = this.overlayProduct;
+            }
+
+            // Show particles if enabled
+            const particleType = this.config.particleType || 'off';
+            if (particleType !== 'off') {
+                particleCanvas = this.particleCanvas;
             }
         }
 
@@ -271,6 +272,7 @@ class EarthModernApp {
             planetCanvas: planetCanvas,
             overlayCanvas: overlayCanvas,
             meshCanvas: meshCanvas,
+            particleCanvas: particleCanvas,
             overlayGrid: overlayGrid
         });
     }
@@ -304,8 +306,6 @@ class EarthModernApp {
             // Setup rendering first (initializes canvases)
             this.renderSystem.setupCanvases();
 
-            // Setup mesh system (needs to run after canvas setup)
-            this.setupMeshSystem();
 
             // Load static data (mesh) - now MeshSystem is ready
             await this.loadMesh();
@@ -321,9 +321,6 @@ class EarthModernApp {
 
             // Everything ready - trigger centralized system updates
             this.updateSystemsOnDataChange();
-
-            // Start animation
-            this.startAnimation();
 
             console.log('[EARTH-MODERN] Application started successfully');
 
@@ -351,6 +348,9 @@ class EarthModernApp {
 
         this.planetSystem.setStateProvider(this);
         this.planetSystem.handleDataChange();
+
+        this.particleSystem.setStateProvider(this);
+        this.particleSystem.handleDataChange();
     }
 
     /**
@@ -369,6 +369,9 @@ class EarthModernApp {
 
         this.planetSystem.setStateProvider(this);
         this.planetSystem.handleStateChange();
+
+        this.particleSystem.setStateProvider(this);
+        this.particleSystem.handleStateChange();
     }
 
     // ===== CALLBACK HANDLERS (Clean and focused) =====
@@ -411,9 +414,6 @@ class EarthModernApp {
         // Update menu display to reflect new state
         this.menuSystem.updateMenuState(this.config);
 
-        // Stop current animation
-        this.stopAnimation();
-
         // Update globe if projection changed
         if (changes.projection) {
             this.createGlobe();
@@ -430,17 +430,14 @@ class EarthModernApp {
                 // Weather data loaded - now trigger centralized system updates
                 console.log('[EARTH-MODERN] Weather data loaded, updating systems');
                 this.updateSystemsOnDataChange();
-                this.startAnimation();
             }).catch(error => {
                 console.error('[EARTH-MODERN] Failed to reload weather data:', error);
                 // Even on error, update systems so they don't get stuck
                 this.updateSystemsOnDataChange();
-                this.startAnimation();
             });
         } else {
             // No data reload needed, trigger centralized system updates immediately
             this.updateSystemsOnDataChange();
-            this.startAnimation();
         }
     }
 
@@ -518,39 +515,6 @@ class EarthModernApp {
         }
     }
 
-    // ===== ANIMATION (Simple and clean) =====
-
-    private startAnimation(): void {
-        if (this.animationId || !this.particleSystem) return;
-
-        console.log('[EARTH-MODERN] Starting animation');
-        this.animate();
-    }
-
-    private stopAnimation(): void {
-        if (this.animationId) {
-            clearTimeout(this.animationId);
-            this.animationId = null;
-            console.log('[EARTH-MODERN] Animation stopped');
-        }
-    }
-
-    private animate(): void {
-        try {
-            if (!this.particleSystem) return;
-
-            this.particleSystem.evolveParticles();
-
-            this.animationId = setTimeout(() => {
-                if (this.animationId) this.animate();
-            }, 40) as any;
-
-        } catch (error) {
-            console.error('[EARTH-MODERN] Animation error:', error);
-            this.stopAnimation();
-        }
-    }
-
     // ===== UTILITIES (Simple and focused) =====
 
     private createInitialConfig(): Configuration {
@@ -580,11 +544,6 @@ class EarthModernApp {
         console.log('[EARTH-MODERN] UI setup complete');
     }
 
-    private setupMeshSystem(): void {
-        // MeshSystem handles canvas creation internally
-        // Just ensure the system is ready to observe state
-        console.log('[EARTH-MODERN] MeshSystem setup complete');
-    }
 
     private async loadMesh(): Promise<void> {
         console.log('[EARTH-MODERN] Loading mesh from geo-maps packages');

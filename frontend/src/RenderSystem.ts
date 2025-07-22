@@ -13,18 +13,16 @@ function debugLog(section: string, message: string, data?: any): void {
 }
 
 // Constants from original
-const PARTICLE_LINE_WIDTH = 1.0;
 
 export interface RenderData {
     globe: Globe;
     overlayGrid?: any;  // For color scale
-    buckets?: Array<Array<{ age: number; x: number; y: number; xt?: number; yt?: number }>>;
-    colorStyles?: string[] & { indexFor: (m: number) => number };
 
     // Single canvas per system - each system decides internally whether to use WebGL or 2D
     meshCanvas?: HTMLCanvasElement | null;     // Single mesh canvas output
     overlayCanvas?: HTMLCanvasElement | null;  // Single overlay canvas output  
     planetCanvas?: HTMLCanvasElement | null;   // Single planet canvas output
+    particleCanvas?: HTMLCanvasElement | null; // Single particle canvas output
 }
 
 export class RenderSystem {
@@ -55,7 +53,6 @@ export class RenderSystem {
 
             // Set up canvas properties like the original
             if (this.context) {
-                this.context.lineWidth = PARTICLE_LINE_WIDTH;
                 this.context.fillStyle = Utils.isFF() ? "rgba(0, 0, 0, 0.95)" : "rgba(0, 0, 0, 0.97)";  // FF Mac alpha behaves oddly
             }
         }
@@ -144,14 +141,16 @@ export class RenderSystem {
                 this.overlayContext!.drawImage(data.meshCanvas, 0, 0);
             }
 
-            // 5. Draw particles (if provided)
-            if (data.buckets && data.colorStyles && data.globe) {
-                this.drawParticles(data.buckets, data.colorStyles, data.globe);
+            // 5. Draw particle canvas (if provided) with special blending
+            if (data.particleCanvas) {
+                // Use "lighter" blending for particles to create glowing effect
+                const prevCompositeOperation = this.overlayContext!.globalCompositeOperation;
+                this.overlayContext!.globalCompositeOperation = "lighter";
+                this.overlayContext!.drawImage(data.particleCanvas, 0, 0);
+                this.overlayContext!.globalCompositeOperation = prevCompositeOperation;
             }
 
-            // 6. Mask visualization removed - mask is used internally for particle calculations only
-
-            // 7. Draw color scale (if provided)
+            // 6. Draw color scale (if provided)
             if (data.overlayGrid) {
                 this.drawColorScale(data.overlayGrid);
             }
@@ -184,54 +183,7 @@ export class RenderSystem {
 
 
 
-    /**
-     * Draw particles on the animation canvas
-     */
-    public drawParticles(buckets: Array<Array<{ age: number; x: number; y: number; xt?: number; yt?: number }>>,
-        colorStyles: string[] & { indexFor: (m: number) => number },
-        globe: Globe): void {
-        if (!this.context || !colorStyles) {
-            console.log('[RENDER] Cannot draw particles - missing context or colorStyles');
-            return;
-        }
 
-        // Get bounds for drawing particles
-        const bounds = globe.bounds({ width: this.display.width, height: this.display.height });
-        if (!bounds) {
-            console.log('[RENDER] Cannot draw particles - no bounds');
-            return;
-        }
-
-
-        // Fade existing particle trails - only clear the bounds area like the original
-        const prev = this.context.globalCompositeOperation;
-        this.context.globalCompositeOperation = "destination-in";
-        this.context.fillRect(bounds.x, bounds.y, bounds.width, bounds.height);
-        this.context.globalCompositeOperation = prev;
-
-        // Draw new particle trails using buckets like original
-        this.context.lineWidth = PARTICLE_LINE_WIDTH;
-
-        buckets.forEach((bucket, i) => {
-            if (bucket.length > 0) {
-                this.context!.beginPath();
-                this.context!.strokeStyle = colorStyles[i];  // Use color from bucket index
-                bucket.forEach(particle => {
-                    if (particle.xt !== undefined && particle.yt !== undefined) {
-                        this.context!.moveTo(particle.x, particle.y);
-                        this.context!.lineTo(particle.xt, particle.yt);
-                        particle.x = particle.xt;
-                        particle.y = particle.yt;
-
-                        delete particle.xt;
-                        delete particle.yt;
-                    }
-                });
-                this.context!.stroke();
-            }
-        });
-
-    }
 
     /**
      * Draw color scale bar
