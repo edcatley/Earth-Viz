@@ -9,12 +9,12 @@
  */
 
 import * as d3 from 'd3';
-import * as topojson from 'topojson-client';
+
 import { Globes, Globe, ViewportSize } from './Globes';
 import { Products } from './Products';
 import { Utils } from './utils/Utils';
 import { MenuSystem } from './MenuSystem';
-import { Particles } from './Particles';
+import { ParticleSystem } from './Particles';
 import { InputHandler } from './InputHandler';
 import { RenderSystem } from './RenderSystem';
 import { OverlaySystem } from './OverlaySystem';
@@ -23,17 +23,12 @@ import { MeshSystem } from './MeshSystem';
 
 // Import geo-maps data
 import * as coastlines10kmModule from '@geo-maps/earth-coastlines-10km';
-import * as coastlines5kmModule from '@geo-maps/earth-coastlines-5km';
-import * as coastlines2km5Module from '@geo-maps/earth-coastlines-2km5';
-import * as coastlines250mModule from '@geo-maps/earth-coastlines-250m';
+
 import * as lakes10kmModule from '@geo-maps/earth-lakes-10km';
 import * as rivers10kmModule from '@geo-maps/earth-rivers-10km';
 
 // Extract the actual data from modules (they might be wrapped in default exports)
 const coastlines10km = (coastlines10kmModule as any).default || coastlines10kmModule;
-const coastlines5km = (coastlines5kmModule as any).default || coastlines5kmModule;
-const coastlines2km5 = (coastlines2km5Module as any).default || coastlines2km5Module;
-const coastlines250m = (coastlines250mModule as any).default || coastlines250mModule;
 const lakes10km = (lakes10kmModule as any).default || lakes10kmModule;
 const rivers10km = (rivers10kmModule as any).default || rivers10kmModule;
 
@@ -59,14 +54,7 @@ interface WeatherData {
     overlay: any;
 }
 
-interface SystemCallbacks {
-    onConfigChange: (config: Configuration) => void;
-    onDataReady: (data: WeatherData) => void;
-    onProjectionChange: (projection: d3.GeoProjection, bounds: any) => void;
-    onParticlesReady: (particles: any) => void;
-    onOverlayReady: (overlay: HTMLCanvasElement | null) => void;
-    onRenderReady: () => void;
-}
+
 
 // ===== CLEAN EARTH APP =====
 
@@ -79,7 +67,7 @@ class EarthModernApp {
     private products: Products;
     private globe: Globe | null = null;
     private menuSystem: MenuSystem;
-    private particleSystem: Particles;
+    private particleSystem: ParticleSystem;
     private overlaySystem: OverlaySystem;
     private planetSystem: PlanetSystem;
     private inputHandler: InputHandler;
@@ -121,7 +109,7 @@ class EarthModernApp {
         this.overlaySystem = new OverlaySystem();
         this.planetSystem = new PlanetSystem();
         this.inputHandler = new InputHandler();
-        this.particleSystem = new Particles();
+        this.particleSystem = new ParticleSystem();
         this.renderSystem = new RenderSystem({
             width: this.view.width,
             height: this.view.height,
@@ -183,7 +171,7 @@ class EarthModernApp {
             this.emit('planetChanged');
         });
 
-        // 5. ParticleSystem → Listen for results (no longer observing state directly)
+        // 5. ParticleSystem → Listen for results
         this.particleSystem.on('particlesChanged', (result: any) => {
             this.particleCanvas = result.canvas;
             this.emit('particlesChanged');

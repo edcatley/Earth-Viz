@@ -17,7 +17,7 @@ function debugLog(category: string, message: string, data?: any): void {
 }
 
 // Constants
-const MAX_PARTICLE_AGE = 100;
+const MAX_PARTICLE_AGE = 30;
 const PARTICLE_MULTIPLIER = 7;
 const PARTICLE_REDUCTION = 0.75;
 const INTENSITY_SCALE_STEP = 10;
@@ -41,7 +41,7 @@ export interface ParticleResult {
     particleType: string;
 }
 
-export class Particles {
+export class ParticleSystem {
     // Common rendering system properties
     private webglCanvas: HTMLCanvasElement;
     private canvas2D: HTMLCanvasElement;
@@ -296,12 +296,12 @@ export class Particles {
                                     if (distortedWind != null && distortedWind[2] != null) {
                                         // Calculate vector magnitude from x,y components (pixels per frame)
                                         const vectorMagnitude = Math.sqrt(distortedWind[0] * distortedWind[0] + distortedWind[1] * distortedWind[1]);
-
-                                        if (vectorMagnitude < 200) {
+                                            if(vectorMagnitude > 200){
+                                                console.log("Large vector:", "V", vectorMagnitude,"λ:",λ, "φ:",φ, "X:",x, "Y:",y)
+                                            }
                                             wind = distortedWind;
                                             validPositions.push([x, y]);
                                             filteredPixels++;
-                                        }
                                     }
                                 }
                             }
