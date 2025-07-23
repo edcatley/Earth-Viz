@@ -440,16 +440,89 @@ export class Utils {
         context.fillStyle = "rgba(255, 0, 0, 0.5)";
         context.fill();
 
+        // Add inward stroke to shrink the effective mask area
+        // context.lineWidth = 1; // 4 pixel stroke = 2 pixel inward border
+        // context.strokeStyle = "rgba(0, 0, 0, 1)"; // Black stroke to "eat into" the filled area
+        // context.globalCompositeOperation = "source-atop"; // Only stroke the filled area
+        // context.stroke();
+        // context.globalCompositeOperation = "source-over"; // Reset to normal
+
         const imageData = context.getImageData(0, 0, view.width, view.height);
         const data = imageData.data;
+
+        // Debug: Find the center of the mask
+        const maskCenter = Utils.findMaskCenter(data, view.width, view.height);
+
+        // Debug: Find the center of the globe projection
+        const globeCenter = globe.projection ? globe.projection([0, 0]) : null;
+
+        console.log("MASK vs GLOBE CENTER DEBUG:", {
+            maskCenter: maskCenter,
+            globeCenter: globeCenter,
+            difference: maskCenter && globeCenter ? {
+                x: Math.abs(maskCenter.x - globeCenter[0]),
+                y: Math.abs(maskCenter.y - globeCenter[1])
+            } : null
+        });
+
+        const BORDER_PIXELS = 2; // Add 2-pixel safety border
 
         return {
             imageData: imageData,
             isVisible: (x: number, y: number): boolean => {
                 if (x < 0 || x >= view.width || y < 0 || y >= view.height) return false;
                 const i = (Math.floor(y) * view.width + Math.floor(x)) * 4;
-                return data[i + 3] > 0;
+
+                // First check if the pixel itself is visible
+                if (data[i + 3] === 0) return false;
+
+                // Then check if we're too close to an invisible pixel (border check)
+                for (let dy = -BORDER_PIXELS; dy <= BORDER_PIXELS; dy++) {
+                    for (let dx = -BORDER_PIXELS; dx <= BORDER_PIXELS; dx++) {
+                        const checkX = x + dx;
+                        const checkY = y + dy;
+
+                        // Skip if checking outside canvas bounds
+                        if (checkX < 0 || checkX >= view.width || checkY < 0 || checkY >= view.height) {
+                            return false; // Treat edge of canvas as invisible
+                        }
+
+                        const checkI = (checkY * view.width + checkX) * 4;
+                        if (data[checkI + 3] === 0) {
+                            return false; // Too close to invisible pixel
+                        }
+                    }
+                }
+
+                return true;
             }
+        };
+    }
+
+    /**
+     * Find the center of the mask by calculating the centroid of all visible pixels
+     */
+    private static findMaskCenter(data: Uint8ClampedArray, width: number, height: number): { x: number, y: number } | null {
+        let totalX = 0;
+        let totalY = 0;
+        let count = 0;
+
+        for (let y = 0; y < height; y++) {
+            for (let x = 0; x < width; x++) {
+                const i = (y * width + x) * 4;
+                if (data[i + 3] > 0) { // Alpha channel > 0 means visible
+                    totalX += x;
+                    totalY += y;
+                    count++;
+                }
+            }
+        }
+
+        if (count === 0) return null;
+
+        return {
+            x: totalX / count,
+            y: totalY / count
         };
     }
 } 

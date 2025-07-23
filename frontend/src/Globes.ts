@@ -107,6 +107,28 @@ export class Globes {
         return (Number.isFinite(num) || num === Infinity || num === -Infinity ? num : fallback) as number;
     }
 
+    /**
+     * Ensure the given scale results in even globe dimensions to avoid half-pixel alignment issues
+     */
+    private static ensureEvenScale(scale: number, projection: d3.GeoProjection): number {
+        if (!projection) return scale;
+
+        // Calculate what the globe dimensions would be with this scale
+        const bounds = d3.geoPath().projection(projection).bounds({ type: "Sphere" });
+        const hScale = (bounds[1][0] - bounds[0][0]) / projection.scale();
+        const vScale = (bounds[1][1] - bounds[0][1]) / projection.scale();
+
+        var globeWidth = scale * hScale;
+        var globeHeight = scale * vScale;
+
+        // Round to nearest even number
+        var evenWidth = Math.round(globeWidth / 2) * 2;
+        var evenHeight = Math.round(globeHeight / 2) * 2;
+
+        // Use the more restrictive dimension to maintain aspect ratio
+        return Math.min(evenWidth / hScale, evenHeight / vScale);
+    }
+
     private static clampedBounds(bounds: any, view: ViewportSize) {
         var upperLeft = bounds[0];
         var lowerRight = bounds[1];
@@ -150,7 +172,20 @@ export class Globes {
                 var bounds = d3.geoPath().projection(defaultProjection).bounds({ type: "Sphere" });
                 var hScale = (bounds[1][0] - bounds[0][0]) / defaultProjection.scale();
                 var vScale = (bounds[1][1] - bounds[0][1]) / defaultProjection.scale();
-                return Math.min(view.width / hScale, view.height / vScale) * 0.9;
+                var rawScale = Math.min(view.width / hScale, view.height / vScale) * 0.9;
+
+                // Ensure the globe dimensions are even numbers to avoid half-pixel alignment issues
+                var globeWidth = rawScale * hScale;
+                var globeHeight = rawScale * vScale;
+
+                // Round to nearest even number
+                var evenWidth = Math.round(globeWidth / 2) * 2;
+                var evenHeight = Math.round(globeHeight / 2) * 2;
+
+                // Use the more restrictive dimension to maintain aspect ratio
+                var evenScale = Math.min(evenWidth / hScale, evenHeight / vScale);
+
+                return evenScale;
             },
 
             /**
@@ -188,7 +223,9 @@ export class Globes {
                     projection.rotate(Number.isFinite(λ) && Number.isFinite(φ) ?
                         [-λ, -φ, rotate[2]] as [number, number, number] :
                         this.newProjection(view).rotate());
-                    projection.scale(Number.isFinite(scale) ? Utils.clamp(scale, extent[0], extent[1]) : this.fit(view));
+                    const targetScale = Number.isFinite(scale) ? Utils.clamp(scale, extent[0], extent[1]) : this.fit(view);
+                    const evenScale = Globes.ensureEvenScale(targetScale, projection);
+                    projection.scale(evenScale);
                     projection.translate(this.center(view));
                     return this;
                 }
@@ -222,7 +259,8 @@ export class Globes {
                             const yd = mouse[1] - startMouse[1] + rotation[1];
                             projection.rotate([xd * sensitivity, -yd * sensitivity, projection.rotate()[2]] as [number, number, number]);
                         }
-                        projection.scale(scale);
+                        const evenScale = Globes.ensureEvenScale(scale, projection);
+                        projection.scale(evenScale);
                     },
                     end: function () {
                         projection.precision(original);
@@ -243,7 +281,16 @@ export class Globes {
              * @returns the context
              */
             defineMask: function (context: CanvasRenderingContext2D): CanvasRenderingContext2D {
+                context.beginPath();
                 d3.geoPath().projection(this.projection).context(context)({ type: "Sphere" });
+
+                // Add inward stroke to shrink the mask by a few pixels
+                context.lineWidth = 4; // 4 pixel stroke = 2 pixel inward border
+                context.strokeStyle = "rgba(0, 0, 0, 1)"; // Black stroke to "eat into" the shape
+                context.globalCompositeOperation = "source-atop"; // Only stroke the filled area
+                context.stroke();
+                context.globalCompositeOperation = "source-over"; // Reset to normal
+
                 return context;
             },
 

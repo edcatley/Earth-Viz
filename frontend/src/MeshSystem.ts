@@ -402,11 +402,11 @@ export class MeshSystem {
     }
 
     /**
-     * Handle state changes that require re-rendering (not re-initialization)
+     * Handle rotation changes that require re-rendering (not re-initialization)
      * Now called directly from Earth.ts centralized functions
      */
-    public handleStateChange(): void {
-        debugLog('MESH', 'Handling state change - regenerating frame');
+    public handleRotation(): void {
+        debugLog('MESH', 'Handling rotation change - regenerating frame');
         this.regenerateMesh();
     }
 

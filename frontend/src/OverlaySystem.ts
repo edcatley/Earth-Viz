@@ -406,11 +406,11 @@ export class OverlaySystem {
     }
     
     /**
-     * Handle state changes that require re-rendering (not re-initialization)
+     * Handle rotation changes that require re-rendering (not re-initialization)
      * Now called directly from Earth.ts centralized functions
      */
-    public handleStateChange(): void {
-        debugLog('OVERLAY', 'Handling state change - regenerating frame');
+    public handleRotation(): void {
+        debugLog('OVERLAY', 'Handling rotation change - regenerating frame');
         this.regenerateOverlay();
     }
     

@@ -54,6 +54,9 @@ export class ParticleSystem {
     private colorStyles: any = null;
     private buckets: Particle[][] = [];
 
+    // Debug data for large magnitude vectors
+    private debugLargeVectors: Array<{ x: number, y: number, magnitude: number, lambda: number, phi: number }> = [];
+
     // External state references
     private stateProvider: any = null;
 
@@ -104,6 +107,7 @@ export class ParticleSystem {
         // Fallback to 2D (current implementation)
         this.initialize2D();
         this.useWebGL = false;
+        this.startAnimation();
         debugLog('PARTICLES', '2D initialization complete');
     }
 
@@ -265,6 +269,11 @@ export class ParticleSystem {
         debugLog('PARTICLES', `Bounds: x=${bounds.x}, y=${bounds.y}, width=${bounds.width}, height=${bounds.height}`);
         debugLog('PARTICLES', `Velocity scale: ${velocityScale}`);
 
+
+
+        // Clear debug data
+        this.debugLargeVectors = [];
+
         // Pre-compute wind vectors for all visible pixels
         const columns: any[] = [];
         const validPositions: Array<[number, number]> = [];
@@ -287,6 +296,7 @@ export class ParticleSystem {
                     if (coord != null) {
                         const λ = coord[0], φ = coord[1];
 
+
                         if (isFinite(λ) && isFinite(φ)) {
                             const rawWind = windProduct.interpolate(λ, φ);
                             if (rawWind && rawWind[0] != null && rawWind[1] != null) {
@@ -294,14 +304,9 @@ export class ParticleSystem {
                                 if (globe.projection) {
                                     const distortedWind = this.distort(globe.projection, λ, φ, x, y, velocityScale, rawWind);
                                     if (distortedWind != null && distortedWind[2] != null) {
-                                        // Calculate vector magnitude from x,y components (pixels per frame)
-                                        const vectorMagnitude = Math.sqrt(distortedWind[0] * distortedWind[0] + distortedWind[1] * distortedWind[1]);
-                                            if(vectorMagnitude > 200){
-                                                console.log("Large vector:", "V", vectorMagnitude,"λ:",λ, "φ:",φ, "X:",x, "Y:",y)
-                                            }
-                                            wind = distortedWind;
-                                            validPositions.push([x, y]);
-                                            filteredPixels++;
+                                        wind = distortedWind;
+                                        validPositions.push([x, y]);
+                                        filteredPixels++;
                                     }
                                 }
                             }
@@ -343,8 +348,25 @@ export class ParticleSystem {
         }
 
         // Scale distortion vectors by u and v, then add.
-        wind[0] = d[0] * u + d[2] * v;
-        wind[1] = d[1] * u + d[3] * v;
+        const distortedX = d[0] * u + d[2] * v;
+        const distortedY = d[1] * u + d[3] * v;
+
+        // Debug extreme distortion values
+        const magnitude = Math.sqrt(distortedX * distortedX + distortedY * distortedY);
+        if (magnitude > 200) {
+            console.log("DISTORT DEBUG:", {
+                lambda: λ, phi: φ, x, y,
+                rawWind: [wind[0], wind[1]],
+                scale,
+                scaledWind: [u, v],
+                distortionMatrix: d,
+                distortedWind: [distortedX, distortedY],
+                magnitude
+            });
+        }
+
+        wind[0] = distortedX;
+        wind[1] = distortedY;
 
         return wind;
     }
@@ -443,6 +465,8 @@ export class ParticleSystem {
         });
     }
 
+
+
     /**
      * Draw particles to the 2D canvas
      * Uses normal blending - RenderSystem will handle inter-layer blending
@@ -480,6 +504,9 @@ export class ParticleSystem {
 
         // Reset alpha
         this.ctx2D.globalAlpha = 1.0;
+
+        // Draw debug points for large magnitude vectors
+
     }
 
     // ===== UTILITY METHODS =====
@@ -554,15 +581,15 @@ export class ParticleSystem {
     }
 
     /**
-     * Handle state changes that require re-rendering (not re-initialization)
+     * Handle rotation changes that require re-rendering (not re-initialization)
      * Now called directly from Earth.ts centralized functions
      */
-    public handleStateChange(): void {
-        debugLog('PARTICLES', 'Handling state change');
+    public handleRotation(): void {
+        debugLog('PARTICLES', 'Handling rotation change');
 
         if (this.isAnimating()) {
             // We were animating, so stop and clear, then restart
-            debugLog('PARTICLES', 'Stopping animation and clearing canvas during state change');
+            debugLog('PARTICLES', 'Stopping animation and clearing canvas during rotation');
             this.stopAnimation();
             this.clearCanvas();
         }
@@ -574,11 +601,11 @@ export class ParticleSystem {
      */
     public handleDataChange(): void {
         debugLog('PARTICLES', 'Handling data change - reinitializing system');
-        this.stopAnimation(); // Stop any existing animation
+        
         this.clearCanvas();
         this.initialize();
         this.regenerateParticles(); // Generate initial frame
-        this.startAnimation(); // Start continuous animation
+        
     }
 
 
@@ -670,6 +697,9 @@ export class ParticleSystem {
             this.animationId = null;
             debugLog('PARTICLES', 'Particle animation stopped');
         }
+        
+        // Clear the particle canvas when stopping animation
+        this.clearCanvas();
     }
 
     /**

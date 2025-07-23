@@ -120,6 +120,65 @@ class EarthModernApp {
 
         // Wire up the callback chain
         this.wireCallbacks();
+
+        // Setup window resize handling
+        this.setupResizeHandling();
+    }
+
+    /**
+     * Setup window resize handling
+     */
+    private setupResizeHandling(): void {
+        let resizeTimeout: number | null = null;
+
+        const handleResize = () => {
+            console.log('[EARTH-MODERN] Window resized, updating view');
+
+            // Update view size
+            const newView = Utils.view();
+            const viewChanged = newView.width !== this.view.width || newView.height !== this.view.height;
+
+            if (viewChanged) {
+                this.view = newView;
+
+                // Update UI elements
+                this.updateUIForNewView();
+
+                // Recreate globe with new view
+                this.createGlobe();
+
+                // Update render system
+                this.renderSystem.updateDisplay({
+                    width: this.view.width,
+                    height: this.view.height,
+                    projection: this.globe?.projection || null as any,
+                    orientation: [0, 0, 0]
+                });
+
+                // Trigger full system update for view change
+                this.updateSystemsOnDataChange();
+
+                console.log('[EARTH-MODERN] View updated to:', this.view);
+            }
+        };
+
+        // Debounce resize events to avoid excessive updates
+        window.addEventListener('resize', () => {
+            if (resizeTimeout) {
+                clearTimeout(resizeTimeout);
+            }
+            resizeTimeout = setTimeout(handleResize, 150) as any;
+        });
+    }
+
+    /**
+     * Update UI elements for new view size
+     */
+    private updateUIForNewView(): void {
+        // Update canvas elements to match new view size
+        d3.selectAll(".fill-screen")
+            .attr("width", this.view.width)
+            .attr("height", this.view.height);
     }
 
     /**
@@ -136,7 +195,7 @@ class EarthModernApp {
 
         // 2. Input changes → Globe manipulation
         this.inputHandler.on('zoomStart', () => {
-            // ParticlesNew will handle its own animation stopping via handleStateChange
+            this.particleSystem.stopAnimation();
         });
         this.inputHandler.on('zoom', () => {
             // Globe is changing during drag - emit globe changed event for immediate redraw
@@ -144,10 +203,11 @@ class EarthModernApp {
         });
         this.inputHandler.on('rotate', () => {
             // Globe is rotating - trigger centralized state change updates
-            this.updateSystemsOnStateChange();
+            this.updateSystemsOnRotation();
         });
         this.inputHandler.on('zoomEnd', () => {
             // No need for handleGlobeChange - mask regeneration will happen via zoomEnd
+            this.particleSystem.startAnimation();
             this.emit('zoomEnd');
         });
         this.inputHandler.on('click', (point, coord) => {
@@ -197,11 +257,11 @@ class EarthModernApp {
     private setupRenderSubscriptions(): void {
         // Any visual state change just triggers a render of current state
 
-        this.on('overlayChanged', () => this.performRender());
-        this.on('planetChanged', () => this.performRender());
-        this.on('meshChanged', () => this.performRender());
+        // this.on('overlayChanged', () => this.performRender());
+        // this.on('planetChanged', () => this.performRender());
+        // this.on('meshChanged', () => this.performRender());
         this.on('particlesChanged', () => this.performRender());
-        this.on('systemsReady', () => this.performRender());
+        //  this.on('systemsReady', () => this.performRender());
 
         // Only regenerate mask on zoom end (scale changes)
         this.on('zoomEnd', () => {
@@ -209,7 +269,7 @@ class EarthModernApp {
                 this.mask = Utils.createMask(this.globe, this.view);
                 // Trigger centralized state change updates after mask is updated
                 this.updateSystemsOnDataChange();
-                this.performRender(); // Render immediately to show new mask
+
                 // ParticlesNew will handle its own animation restarting via handleStateChange
             }
         });
@@ -339,27 +399,29 @@ class EarthModernApp {
 
         this.particleSystem.setStateProvider(this);
         this.particleSystem.handleDataChange();
+        this.performRender();
     }
 
     /**
-     * Centralized function to call handleStateChange on all systems  
-     * This replaces scattered calls from data providers
+     * Centralized function to call handleRotation on all systems  
+     * This is only triggered by globe rotation events
      */
-    private updateSystemsOnStateChange(): void {
-        console.log('[EARTH-MODERN] Updating all systems on state change');
+    private updateSystemsOnRotation(): void {
+        console.log('[EARTH-MODERN] Updating all systems on rotation');
 
-        // Set state provider and call handleStateChange on all systems
+        // Set state provider and call handleRotation on all systems
         this.overlaySystem.setStateProvider(this);
-        this.overlaySystem.handleStateChange();
+        this.overlaySystem.handleRotation();
 
         this.meshSystem.setStateProvider(this);
-        this.meshSystem.handleStateChange();
+        this.meshSystem.handleRotation();
 
         this.planetSystem.setStateProvider(this);
-        this.planetSystem.handleStateChange();
+        this.planetSystem.handleRotation();
 
         this.particleSystem.setStateProvider(this);
-        this.particleSystem.handleStateChange();
+        this.particleSystem.handleRotation();
+        this.performRender();
     }
 
     // ===== CALLBACK HANDLERS (Clean and focused) =====
@@ -408,7 +470,6 @@ class EarthModernApp {
             // Regenerate mask for new projection and trigger state updates
             if (this.globe) {
                 this.mask = Utils.createMask(this.globe, this.view);
-                this.updateSystemsOnStateChange();
             }
         }
 
