@@ -86,7 +86,7 @@ const PARTICLE_CONFIGS: { [key: string]: ParticleConfig } = {
             { label: "kn", conversion: (x: number) => x * 1.943844, precision: 0 },
             { label: "mph", conversion: (x: number) => x * 2.236936, precision: 0 }
         ],
-        particles: { velocityScale: 1/50000, maxIntensity: 17 }
+        particles: { velocityScale: 1 / 200000, maxIntensity: 17 }
     },
 
     oceancurrent: {
@@ -101,7 +101,7 @@ const PARTICLE_CONFIGS: { [key: string]: ParticleConfig } = {
             { label: "km/h", conversion: (x: number) => x * 3.6, precision: 1 },
             { label: "kn", conversion: (x: number) => x * 1.943844, precision: 1 }
         ],
-        particles: { velocityScale: 1/10000, maxIntensity: 2 }
+        particles: { velocityScale: 1 / 300000, maxIntensity: 2 }
     },
 
     wave: {
@@ -115,7 +115,7 @@ const PARTICLE_CONFIGS: { [key: string]: ParticleConfig } = {
         units: [
             { label: "m/s", conversion: (x: number) => x, precision: 2 }
         ],
-        particles: { velocityScale: 1/20000, maxIntensity: 5, style: 'waves' }
+        particles: { velocityScale: 1 / 20000, maxIntensity: 5, style: 'waves' }
     }
 };
 
@@ -154,7 +154,7 @@ const OVERLAY_CONFIGS: { [key: string]: OverlayConfig } = {
         description: "Temperature",
         units: [
             { label: "°C", conversion: (x: number) => x - 273.15, precision: 1 },
-            { label: "°F", conversion: (x: number) => x * 9/5 - 459.67, precision: 1 },
+            { label: "°F", conversion: (x: number) => x * 9 / 5 - 459.67, precision: 1 },
             { label: "K", conversion: (x: number) => x, precision: 1 }
         ],
         scale: {
@@ -330,7 +330,7 @@ class WeatherDataManager {
             // Vector magnitude overlays (wind speed)
             const [uParam, vParam] = config.parameters;
             const builder = await this.fetchWindVector(uParam, vParam, date, userSurface, userLevel);
-            
+
             // Convert vector to magnitude for overlay
             return {
                 header: builder.header,
@@ -362,13 +362,13 @@ class WeatherDataManager {
             interpolate: (x: number, y: number, g00: any, g10: any, g01: any, g11: any) => {
                 const paramCount = dataBuilders.length;
                 const interpolatedParams: number[] = [];
-                
+
                 for (let i = 0; i < paramCount; i++) {
                     const vals00 = Array.isArray(g00) ? g00[i] : g00;
                     const vals10 = Array.isArray(g10) ? g10[i] : g10;
                     const vals01 = Array.isArray(g01) ? g01[i] : g01;
                     const vals11 = Array.isArray(g11) ? g11[i] : g11;
-                    
+
                     interpolatedParams.push(
                         Products.bilinearInterpolateScalar(x, y, vals00, vals10, vals01, vals11)
                     );
@@ -415,7 +415,7 @@ export class Products {
     }
 
     private static localize(table: any): (langCode: string) => any {
-        return function(langCode: string): any {
+        return function (langCode: string): any {
             const result: any = {};
             Object.entries(table).forEach(([key, value]: [string, any]) => {
                 result[key] = value;
@@ -483,7 +483,7 @@ export class Products {
             source: "GFS / NCEP / US National Weather Service",
             date: date,
             interpolate: interpolate,
-            forEachPoint: function(callback: (λ: number, φ: number, value: any) => void) {
+            forEachPoint: function (callback: (λ: number, φ: number, value: any) => void) {
                 for (let j = 0; j < nj; j++) {
                     const row = grid[j] || [];
                     for (let i = 0; i < ni; i++) {
@@ -500,22 +500,22 @@ export class Products {
         if (!config) throw new Error(`Unknown particle: ${particleName}`);
 
         const date = Products.gfsDate(attr);
-        
+
         const product: Product = {
             description: config.description + " @ " + Products.describeSurface(attr),
             paths: [],
             date: date,
             field: 'vector', // All particles are vector fields
             type: particleName,
-            navigate: function(step: number): Date {
+            navigate: function (step: number): Date {
                 return Products.gfsStep(this.date!, step);
             },
-            load: async function(cancel: { requested: boolean }): Promise<any> {
+            load: async function (cancel: { requested: boolean }): Promise<any> {
                 if (cancel.requested) return null;
                 const builder = await Products.dataManager.buildParticleGrid(particleName, date, attr.surface, attr.level);
                 return Object.assign(this, Products.buildGrid(builder));
             },
-            builder: function() { throw new Error("Use load() instead"); },
+            builder: function () { throw new Error("Use load() instead"); },
             units: config.units,
             particles: config.particles
         };
@@ -528,22 +528,22 @@ export class Products {
         if (!config) throw new Error(`Unknown overlay: ${overlayName}`);
 
         const date = Products.gfsDate(attr);
-        
+
         const product: Product = {
             description: config.description + " @ " + Products.describeSurface(attr),
             paths: [],
             date: date,
             field: 'scalar', // All overlays are scalar fields
             type: overlayName,
-            navigate: function(step: number): Date {
+            navigate: function (step: number): Date {
                 return Products.gfsStep(this.date!, step);
             },
-            load: async function(cancel: { requested: boolean }): Promise<any> {
+            load: async function (cancel: { requested: boolean }): Promise<any> {
                 if (cancel.requested) return null;
                 const builder = await Products.dataManager.buildOverlayGrid(overlayName, date, attr.surface, attr.level);
                 return Object.assign(this, Products.buildGrid(builder));
             },
-            builder: function() { throw new Error("Use load() instead"); },
+            builder: function () { throw new Error("Use load() instead"); },
             units: config.units,
             scale: config.scale
         };

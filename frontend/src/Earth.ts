@@ -14,6 +14,8 @@ import { Globes, Globe, ViewportSize } from './Globes';
 import { Products } from './Products';
 import { Utils } from './utils/Utils';
 import { MenuSystem } from './MenuSystem';
+import { ConfigManager, EarthConfig } from './ConfigManager';
+import { EarthAPI } from './EarthAPI';
 import { ParticleSystem } from './Particles';
 import { InputHandler } from './InputHandler';
 import { RenderSystem } from './RenderSystem';
@@ -63,6 +65,10 @@ class EarthModernApp {
     private config: Configuration;
     private view: ViewportSize;
 
+    // Configuration management
+    private configManager: ConfigManager;
+    private earthAPI: EarthAPI;
+
     // Systems (each with single responsibility)
     private products: Products;
     private globe: Globe | null = null;
@@ -103,9 +109,25 @@ class EarthModernApp {
         this.view = Utils.view();
         this.config = this.createInitialConfig();
 
+        // Initialize configuration management
+        const initialEarthConfig: EarthConfig = {
+            mode: 'air',
+            projection: 'orthographic',
+            overlayType: 'off',
+            surface: 'surface',
+            level: 'level',
+            showGridPoints: false,
+            windUnits: 'm/s',
+            particleType: 'wind',
+            date: 'current',
+            hour: '0000'
+        };
+        this.configManager = new ConfigManager(initialEarthConfig);
+        this.earthAPI = new EarthAPI(this.configManager);
+
         // Initialize systems (no coupling yet)
         this.products = new Products();
-        this.menuSystem = new MenuSystem(); // No config passed - MenuSystem is stateless
+        this.menuSystem = new MenuSystem(this.configManager);
         this.overlaySystem = new OverlaySystem();
         this.planetSystem = new PlanetSystem();
         this.inputHandler = new InputHandler();
@@ -187,11 +209,10 @@ class EarthModernApp {
     private wireCallbacks(): void {
         console.log('[EARTH-MODERN] Wiring callback chain');
 
-        // 1. Menu changes → Configuration updates (no direct rendering)
-        this.menuSystem.setCallbacks(
-            (changes) => this.handleConfigChange(changes),
-            () => { } // Menu changes don't directly trigger renders
-        );
+        // 1. Configuration changes → System updates (single source of truth)
+        this.configManager.addListener((config) => {
+            this.handleConfigChange(config);
+        });
 
         // 2. Input changes → Globe manipulation
         this.inputHandler.on('zoomStart', () => {
@@ -429,43 +450,30 @@ class EarthModernApp {
     /**
      * Handle configuration changes - trigger the reactive chain
      */
-    private handleConfigChange(changes: any): void {
-        console.log('[EARTH-MODERN] Configuration changed', changes);
+    private handleConfigChange(config: EarthConfig): void {
+        console.log('[EARTH-MODERN] Configuration changed', config);
 
-        // Handle special toggle actions
-        if (changes.toggleGrid) {
-            this.config.showGridPoints = !this.config.showGridPoints;
-            delete changes.toggleGrid;
+        // Check if projection changed (need to compare with previous)
+        const projectionChanged = this.config.projection !== config.projection;
+        
+        // Update internal config from EarthConfig
+        this.config.mode = config.mode;
+        this.config.projection = config.projection;
+        this.config.overlayType = config.overlayType;
+        this.config.surface = config.surface;
+        this.config.level = config.level;
+        this.config.showGridPoints = config.showGridPoints;
+        this.config.windUnits = config.windUnits;
+        
+        if (config.planetType) {
+            this.config.planetType = config.planetType;
         }
-
-        if (changes.toggleWindUnits) {
-            const units = ["m/s", "km/h", "kn", "mph"];
-            const currentIndex = units.indexOf(this.config.windUnits || "m/s");
-            const nextIndex = (currentIndex + 1) % units.length;
-            this.config.windUnits = units[nextIndex];
-            delete changes.toggleWindUnits;
-        }
-
-        if (changes.toggleValueUnits) {
-            // Handle value units toggle
-            delete changes.toggleValueUnits;
-        }
-
-        if (changes.navigateHours) {
-            // Handle time navigation
-            console.log(`[EARTH-MODERN] Navigate time by ${changes.navigateHours} hours`);
-            // TODO: Implement actual time navigation logic
-            delete changes.navigateHours;
-        }
-
-        // Apply the remaining changes to config
-        this.config = { ...this.config, ...changes };
 
         // Update menu display to reflect new state
-        this.menuSystem.updateMenuState(this.config);
+        this.menuSystem.updateMenuState(config);
 
         // Update globe if projection changed
-        if (changes.projection) {
+        if (projectionChanged) {
             this.createGlobe();
             // Regenerate mask for new projection and trigger state updates
             if (this.globe) {
@@ -473,21 +481,17 @@ class EarthModernApp {
             }
         }
 
-        // Reload weather data if parameters changed
-        if (changes.date || changes.particleType || changes.surface || changes.level || changes.overlayType) {
-            this.loadWeatherData().then(() => {
-                // Weather data loaded - now trigger centralized system updates
-                console.log('[EARTH-MODERN] Weather data loaded, updating systems');
-                this.updateSystemsOnDataChange();
-            }).catch(error => {
-                console.error('[EARTH-MODERN] Failed to reload weather data:', error);
-                // Even on error, update systems so they don't get stuck
-                this.updateSystemsOnDataChange();
-            });
-        } else {
-            // No data reload needed, trigger centralized system updates immediately
+        // Always reload weather data and update systems
+        // (ConfigManager will only call this when something actually changed)
+        this.loadWeatherData().then(() => {
+            // Weather data loaded - now trigger centralized system updates
+            console.log('[EARTH-MODERN] Weather data loaded, updating systems');
             this.updateSystemsOnDataChange();
-        }
+        }).catch(error => {
+            console.error('[EARTH-MODERN] Failed to reload weather data:', error);
+            // Even on error, update systems so they don't get stuck
+            this.updateSystemsOnDataChange();
+        });
     }
 
     // ===== SYSTEM INITIALIZATION (Clean and focused) =====

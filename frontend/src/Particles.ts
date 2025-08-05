@@ -54,8 +54,6 @@ export class ParticleSystem {
     private colorStyles: any = null;
     private buckets: Particle[][] = [];
 
-    // Debug data for large magnitude vectors
-    private debugLargeVectors: Array<{ x: number, y: number, magnitude: number, lambda: number, phi: number }> = [];
 
     // External state references
     private stateProvider: any = null;
@@ -270,28 +268,16 @@ export class ParticleSystem {
         debugLog('PARTICLES', `Velocity scale: ${velocityScale}`);
 
 
-
-        // Clear debug data
-        this.debugLargeVectors = [];
-
         // Pre-compute wind vectors for all visible pixels
         const columns: any[] = [];
         const validPositions: Array<[number, number]> = [];
-
-        let totalPixels = 0;
-        let visiblePixels = 0;
-        let windDataPixels = 0;
-        let filteredPixels = 0;
-
         for (let x = bounds.x; x <= bounds.xMax; x += 2) {
             const column: any[] = [];
 
             for (let y = bounds.y; y <= bounds.yMax; y += 2) {
-                totalPixels++;
                 let wind: Vector = [NaN, NaN, null];
 
                 if (mask.isVisible(x, y)) {
-                    visiblePixels++;
                     const coord = globe.projection?.invert?.([x, y]);
                     if (coord != null) {
                         const λ = coord[0], φ = coord[1];
@@ -300,13 +286,11 @@ export class ParticleSystem {
                         if (isFinite(λ) && isFinite(φ)) {
                             const rawWind = windProduct.interpolate(λ, φ);
                             if (rawWind && rawWind[0] != null && rawWind[1] != null) {
-                                windDataPixels++;
                                 if (globe.projection) {
                                     const distortedWind = this.distort(globe.projection, λ, φ, x, y, velocityScale, rawWind);
                                     if (distortedWind != null && distortedWind[2] != null) {
                                         wind = distortedWind;
                                         validPositions.push([x, y]);
-                                        filteredPixels++;
                                     }
                                 }
                             }
@@ -318,8 +302,6 @@ export class ParticleSystem {
             columns[x + 1] = columns[x] = column;
         }
 
-        debugLog('PARTICLES', `Pixel statistics: total=${totalPixels}, visible=${visiblePixels}, withWindData=${windDataPixels}, filtered=${filteredPixels}`);
-        debugLog('PARTICLES', `Valid positions for particles: ${validPositions.length}`);
 
         // Create field function
         this.field = this.createField(columns, bounds, validPositions);

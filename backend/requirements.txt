@@ -1,0 +1,12 @@
+fastapi==0.104.1
+uvicorn[standard]==0.24.0
+httpx==0.25.2
+pydantic==2.5.0
+numpy>=1.26.0
+
+# GRIB2 parsing dependencies (temporarily disabled while fixing pygrib)
+# Cython>=0.29.0,<0.30.0
+# pygrib>=2.1.4
+
+# For cloud generation scheduling
+asyncio

@@ -80,38 +80,12 @@ if ($existingProcess) {
     Stop-Process -Id (Get-Process -Id $existingProcess.OwningProcess).Id -Force
 }
 
-# Check and start GRIB2 proxy server
-$proxyPort = 3001
-$existingProxyProcess = Get-NetTCPConnection -LocalPort $proxyPort -ErrorAction SilentlyContinue
-if ($existingProxyProcess) {
-    Write-Host "$Yellow[>] Proxy port $proxyPort is in use. Attempting to free it...$Reset"
-    Stop-Process -Id (Get-Process -Id $existingProxyProcess.OwningProcess).Id -Force
-    Start-Sleep -Seconds 2
-}
-
-Write-Host "`n$Green[>] Starting GRIB2 proxy server on port $proxyPort...$Reset"
-# Start proxy server in a new visible PowerShell window
-$proxyProcess = Start-Process -FilePath "powershell" -ArgumentList "-NoExit", "-Command", "Write-Host 'GRIB2 Proxy Server'; Write-Host 'Working Directory:' (Get-Location); node proxy-server.js" -PassThru
-
-# Give proxy server time to start
-Start-Sleep -Seconds 3
-
-# Check if proxy started successfully
-$proxyRunning = Get-NetTCPConnection -LocalPort $proxyPort -ErrorAction SilentlyContinue
-if ($proxyRunning) {
-    Write-Host "$Green[+] GRIB2 proxy server started successfully on port $proxyPort (PID: $($proxyProcess.Id))$Reset"
-} else {
-    Write-Host "$Red[X] Failed to start GRIB2 proxy server!$Reset"
-    if ($proxyProcess -and !$proxyProcess.HasExited) {
-        Stop-Process -Id $proxyProcess.Id -Force -ErrorAction SilentlyContinue
-    }
-    exit 1
-}
+# GRIB2 proxy is now handled by the Python backend - no separate proxy server needed
 
 # Start Python Weather API Backend if Python is available
 $weatherApiJob = $null
 $weatherApiPort = 8000
-if ($pythonAvailable -and (Test-Path "server/main.py")) {
+if ($pythonAvailable -and (Test-Path "../backend/main.py")) {
     # Clear existing process on weather API port
     $existingWeatherProcess = Get-NetTCPConnection -LocalPort $weatherApiPort -ErrorAction SilentlyContinue
     if ($existingWeatherProcess) {
@@ -126,13 +100,13 @@ if ($pythonAvailable -and (Test-Path "server/main.py")) {
     $pipCheck = pip show fastapi 2>&1
     if ($LASTEXITCODE -ne 0) {
         Write-Host "$Yellow[>] Installing Python dependencies...$Reset"
-        Set-Location "server"
+        Set-Location "../backend"
         pip install -r requirements.txt
         if ($LASTEXITCODE -ne 0) {
             Write-Host "$Red[X] Failed to install Python dependencies!$Reset"
-            Set-Location ".."
+            Set-Location "../frontend"
         } else {
-            Set-Location ".."
+            Set-Location "../frontend"
             Write-Host "$Green[+] Python dependencies installed successfully!$Reset"
         }
     }
@@ -141,7 +115,7 @@ if ($pythonAvailable -and (Test-Path "server/main.py")) {
     if ($LASTEXITCODE -eq 0) {
         $weatherApiJob = Start-Job -ScriptBlock {
             param($workingDir)
-            Set-Location (Join-Path $workingDir "server")
+            Set-Location (Join-Path $workingDir "../backend")
             uvicorn main:app --host 0.0.0.0 --port 8000
         } -ArgumentList $PWD
 
@@ -165,25 +139,21 @@ if ($pythonAvailable -and (Test-Path "server/main.py")) {
 } elseif (-not $pythonAvailable) {
     Write-Host "`n$Yellow[!] Skipping Weather API backend (Python not available)$Reset"
 } else {
-    Write-Host "`n$Yellow[!] Skipping Weather API backend (server/main.py not found)$Reset"
+    Write-Host "`n$Yellow[!] Skipping Weather API backend (../backend/main.py not found)$Reset"
 }
 
 Write-Host "`n$Green[>] Starting Earth Visualization on port $port...$Reset"
 Write-Host "$Yellow[>] Access the application at: http://localhost:$port$Reset"
-Write-Host "$Yellow[>] GRIB2 proxy running at: http://localhost:$proxyPort$Reset"
 if ($weatherApiJob) {
     Write-Host "$Blue[>] Weather API running at: http://localhost:$weatherApiPort$Reset"
     Write-Host "$Blue[>] API docs available at: http://localhost:$weatherApiPort/docs$Reset"
+    Write-Host "$Blue[>] GRIB2 proxy integrated into Weather API$Reset"
 }
 Write-Host "$Yellow[>] Press Ctrl+C to stop all servers$Reset`n"
 
 # Function to cleanup background jobs on exit
 function Cleanup {
     Write-Host "`n$Yellow[>] Stopping servers...$Reset"
-    if ($proxyProcess -and !$proxyProcess.HasExited) {
-        Stop-Process -Id $proxyProcess.Id -Force -ErrorAction SilentlyContinue
-        Write-Host "$Green[+] GRIB2 proxy server stopped$Reset"
-    }
     if ($weatherApiJob) {
         Stop-Job $weatherApiJob -ErrorAction SilentlyContinue
         Remove-Job $weatherApiJob -Force -ErrorAction SilentlyContinue

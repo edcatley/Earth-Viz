@@ -1,9 +1,10 @@
 /**
  * MenuSystem - handles all menu interactions and UI controls
+ * Now works with ConfigManager for centralized configuration management
  */
 
 import * as d3 from 'd3';
-
+import { ConfigManager, EarthConfig } from './ConfigManager';
 
 // Extend d3 with extended projections (same as globes.ts)
 declare module 'd3' {
@@ -13,49 +14,44 @@ declare module 'd3' {
 }
 
 export class MenuSystem {
-    private onConfigChange?: (changes: any) => void;
-    private onRender?: () => void;
+    private configManager: ConfigManager;
     private currentWeatherData: any = null; // Store current weather data for metadata display
 
-    constructor() {
-        console.log('[MENU] MenuSystem initialized');
-    }
-
-    setCallbacks(onConfigChange: (changes: any) => void, onRender: () => void): void {
-        this.onConfigChange = onConfigChange;
-        this.onRender = onRender;
+    constructor(configManager: ConfigManager) {
+        this.configManager = configManager;
+        console.log('[MENU] MenuSystem initialized with ConfigManager');
     }
 
     setupMenuHandlers(): void {
         console.log('[MENU] Setting up menu handlers');
-        
+
         // Date/time controls
         this.setupDateControls();
-        
+
         // Navigation controls
         this.setupNavigationControls();
-        
+
         // Mode controls (Air/Ocean)
         this.setupModeControls();
-        
+
         // Height/Surface controls
         this.setupSurfaceControls();
-        
+
         // Overlay controls
         this.setupOverlayControls();
-        
+
         // Projection controls
         this.setupProjectionControls();
-        
+
         // Grid toggle
         this.setupGridControls();
-        
+
         // Location controls
         this.setupLocationControls();
-        
+
         // Planet controls
         this.setupPlanetControls();
-        
+
         console.log('[MENU] Menu handlers setup complete');
     }
 
@@ -153,7 +149,7 @@ export class MenuSystem {
             "wind", "temp", "relative_humidity", "air_density", "wind_power_density",
             "total_precipitable_water", "total_cloud_water", "mean_sea_level_pressure"
         ];
-        
+
         windOverlays.forEach(overlay => {
             d3.select(`#overlay-${overlay}`).on("click", () => {
                 console.log(`[MENU] Set overlay: ${overlay}`);
@@ -177,7 +173,7 @@ export class MenuSystem {
     private setupProjectionControls(): void {
         // All projections - core D3 and extended ones
         const allProjections = [
-            "azimuthal_equidistant", "conic_equidistant", "equirectangular", 
+            "azimuthal_equidistant", "conic_equidistant", "equirectangular",
             "orthographic", "stereographic", "atlantis", "waterman", "winkel3"
         ];
 
@@ -192,8 +188,7 @@ export class MenuSystem {
     private setupGridControls(): void {
         d3.select("#option-show-grid").on("click", () => {
             console.log('[MENU] Toggle grid display');
-            // We can't know current state without config, so just trigger the change
-            // The parent will handle the actual toggle logic
+            // ConfigManager will handle the toggle logic, or fall back to legacy
             this.triggerConfigChange({ toggleGrid: true });
         });
     }
@@ -209,7 +204,7 @@ export class MenuSystem {
         // Wind units toggle
         d3.select("#location-wind-units").on("click", () => {
             console.log('[MENU] Toggle wind units');
-            // Trigger a units toggle - parent will handle the cycling logic
+            // ConfigManager will handle the cycling logic, or fall back to legacy
             this.triggerConfigChange({ toggleWindUnits: true });
         });
 
@@ -223,8 +218,8 @@ export class MenuSystem {
 
     private setupPlanetControls(): void {
         // Planet selection
-        const planets = ["earth", "mars", "moon", "venus", "jupiter"];
-        
+        const planets = ["earth", "earth-live", "mars", "moon", "venus", "jupiter"];
+
         planets.forEach(planet => {
             d3.select(`#planet-${planet}`).on("click", () => {
                 console.log(`[MENU] Set planet: ${planet}`);
@@ -234,10 +229,8 @@ export class MenuSystem {
     }
 
     private navigateTime(hours: number): void {
-        // This would implement time navigation logic
-        // For now, just log the action
+        // ConfigManager will handle time navigation logic, or fall back to legacy
         console.log(`[MENU] Navigate time by ${hours} hours`);
-        // TODO: Implement actual time navigation
         this.triggerConfigChange({ navigateHours: hours });
     }
 
@@ -246,7 +239,7 @@ export class MenuSystem {
         d3.selectAll(".wind-mode").classed("invisible", mode !== "air");
         d3.selectAll(".ocean-mode").classed("invisible", mode !== "ocean");
         d3.selectAll(".planet-mode").classed("invisible", mode !== "planet");
-        
+
         // Update button states
         d3.select("#wind-mode-enable").classed("highlighted", mode === "air");
         d3.select("#ocean-mode-enable").classed("highlighted", mode === "ocean");
@@ -290,7 +283,7 @@ export class MenuSystem {
         const dateElement = d3.select("#data-date");
         const isLocal = dateElement.classed("local");
         d3.select("#toggle-zone").text(isLocal ? "UTC" : "Local");
-        
+
         // Update actual date text based on current data
         if (this.currentWeatherData && this.currentWeatherData.date) {
             const date = this.currentWeatherData.date;
@@ -317,25 +310,17 @@ export class MenuSystem {
     }
 
     private triggerConfigChange(changes: any): void {
-        if (this.onConfigChange) {
-            this.onConfigChange(changes);
-        }
-    }
-
-    private triggerRender(): void {
-        if (this.onRender) {
-            this.onRender();
-        }
+        this.configManager.updateFromUI(changes);
     }
 
     // New method to update weather data metadata
     updateWeatherData(weatherProducts: any[]): void {
         console.log('[MENU] Updating weather data metadata', weatherProducts);
-        
+
         // Find the primary wind product for metadata
         const windProduct = weatherProducts.find((p: any) => p && p.field === "vector");
         this.currentWeatherData = windProduct;
-        
+
         // Update the display
         this.updateDataDisplay();
     }
@@ -356,19 +341,19 @@ export class MenuSystem {
         // Update data layer (surface/level info) with resolution
         const description = this.currentWeatherData.description;
         let layerText = "Wind";
-        
+
         if (typeof description === 'function') {
             const desc = description('en');
             layerText = desc.name + (desc.qualifier || '');
         } else if (typeof description === 'string') {
             layerText = description;
         }
-        
+
         // Add resolution info to the layer text
         if (this.currentWeatherData.source && this.currentWeatherData.source.includes('GFS')) {
             layerText += " (1.0°)";
         }
-        
+
         d3.select("#data-layer").text(layerText);
 
         // Update source
@@ -377,13 +362,13 @@ export class MenuSystem {
     }
 
     // Public method to update menu state based on current config
-    updateMenuState(config: any): void {
+    updateMenuState(config: EarthConfig): void {
         console.log('[MENU] Updating menu state');
-        
+
         // Update mode display
         const mode = config.mode || "air";
         this.updateModeDisplay(mode);
-        
+
         // Update surface display
         if (config.surface === "surface") {
             this.updateSurfaceDisplay("surface");
@@ -393,20 +378,20 @@ export class MenuSystem {
                 this.updateSurfaceDisplay(level);
             }
         }
-        
+
         // Update overlay display
         this.updateOverlayDisplay(config.overlayType || "off");
-        
+
         // Update projection display
         const currentProjection = config.projection || "orthographic";
         this.updateProjectionDisplay(currentProjection);
-        
+
         // Update grid display
         this.updateGridDisplay(config.showGridPoints || false);
-        
+
         // Update date display (in case timezone toggle changed)
         this.updateDateDisplay();
-        
+
         // Update units displays
         this.updateWindUnitsDisplay(config.windUnits || "m/s");
         this.updateValueUnitsDisplay();

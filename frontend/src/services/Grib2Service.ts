@@ -263,8 +263,8 @@ export class Grib2Service {
             west: number;
         };
     }): string {
-        // Use our proxy server to bypass CORS  
-        const baseUrl = 'http://localhost:3001/cgi-bin/filter_gfs_0p25.pl';
+        // Use our backend proxy server to bypass CORS  
+        const baseUrl = 'http://localhost:8000/cgi-bin/filter_gfs_0p25.pl';
         
         // Build URL in correct order: dir first, then file, then parameters
         let url = `${baseUrl}?dir=%2Fgfs.${params.date}%2F${params.cycle}%2Fatmos`;

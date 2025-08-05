@@ -488,6 +488,7 @@ export class PlanetSystem {
         // Planet image URLs - you can customize these paths
         const planetUrls: { [key: string]: string } = {
             earth: '/data/earth-surface.jpg',
+            'earth-live': 'http://localhost:8000/api/v1/live-earth',  // Live earth with clouds
             mars: '/data/mars-surface.jpg',
             moon: '/data/moon-surface.jpg',
             venus: '/data/venus-surface.jpg',
@@ -564,7 +565,37 @@ export class PlanetSystem {
      * Get available planet types
      */
     getAvailablePlanets(): string[] {
-        return ['earth', 'mars', 'moon', 'venus', 'jupiter'];
+        return ['earth', 'earth-live', 'mars', 'moon', 'venus', 'jupiter'];
+    }
+
+    /**
+     * Check live earth status
+     */
+    async checkLiveEarthStatus(): Promise<any> {
+        try {
+            const response = await fetch('http://localhost:8000/api/v1/live-earth/status');
+            if (response.ok) {
+                return await response.json();
+            }
+        } catch (error) {
+            debugLog('PLANET', 'Error checking live earth status:', error);
+        }
+        return null;
+    }
+
+    /**
+     * Trigger manual cloud generation
+     */
+    async triggerCloudGeneration(): Promise<boolean> {
+        try {
+            const response = await fetch('http://localhost:8000/api/v1/live-earth/generate', {
+                method: 'POST'
+            });
+            return response.ok;
+        } catch (error) {
+            debugLog('PLANET', 'Error triggering cloud generation:', error);
+            return false;
+        }
     }
 
     /**
