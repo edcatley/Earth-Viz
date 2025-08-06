@@ -9,3 +9,15 @@ private
 .npm-cache/
 .nvmrc
 .npmrc
+
+# Backend generated images and temporary files
+backend/static/images/
+backend/tmp/
+backend/__pycache__/
+backend/venv/
+backend/*.pyc
+backend/**/*.pyc
+
+# Frontend build artifacts
+frontend/dist/
+frontend/build/
