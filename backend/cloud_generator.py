@@ -7,8 +7,9 @@ import os
 import requests
 import numpy as np
 from PIL import Image, ImageFilter
-from datetime import datetime
+from datetime import datetime, timezone
 import time
+import math
 
 print("Generating cloud maps...")
 
@@ -465,3 +466,142 @@ def save_image_resolutions(image, filename, formats):
 # Start loading images
 for img in images_to_load:
     load_image(img)
+
+def calculate_solar_position(dt):
+    """Calculate sun's subsolar point (latitude, longitude) for given datetime"""
+    # More accurate solar position calculation
+    
+    # Days since J2000.0 epoch (January 1, 2000, 12:00 UTC)
+    j2000 = datetime(2000, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
+    days_since_j2000 = (dt - j2000).total_seconds() / 86400.0
+    
+    # Solar declination (latitude where sun is directly overhead)
+    # This varies from +23.44° to -23.44° throughout the year
+    day_of_year = dt.timetuple().tm_yday
+    solar_declination = 23.44 * math.sin(math.radians(360 * (284 + day_of_year) / 365.25))
+    
+    # Solar longitude (where the sun is directly overhead longitude-wise)
+    # This is based on the equation of time and hour of day
+    
+    # Mean solar time
+    hours_since_midnight = dt.hour + dt.minute/60.0 + dt.second/3600.0
+    
+    # Equation of time correction (simplified)
+    B = math.radians(360 * (day_of_year - 81) / 365.25)
+    equation_of_time = 9.87 * math.sin(2 * B) - 7.53 * math.cos(B) - 1.5 * math.sin(B)
+    
+    # Solar hour angle (0° at solar noon, 15° per hour)
+    solar_time = hours_since_midnight + equation_of_time / 60.0
+    hour_angle = 15.0 * (solar_time - 12.0)  # 15° per hour from solar noon
+    
+    # Solar longitude is opposite to the hour angle
+    solar_longitude = -hour_angle
+    
+    # Normalize to -180 to +180
+    while solar_longitude > 180:
+        solar_longitude -= 360
+    while solar_longitude < -180:
+        solar_longitude += 360
+    
+    return solar_declination, solar_longitude
+
+
+def create_terminator_mask(width, height, solar_lat, solar_lon):
+    """Create a mask where 1.0 = day, 0.0 = night, with smooth transition"""
+    print(f'Creating terminator mask for solar position: {solar_lat:.2f}°, {solar_lon:.2f}°')
+    
+    # Create coordinate grids
+    lon_grid = np.linspace(-180, 180, width)
+    lat_grid = np.linspace(90, -90, height)
+    lon_mesh, lat_mesh = np.meshgrid(lon_grid, lat_grid)
+    
+    # Calculate solar zenith angle for each pixel
+    lat_rad = np.radians(lat_mesh)
+    lon_rad = np.radians(lon_mesh)
+    solar_lat_rad = np.radians(solar_lat)
+    solar_lon_rad = np.radians(solar_lon)
+    
+    # Spherical trigonometry to find sun angle
+    cos_zenith = (np.sin(lat_rad) * np.sin(solar_lat_rad) + 
+                  np.cos(lat_rad) * np.cos(solar_lat_rad) * 
+                  np.cos(lon_rad - solar_lon_rad))
+    
+    # Convert to day/night mask with smooth transition
+    # cos_zenith > 0 = day, cos_zenith < 0 = night
+    # Add smooth transition around terminator (±6 degrees = civil twilight)
+    twilight_angle = np.radians(6)  # Civil twilight
+    day_mask = np.clip((cos_zenith + np.sin(twilight_angle)) / (2 * np.sin(twilight_angle)), 0, 1)
+    
+    return day_mask
+
+
+def create_day_night_blend():
+    """Create blended day/night earth image with real-time terminator"""
+    print('Creating day/night blend with real-time terminator...')
+    
+    # Get current time (UTC)
+    current_time = datetime.now(timezone.utc)
+    print(f'Current UTC time: {current_time.strftime("%Y-%m-%d %H:%M:%S")}')
+    
+    # Calculate solar position
+    solar_lat, solar_lon = calculate_solar_position(current_time)
+    print(f'Solar position: {solar_lat:.2f}° latitude, {solar_lon:.2f}° longitude')
+    
+    # Create terminator mask
+    day_mask = create_terminator_mask(SOURCE_WIDTH, SOURCE_HEIGHT, solar_lat, solar_lon)
+    
+    # Save the mask for debugging
+    print('Saving terminator mask for debugging...')
+    mask_image = Image.fromarray((day_mask * 255).astype(np.uint8), 'L')  # Grayscale
+    save_image_resolutions(mask_image, 'terminator-mask', ['png'])
+    
+    # Load the day and night earth images we just created
+    print('Loading day and night earth images...')
+    
+    # We need to load from the largest resolution we created
+    day_earth_path = None
+    night_earth_path = None
+    
+    # Find the largest resolution directory that exists
+    for i in range(1, 4):  # We skip i=0 (8192x4096)
+        scale = 2 ** i
+        width = SOURCE_WIDTH // scale
+        height = SOURCE_HEIGHT // scale
+        
+        day_path = os.path.join(OUTPUT_DIR, f'{width}x{height}', 'earth.jpg')
+        night_path = os.path.join(OUTPUT_DIR, f'{width}x{height}', 'earth-night.jpg')
+        
+        if os.path.exists(day_path) and os.path.exists(night_path):
+            day_earth_path = day_path
+            night_earth_path = night_path
+            print(f'Using {width}x{height} resolution for blending')
+            break
+    
+    if not day_earth_path or not night_earth_path:
+        print('Error: Could not find day/night earth images for blending')
+        return
+    
+    # Load and resize images to match our processing resolution
+    day_earth_img = Image.open(day_earth_path).resize((SOURCE_WIDTH, SOURCE_HEIGHT), Image.LANCZOS)
+    night_earth_img = Image.open(night_earth_path).resize((SOURCE_WIDTH, SOURCE_HEIGHT), Image.LANCZOS)
+    
+    day_earth = np.array(day_earth_img).astype(np.float32)
+    night_earth = np.array(night_earth_img).astype(np.float32)
+    
+    print('Blending day and night images...')
+    
+    # Blend based on terminator mask
+    blended = day_earth * day_mask[:, :, np.newaxis] + night_earth * (1 - day_mask[:, :, np.newaxis])
+    
+    # Create final image
+    blended_image = Image.fromarray(np.clip(blended, 0, 255).astype(np.uint8))
+    
+    # Save the blended result
+    print('Saving real-time earth image...')
+    save_image_resolutions(blended_image, 'earth-realtime', ['jpg'])
+    
+    print(f'Day/night blend complete! Solar subsolar point: {solar_lat:.2f}°N, {solar_lon:.2f}°E')
+
+
+# Create the day/night blend after all other processing is complete
+create_day_night_blend()
