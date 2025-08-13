@@ -15,7 +15,6 @@
     "type": "module",
     "scripts": {
         "dev": "vite",
-        "proxy": "node proxy-server.js",
         "test:micro": "vite --config vite.micro-test.config.js",
         "test:products": "vite --config vite.products-test.config.js",
         "build": "vite build",
@@ -31,16 +30,12 @@
         "@geo-maps/earth-lakes-2km5": "^0.6.0",
         "@geo-maps/earth-rivers-10km": "^0.6.0",
         "@geo-maps/earth-rivers-2km5": "^0.6.0",
-        "cors": "^2.8.5",
         "d3": "^7.9.0",
         "d3-geo-polygon": "^2.0.1",
         "d3-geo-projection": "^4.0.0",
         "events": "^3.3.0",
-        "express": "^4.21.2",
         "grib22json": "github:BlueNetCat/grib22json",
-        "http-proxy-middleware": "^3.0.5",
-        "topojson-client": "^3.1.0",
-        "when": "^3.7.8"
+        "topojson-client": "^3.1.0"
     },
     "devDependencies": {
         "@types/d3": "^7.4.3",
