@@ -372,13 +372,18 @@ def process_images():
     inverted_cloud_map = Image.eval(cloud_map_with_alpha, lambda x: 255 - x)
     shadow_map = inverted_cloud_map.filter(ImageFilter.GaussianBlur(radius=3))
 
-    # Save the earth image
-    print('Saving earth image')
-    earth_resized = earth_without_clouds.resize((SOURCE_WIDTH, SOURCE_HEIGHT), Image.LANCZOS).convert('RGBA')
+    # Save the plain earth image (without clouds)
+    print('Saving plain earth image')
+    earth_resized = earth_without_clouds.resize((SOURCE_WIDTH, SOURCE_HEIGHT), Image.LANCZOS).convert('RGB')
+    save_image_resolutions(earth_resized, 'earth', ['jpg'])
+
+    # Save the earth image with clouds
+    print('Saving earth image with clouds')
+    earth_resized_rgba = earth_without_clouds.resize((SOURCE_WIDTH, SOURCE_HEIGHT), Image.LANCZOS).convert('RGBA')
     
     # Apply shadow with multiply blend and 0.55 opacity - SIMPLIFIED
     shadow_array = np.array(shadow_map).astype(np.float32)
-    earth_array = np.array(earth_resized).astype(np.float32)
+    earth_array = np.array(earth_resized_rgba).astype(np.float32)
     
     # VECTORIZED shadow application
     shadow_alpha = shadow_array[:, :, 3] / 255.0
@@ -392,7 +397,7 @@ def process_images():
     # Composite clouds on top (default blend mode)
     earth_final = Image.alpha_composite(earth_with_shadows, cloud_map_with_alpha)
     
-    save_image_resolutions(earth_final.convert('RGB'), 'earth', ['jpg'])
+    save_image_resolutions(earth_final.convert('RGB'), 'earth-clouds', ['jpg'])
 
     # Save the night earth image
     print('Saving night earth image')
@@ -598,7 +603,7 @@ def create_day_night_blend():
     
     # Save the blended result
     print('Saving real-time earth image...')
-    save_image_resolutions(blended_image, 'earth-realtime', ['jpg'])
+    save_image_resolutions(blended_image, 'earth-clouds-realtime', ['jpg'])
     
     print(f'Day/night blend complete! Solar subsolar point: {solar_lat:.2f}°N, {solar_lon:.2f}°E')
 

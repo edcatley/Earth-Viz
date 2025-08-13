@@ -86,42 +86,14 @@ async def grib_proxy(request: Request):
         logger.error(f"GRIB proxy error: {str(e)}")
         raise HTTPException(status_code=500, detail=f"GRIB proxy failed: {str(e)}")
 
-# Live earth image endpoints
-@app.get("/api/v1/live-earth")
-async def get_live_earth():
-    """Get the latest live earth image with clouds and day/night cycle"""
+# Earth image endpoints
+@app.get("/api/v1/earth-clouds")
+async def get_earth_clouds():
+    """Get the earth with clouds (static day version)"""
     try:
-        image_path = "static/images/4096x2048/earth.jpg"
+        image_path = "out/images/2048x1024/earth-clouds.jpg"
         if not os.path.exists(image_path):
-            raise HTTPException(status_code=404, detail="Earth image not available")
-        
-        # Get file modification time for cache headers
-        stat = os.stat(image_path)
-        last_modified = datetime.fromtimestamp(stat.st_mtime).strftime('%a, %d %b %Y %H:%M:%S GMT')
-        
-        with open(image_path, "rb") as f:
-            content = f.read()
-        
-        return Response(
-            content=content,
-            media_type="image/jpeg",
-            headers={
-                "Last-Modified": last_modified,
-                "Cache-Control": "public, max-age=1800",  # Cache for 30 minutes
-                "Access-Control-Allow-Origin": "*"
-            }
-        )
-    except Exception as e:
-        logger.error(f"Error serving earth image: {str(e)}")
-        raise HTTPException(status_code=500, detail="Failed to serve earth image")
-
-@app.get("/api/v1/live-clouds")
-async def get_live_clouds():
-    """Get the latest live cloud map"""
-    try:
-        image_path = "static/images/4096x2048/clouds.jpg"
-        if not os.path.exists(image_path):
-            raise HTTPException(status_code=404, detail="Cloud image not available")
+            raise HTTPException(status_code=404, detail="Earth with clouds image not available")
         
         stat = os.stat(image_path)
         last_modified = datetime.fromtimestamp(stat.st_mtime).strftime('%a, %d %b %Y %H:%M:%S GMT')
@@ -139,35 +111,64 @@ async def get_live_clouds():
             }
         )
     except Exception as e:
-        logger.error(f"Error serving cloud image: {str(e)}")
-        raise HTTPException(status_code=500, detail="Failed to serve cloud image")
+        logger.error(f"Error serving earth with clouds image: {str(e)}")
+        raise HTTPException(status_code=500, detail="Failed to serve earth with clouds image")
 
-@app.get("/api/v1/live-earth/status")
-async def get_live_earth_status():
-    """Get status of earth image availability"""
+@app.get("/api/v1/earth-clouds-realtime")
+async def get_earth_clouds_realtime():
+    """Get the earth with clouds and real-time day/night cycle"""
     try:
-        earth_path = "static/images/4096x2048/earth.jpg"
-        clouds_path = "static/images/4096x2048/clouds.jpg"
+        image_path = "out/images/2048x1024/earth-clouds-realtime.jpg"
+        if not os.path.exists(image_path):
+            raise HTTPException(status_code=404, detail="Real-time earth with clouds image not available")
         
-        status = {
-            "earth_available": os.path.exists(earth_path),
-            "clouds_available": os.path.exists(clouds_path),
-            "earth_last_updated": None,
-            "clouds_last_updated": None
-        }
+        stat = os.stat(image_path)
+        last_modified = datetime.fromtimestamp(stat.st_mtime).strftime('%a, %d %b %Y %H:%M:%S GMT')
         
-        if status["earth_available"]:
-            stat = os.stat(earth_path)
-            status["earth_last_updated"] = datetime.fromtimestamp(stat.st_mtime).isoformat()
+        with open(image_path, "rb") as f:
+            content = f.read()
         
-        if status["clouds_available"]:
-            stat = os.stat(clouds_path)
-            status["clouds_last_updated"] = datetime.fromtimestamp(stat.st_mtime).isoformat()
-        
-        return status
+        return Response(
+            content=content,
+            media_type="image/jpeg",
+            headers={
+                "Last-Modified": last_modified,
+                "Cache-Control": "public, max-age=1800",
+                "Access-Control-Allow-Origin": "*"
+            }
+        )
     except Exception as e:
-        logger.error(f"Error getting earth status: {str(e)}")
-        raise HTTPException(status_code=500, detail="Failed to get earth status")
+        logger.error(f"Error serving real-time earth with clouds image: {str(e)}")
+        raise HTTPException(status_code=500, detail="Failed to serve real-time earth with clouds image")
+
+@app.get("/api/v1/earth")
+async def get_earth():
+    """Get the plain earth without clouds"""
+    try:
+        image_path = "out/images/2048x1024/earth.jpg"
+        if not os.path.exists(image_path):
+            raise HTTPException(status_code=404, detail="Plain earth image not available")
+        
+        stat = os.stat(image_path)
+        last_modified = datetime.fromtimestamp(stat.st_mtime).strftime('%a, %d %b %Y %H:%M:%S GMT')
+        
+        with open(image_path, "rb") as f:
+            content = f.read()
+        
+        return Response(
+            content=content,
+            media_type="image/jpeg",
+            headers={
+                "Last-Modified": last_modified,
+                "Cache-Control": "public, max-age=1800",
+                "Access-Control-Allow-Origin": "*"
+            }
+        )
+    except Exception as e:
+        logger.error(f"Error serving plain earth image: {str(e)}")
+        raise HTTPException(status_code=500, detail="Failed to serve plain earth image")
+
+
 
 
 
