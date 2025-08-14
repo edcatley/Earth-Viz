@@ -8,9 +8,8 @@ numpy>=1.26.0
 Pillow>=10.0.0
 requests>=2.31.0
 
-# GRIB2 parsing dependencies (temporarily disabled while fixing pygrib)
-# Cython>=0.29.0,<0.30.0
-# pygrib>=2.1.4
+# GRIB2 parsing dependencies
+eccodes>=1.6.0
 
 # For cloud generation scheduling
 asyncio

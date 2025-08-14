@@ -4,7 +4,7 @@
 
 import * as d3 from 'd3';
 import { Utils } from './utils/Utils';
-import { grib2Service } from './services/Grib2Service';
+import { weatherDataService } from './services/WeatherDataService';
 
 // Core interfaces (kept for compatibility)
 export interface GridHeader {
@@ -280,13 +280,15 @@ class WeatherDataManager {
     // Fetch a single parameter
     private async fetchParameter(param: ParameterConfig, date: Date, userSurface: string, userLevel: string): Promise<GridBuilder> {
         const level = this.resolveLevel(param, userSurface, userLevel);
-        return await grib2Service.getWeatherData(date, param.name, level);
+        const scalarData = await weatherDataService.fetchScalarData(param.name, level, date);
+        return weatherDataService.createScalarGridBuilder(scalarData);
     }
 
     // Fetch wind vector data (special case)
     private async fetchWindVector(uParam: ParameterConfig, vParam: ParameterConfig, date: Date, userSurface: string, userLevel: string): Promise<GridBuilder> {
         const level = this.resolveLevel(uParam, userSurface, userLevel);
-        return await grib2Service.getParticleData(date, uParam.name, vParam.name, level);
+        const vectorData = await weatherDataService.fetchVectorData(uParam.name, vParam.name, level, date);
+        return weatherDataService.createVectorGridBuilder(vectorData);
     }
 
     // Build particle grid

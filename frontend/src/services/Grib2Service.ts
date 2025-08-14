@@ -107,66 +107,66 @@ export class Grib2Service {
             debugLog('GRIB2', 'Attempting to decode GRIB2 file with buffer size:', arrayBuffer.byteLength);
             const gribFiles = decodeGRIB2File(arrayBuffer);
 
-        if (!gribFiles || !gribFiles.length) {
-            throw new Error('Invalid GRIB2 data structure');
-        }
-
-        debugLog('GRIB2', 'Parsed GRIB2 messages:', gribFiles.length);
-
-        // Convert to our internal format
-        const grib2Data: Grib2Data[] = gribFiles.map((gribFile: any, index: number) => {
-            debugLog('GRIB2', `Processing message ${index + 1}:`, gribFile);
-
-            if (!gribFile.data || !gribFile.data.grid || !gribFile.data.values) {
-                throw new Error(`Invalid GRIB2 file structure at index ${index}`);
+            if (!gribFiles || !gribFiles.length) {
+                throw new Error('Invalid GRIB2 data structure');
             }
 
-            const { data } = gribFile;
-            const { grid, values, product } = data;
+            debugLog('GRIB2', 'Parsed GRIB2 messages:', gribFiles.length);
 
-            console.log('[GRIB2-PARSE] Grid info:', grid);
-            console.log('[GRIB2-PARSE] Product info:', product);
-            console.log('[GRIB2-PARSE] Values info:', {
-                length: values.length,
-                type: typeof values,
-                isArray: Array.isArray(values),
-                sample: values.slice(0, 5)
+            // Convert to our internal format
+            const grib2Data: Grib2Data[] = gribFiles.map((gribFile: any, index: number) => {
+                debugLog('GRIB2', `Processing message ${index + 1}:`, gribFile);
+
+                if (!gribFile.data || !gribFile.data.grid || !gribFile.data.values) {
+                    throw new Error(`Invalid GRIB2 file structure at index ${index}`);
+                }
+
+                const { data } = gribFile;
+                const { grid, values, product } = data;
+
+                console.log('[GRIB2-PARSE] Grid info:', grid);
+                console.log('[GRIB2-PARSE] Product info:', product);
+                console.log('[GRIB2-PARSE] Values info:', {
+                    length: values.length,
+                    type: typeof values,
+                    isArray: Array.isArray(values),
+                    sample: values.slice(0, 5)
+                });
+
+                // Extract time information from the data template
+                const section1 = gribFile.dataTemplate[1];
+                const year = section1.find((item: any) => item.info === 'Year (4 digits)')?.content || new Date().getFullYear();
+                const month = section1.find((item: any) => item.info === 'Month')?.content || 1;
+                const day = section1.find((item: any) => item.info === 'Day')?.content || 1;
+                const hour = section1.find((item: any) => item.info === 'Hour')?.content || 0;
+                const minute = section1.find((item: any) => item.info === 'Minute')?.content || 0;
+                const second = section1.find((item: any) => item.info === 'Second')?.content || 0;
+
+                const referenceTime = new Date(year, month - 1, day, hour, minute, second);
+
+                // For now, use the same time as forecast time (this would normally include forecast offset)
+                const forecastTime = new Date(referenceTime);
+
+                return {
+                    referenceTime,
+                    forecastTime,
+                    grid: {
+                        nx: grid.numLongPoints,
+                        ny: grid.numLatPoints,
+                        lon0: grid.lonStart,
+                        lat0: grid.latStart,
+                        dlon: grid.incI,
+                        dlat: grid.incJ
+                    },
+                    values: Array.isArray(values) ? new Float32Array(values) : values,
+                    parameter: product['Parameter number (see Code table 4.2)'] || 'Unknown',
+                    level: 'surface', // TODO: Extract from GRIB data
+                    unit: 'Unknown' // TODO: Extract from GRIB data
+                } as Grib2Data;
             });
 
-            // Extract time information from the data template
-            const section1 = gribFile.dataTemplate[1];
-            const year = section1.find((item: any) => item.info === 'Year (4 digits)')?.content || new Date().getFullYear();
-            const month = section1.find((item: any) => item.info === 'Month')?.content || 1;
-            const day = section1.find((item: any) => item.info === 'Day')?.content || 1;
-            const hour = section1.find((item: any) => item.info === 'Hour')?.content || 0;
-            const minute = section1.find((item: any) => item.info === 'Minute')?.content || 0;
-            const second = section1.find((item: any) => item.info === 'Second')?.content || 0;
+            return grib2Data;
 
-            const referenceTime = new Date(year, month - 1, day, hour, minute, second);
-
-            // For now, use the same time as forecast time (this would normally include forecast offset)
-            const forecastTime = new Date(referenceTime);
-
-            return {
-                referenceTime,
-                forecastTime,
-                grid: {
-                    nx: grid.numLongPoints,
-                    ny: grid.numLatPoints,
-                    lon0: grid.lonStart,
-                    lat0: grid.latStart,
-                    dlon: grid.incI,
-                    dlat: grid.incJ
-                },
-                values: Array.isArray(values) ? new Float32Array(values) : values,
-                parameter: product['Parameter number (see Code table 4.2)'] || 'Unknown',
-                level: 'surface', // TODO: Extract from GRIB data
-                unit: 'Unknown' // TODO: Extract from GRIB data
-            } as Grib2Data;
-        });
-
-        return grib2Data;
-        
         } catch (error) {
             debugLog('GRIB2', 'Error in parseGrib2:', error);
             throw new Error(`Failed to parse GRIB2 data: ${error instanceof Error ? error.message : String(error)}`);

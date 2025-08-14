@@ -444,6 +444,9 @@ def process_images():
     specular_final = Image.fromarray(np.clip(specular_array[:, :, :3], 0, 255).astype(np.uint8), 'RGB')
     save_image_resolutions(specular_final, 'specular', ['jpg'])
 
+    # Create the day/night blend using internal images (no file I/O!)
+    create_day_night_blend(earth_final.convert('RGB'), night_earth_final)
+
 
 def save_image_resolutions(image, filename, formats):
     """Save image at multiple resolutions - exact JavaScript translation"""
@@ -468,10 +471,7 @@ def save_image_resolutions(image, filename, formats):
                 resized_image.save(output_path)
 
 
-# Start loading images
-for img in images_to_load:
-    load_image(img)
-
+# Helper functions for solar calculations and day/night blending
 def calculate_solar_position(dt):
     """Calculate sun's subsolar point (latitude, longitude) for given datetime"""
     # More accurate solar position calculation
@@ -540,8 +540,8 @@ def create_terminator_mask(width, height, solar_lat, solar_lon):
     return day_mask
 
 
-def create_day_night_blend():
-    """Create blended day/night earth image with real-time terminator"""
+def create_day_night_blend(earth_with_clouds_img, night_earth_img):
+    """Create blended day/night earth image with real-time terminator using internal images"""
     print('Creating day/night blend with real-time terminator...')
     
     # Get current time (UTC)
@@ -560,42 +560,14 @@ def create_day_night_blend():
     mask_image = Image.fromarray((day_mask * 255).astype(np.uint8), 'L')  # Grayscale
     save_image_resolutions(mask_image, 'terminator-mask', ['png'])
     
-    # Load the day and night earth images we just created
-    print('Loading day and night earth images...')
+    # Use the internal images directly (no file I/O!)
+    print('Blending day and night images using internal data...')
     
-    # We need to load from the largest resolution we created
-    day_earth_path = None
-    night_earth_path = None
-    
-    # Find the largest resolution directory that exists
-    for i in range(1, 4):  # We skip i=0 (8192x4096)
-        scale = 2 ** i
-        width = SOURCE_WIDTH // scale
-        height = SOURCE_HEIGHT // scale
-        
-        day_path = os.path.join(OUTPUT_DIR, f'{width}x{height}', 'earth.jpg')
-        night_path = os.path.join(OUTPUT_DIR, f'{width}x{height}', 'earth-night.jpg')
-        
-        if os.path.exists(day_path) and os.path.exists(night_path):
-            day_earth_path = day_path
-            night_earth_path = night_path
-            print(f'Using {width}x{height} resolution for blending')
-            break
-    
-    if not day_earth_path or not night_earth_path:
-        print('Error: Could not find day/night earth images for blending')
-        return
-    
-    # Load and resize images to match our processing resolution
-    day_earth_img = Image.open(day_earth_path).resize((SOURCE_WIDTH, SOURCE_HEIGHT), Image.LANCZOS)
-    night_earth_img = Image.open(night_earth_path).resize((SOURCE_WIDTH, SOURCE_HEIGHT), Image.LANCZOS)
-    
-    day_earth = np.array(day_earth_img).astype(np.float32)
+    # Convert to arrays for processing
+    day_earth = np.array(earth_with_clouds_img).astype(np.float32)
     night_earth = np.array(night_earth_img).astype(np.float32)
     
-    print('Blending day and night images...')
-    
-    # Blend based on terminator mask
+    # VECTORIZED blend based on terminator mask
     blended = day_earth * day_mask[:, :, np.newaxis] + night_earth * (1 - day_mask[:, :, np.newaxis])
     
     # Create final image
@@ -608,5 +580,6 @@ def create_day_night_blend():
     print(f'Day/night blend complete! Solar subsolar point: {solar_lat:.2f}°N, {solar_lon:.2f}°E')
 
 
-# Create the day/night blend after all other processing is complete
-create_day_night_blend()
+# Start loading images
+for img in images_to_load:
+    load_image(img)

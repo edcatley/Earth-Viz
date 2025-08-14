@@ -34,7 +34,6 @@
         "d3-geo-polygon": "^2.0.1",
         "d3-geo-projection": "^4.0.0",
         "events": "^3.3.0",
-        "grib22json": "github:BlueNetCat/grib22json",
         "topojson-client": "^3.1.0"
     },
     "devDependencies": {

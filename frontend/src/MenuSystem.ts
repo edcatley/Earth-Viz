@@ -218,7 +218,7 @@ export class MenuSystem {
 
     private setupPlanetControls(): void {
         // Planet selection
-        const planets = ["earth", "earth-live", "mars", "moon", "venus", "jupiter"];
+        const planets = ["earth", "earth-clouds", "earth-live", "mars", "moon", "venus", "jupiter"];
 
         planets.forEach(planet => {
             d3.select(`#planet-${planet}`).on("click", () => {

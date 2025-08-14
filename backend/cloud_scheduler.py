@@ -95,55 +95,35 @@ class CloudScheduler:
                 logger.info("Starting cloud generation...")
                 start_time = datetime.now()
                 
-                # Check if Node.js is available
+                # Check if Python is available
                 try:
-                    result = subprocess.run(['node', '--version'], 
+                    result = subprocess.run(['python', '--version'], 
                                           capture_output=True, text=True, timeout=10)
                     if result.returncode != 0:
-                        logger.error("Node.js not found. Please install Node.js to run cloud generation.")
+                        logger.error("Python not found. Please ensure Python is in PATH.")
                         return
-                    logger.info(f"Node.js is available: {result.stdout.strip()}")
+                    logger.info(f"Python is available: {result.stdout.strip()}")
                     
                 except FileNotFoundError:
-                    logger.error("Node.js executable not found in PATH")
+                    logger.error("Python executable not found in PATH")
                     return
                 except subprocess.TimeoutExpired:
-                    logger.error("Timeout checking Node.js version")
+                    logger.error("Timeout checking Python version")
                     return
                 except Exception as e:
-                    logger.error(f"Error checking Node.js: {e}")
+                    logger.error(f"Error checking Python: {e}")
                     return
-                    
-                # Check if required packages are installed
-                if not os.path.exists('node_modules'):
-                    logger.info("Installing Node.js dependencies...")
-                    try:
-                        result = subprocess.run(['npm', 'install'], 
-                                              capture_output=True, text=True, timeout=120)
-                        
-                        if result.returncode != 0:
-                            logger.error(f"Failed to install Node.js dependencies: {result.stderr}")
-                            return
-                        else:
-                            logger.info("Node.js dependencies installed successfully")
-                            
-                    except subprocess.TimeoutExpired:
-                        logger.error("Timeout installing Node.js dependencies")
-                        return
-                    except Exception as e:
-                        logger.error(f"Error installing Node.js dependencies: {e}")
-                        return
                 
-                # Check if cloud_generator.js exists
-                if not os.path.exists('cloud_generator.js'):
-                    logger.error("cloud_generator.js not found in current directory")
+                # Check if cloud_generator.py exists
+                if not os.path.exists('cloud_generator.py'):
+                    logger.error("cloud_generator.py not found in current directory")
                     return
                     
                 logger.info("Running cloud generation script...")
                 
                 # Run the cloud generation script
                 self.current_process = subprocess.Popen(
-                    ['node', 'cloud_generator.js'],
+                    ['python', 'cloud_generator.py'],
                     stdout=subprocess.PIPE,
                     stderr=subprocess.STDOUT,
                     text=True,

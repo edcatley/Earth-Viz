@@ -5,7 +5,7 @@ GRIB2 proxy server for frontend
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import Response
+from fastapi.responses import Response, JSONResponse
 from pydantic import BaseModel
 import httpx
 from datetime import datetime
@@ -13,6 +13,7 @@ import logging
 import os
 import asyncio
 from cloud_scheduler import scheduler
+from grib_service import GribService
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -27,7 +28,7 @@ app = FastAPI(
 # Enable CORS for frontend
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://localhost:5173"],
+    allow_origins=["http://localhost:3000", "http://localhost:5173", "http://localhost:8080"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -91,7 +92,7 @@ async def grib_proxy(request: Request):
 async def get_earth_clouds():
     """Get the earth with clouds (static day version)"""
     try:
-        image_path = "out/images/2048x1024/earth-clouds.jpg"
+        image_path = "out/images/4096x2048/earth-clouds.jpg"
         if not os.path.exists(image_path):
             raise HTTPException(status_code=404, detail="Earth with clouds image not available")
         
@@ -118,7 +119,7 @@ async def get_earth_clouds():
 async def get_earth_clouds_realtime():
     """Get the earth with clouds and real-time day/night cycle"""
     try:
-        image_path = "out/images/2048x1024/earth-clouds-realtime.jpg"
+        image_path = "out/images/4096x2048/earth-clouds-realtime.jpg"
         if not os.path.exists(image_path):
             raise HTTPException(status_code=404, detail="Real-time earth with clouds image not available")
         
@@ -145,7 +146,7 @@ async def get_earth_clouds_realtime():
 async def get_earth():
     """Get the plain earth without clouds"""
     try:
-        image_path = "out/images/2048x1024/earth.jpg"
+        image_path = "out/images/4096x2048/earth.jpg"
         if not os.path.exists(image_path):
             raise HTTPException(status_code=404, detail="Plain earth image not available")
         
@@ -168,10 +169,6 @@ async def get_earth():
         logger.error(f"Error serving plain earth image: {str(e)}")
         raise HTTPException(status_code=500, detail="Failed to serve plain earth image")
 
-
-
-
-
 # Startup and shutdown events
 @app.on_event("startup")
 async def startup_event():
@@ -185,6 +182,38 @@ async def shutdown_event():
     logger.info("Stopping cloud scheduler...")
     await scheduler.stop()
 
+# Weather data JSON endpoints
+@app.get("/api/v1/weather/data")
+async def get_weather_data(
+    parameter: str,
+    level: str,
+    date: str = "current",
+    hour: str = "00"
+):
+    """Get weather data as JSON (parsed from GRIB2 using eccodes)"""
+    try:
+        weather_data = await GribService.fetch_and_parse_grib(parameter, level, date, hour)
+        return JSONResponse(content=weather_data)
+    except Exception as e:
+        logger.error(f"Weather data error: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to fetch weather data: {str(e)}")
+
+@app.get("/api/v1/weather/vector")
+async def get_vector_weather_data(
+    u_parameter: str,
+    v_parameter: str, 
+    level: str,
+    date: str = "current",
+    hour: str = "00"
+):
+    """Get vector weather data (U,V components) as JSON"""
+    try:
+        vector_data = await GribService.fetch_vector_data(u_parameter, v_parameter, level, date, hour)
+        return JSONResponse(content=vector_data)
+    except Exception as e:
+        logger.error(f"Vector weather data error: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to fetch vector weather data: {str(e)}")
+
 # Manual cloud generation endpoint
 @app.post("/api/v1/live-earth/generate")
 async def trigger_cloud_generation():
@@ -195,6 +224,8 @@ async def trigger_cloud_generation():
     except Exception as e:
         logger.error(f"Error triggering cloud generation: {str(e)}")
         raise HTTPException(status_code=500, detail="Failed to trigger cloud generation")
+
+
 
 if __name__ == "__main__":
     import uvicorn

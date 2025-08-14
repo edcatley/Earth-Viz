@@ -487,8 +487,9 @@ export class PlanetSystem {
 
         // Planet image URLs - you can customize these paths
         const planetUrls: { [key: string]: string } = {
-            earth: '/data/earth-surface.jpg',
-            'earth-live': 'http://localhost:8000/api/v1/live-earth',  // Live earth with clouds
+            earth: 'http://localhost:8000/api/v1/earth',                // Plain earth from API (4096x2048)
+            'earth-clouds': 'http://localhost:8000/api/v1/earth-clouds', // Earth with static clouds
+            'earth-live': 'http://localhost:8000/api/v1/earth-clouds-realtime', // Live earth with real-time day/night
             mars: '/data/mars-surface.jpg',
             moon: '/data/moon-surface.jpg',
             venus: '/data/venus-surface.jpg',
@@ -565,7 +566,7 @@ export class PlanetSystem {
      * Get available planet types
      */
     getAvailablePlanets(): string[] {
-        return ['earth', 'earth-live', 'mars', 'moon', 'venus', 'jupiter'];
+        return ['earth', 'earth-clouds', 'earth-live', 'mars', 'moon', 'venus', 'jupiter'];
     }
 
     /**
