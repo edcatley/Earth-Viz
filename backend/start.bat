@@ -67,8 +67,8 @@ echo.
 echo Press Ctrl+C to stop the server
 echo.
 
-REM Run the FastAPI server with uvicorn
-python -m uvicorn main:app --host 0.0.0.0 --port 8000 --reload --log-level info
+REM Run the FastAPI server with uvicorn using new structure
+python run.py
 
 REM If we get here, the server stopped
 echo.
