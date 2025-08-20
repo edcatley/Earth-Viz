@@ -4,7 +4,7 @@
  * Handles coastlines, lakes, rivers with GPU projection and LOD support
  */
 
-import { Globe } from '../Globes';
+import { Globe } from '../core/Globes';
 
 // Base vertex shader for mesh rendering
 // Orthographic projection shader (copy from WebGLRenderer)
@@ -535,6 +535,13 @@ export class WebGLMeshRenderer {
     /**
      * Set uniforms for rendering
      */
+    /**
+     * Get the current projection type that was set during initialization
+     */
+    public getCurrentProjectionType(): 'orthographic' | 'equirectangular' | null {
+        return this.currentProjectionType;
+    }
+
     /**
      * Determine projection type from globe (same logic as other WebGL systems)
      */

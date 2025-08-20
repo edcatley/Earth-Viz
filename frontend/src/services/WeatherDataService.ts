@@ -57,10 +57,12 @@ export interface VectorWeatherData {
     direction: number[];
 }
 
+import { BackendConfig } from '../config/BackendConfig';
+
 export class WeatherDataService {
     private static instance: WeatherDataService;
     private cache: Map<string, any> = new Map();
-    private baseUrl = 'http://localhost:8000/api/v1/weather';
+    private get baseUrl() { return BackendConfig.getApiEndpoints().weather; }
 
     private constructor() { }
 

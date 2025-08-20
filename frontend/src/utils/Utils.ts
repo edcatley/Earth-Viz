@@ -8,7 +8,7 @@
  */
 
 import * as d3 from 'd3';
-import { Point, GeoPoint, ViewportSize, RGB, RGBA, DateConfig, Logger } from '../Globes';
+import { Point, GeoPoint, ViewportSize, RGB, RGBA, DateConfig, Logger } from '../core/Globes';
 
 interface Units {
     conversion: (value: number) => number;

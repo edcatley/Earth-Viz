@@ -1,36 +1,39 @@
-# Weather Data API Backend
+# Earth-Viz Backend
 
-A FastAPI-based backend service for fetching and converting GRIB2 weather data from NOAA NOMADS.
+A FastAPI-based backend service for the Earth-Viz weather visualization package.
+
+## Architecture
+
+This backend is designed for dual usage:
+1. **Standalone development server** - For developing and testing earth-viz independently
+2. **Importable router** - For integration into larger applications as an NPM package
 
 ## Features
 
 - Fetch latest GFS weather data from NOAA NOMADS
 - Convert GRIB2 binary data to JSON format
 - Support for multiple weather parameters (wind, temperature, humidity, etc.)
-- Automatic detection of latest available data runs
+- Real-time cloud generation and earth imagery
 - CORS enabled for frontend integration
+- Modular design for easy integration
 
-## Quick Start (Windows)
+## Development Mode
 
-### Automatic Setup
-Run the setup script to automatically install all dependencies:
+### Quick Start
 ```cmd
-setup.bat
+python standalone_server.py
 ```
 
-This will:
-- Check Python installation
-- Create virtual environment (optional)
-- Install all Python dependencies
-- Attempt multiple methods to install pygrib
-- Verify installation
+The development server will be available at `http://localhost:8000`
 
-### Start the Server
+### Manual Setup
 ```cmd
-start.bat
-```
+# Install dependencies
+pip install -r requirements.txt
 
-The API will be available at `http://localhost:8000`
+# Start development server
+python standalone_server.py
+```
 
 ## Manual Installation
 
@@ -75,7 +78,7 @@ pip install pygrib
 
 ### 4. Start the Server
 ```cmd
-python -m uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+python standalone_server.py
 ```
 
 ## Linux/macOS Installation
@@ -98,7 +101,7 @@ pip install -r requirements.txt
 
 ### Start Server:
 ```bash
-python main.py
+python standalone_server.py
 ```
 
 ## API Endpoints
@@ -167,13 +170,34 @@ The API documentation is automatically generated and available at:
 - Swagger UI: `http://localhost:8000/docs`
 - ReDoc: `http://localhost:8000/redoc`
 
-## Next Steps
+## Integration Mode
 
-This is a minimal implementation that can be extended with:
-- Caching layer (Redis)
-- Database for metadata storage
-- Rate limiting
-- Authentication
-- Multiple data sources
-- Batch processing
-- WebSocket support for real-time updates
+For integration into larger applications:
+
+```python
+# In your main FastAPI app
+from earth_viz_api import create_earth_viz_router, startup_earth_viz, shutdown_earth_viz
+
+app = FastAPI()
+
+# Mount earth-viz router
+earth_router = create_earth_viz_router()
+app.include_router(earth_router, prefix="/api/earth-viz")
+
+# Add lifecycle events
+@app.on_event("startup")
+async def startup():
+    await startup_earth_viz()
+
+@app.on_event("shutdown")
+async def shutdown():
+    await shutdown_earth_viz()
+```
+
+## NPM Package Structure
+
+When packaged as NPM:
+- `standalone_server.py` is excluded via `.npmignore`
+- `src/earth_viz_api.py` provides the importable router
+- All services and dependencies are included
+- Parent application manages Python dependencies

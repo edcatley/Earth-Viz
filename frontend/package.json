@@ -1,25 +1,51 @@
 {
-    "name": "earth",
+    "name": "earth-viz",
     "description": "Earth - Global Weather Visualization",
-    "version": "0.0.1",
-    "private": true,
+    "version": "0.1.0",
+    "private": false,
     "author": {
-        "name": "Cameron Beccario",
-        "email": "cambecc@nullschool.net"
+        "name": "Edward Catley",
+        "email": "edward.catley@catley.com"
     },
-    "homepage": "https://github.com/cambecc/earth",
+    "homepage": "https://github.com/edcatley/earth",
     "repository": {
         "type": "git",
-        "url": "git://github.com/cambecc/earth.git"
+        "url": "https://github.com/edcatley/earth"
     },
+    "keywords": [
+        "earth",
+        "weather",
+        "visualization",
+        "globe",
+        "map",
+        "wind",
+        "particles"
+    ],
+    "license": "MIT",
     "type": "module",
+    "main": "./dist/index.js",
+    "module": "./dist/index.js",
+    "types": "./dist/index.d.ts",
+    "exports": {
+        ".": {
+            "import": "./dist/index.js",
+            "types": "./dist/index.d.ts"
+        }
+    },
+    "files": [
+        "dist",
+        "README.md",
+        "LICENSE.md"
+    ],
     "scripts": {
         "dev": "vite",
         "test:micro": "vite --config vite.micro-test.config.js",
         "test:products": "vite --config vite.products-test.config.js",
         "build": "vite build",
         "build:test": "vite build --config vite.micro-test.config.js && vite build --config vite.products-test.config.js",
-        "preview": "vite preview"
+        "preview": "vite preview",
+        "build:lib": "tsc --project tsconfig.lib.json",
+        "prepare": "npm run build:lib"
     },
     "dependencies": {
         "@geo-maps/earth-coastlines-10km": "^0.6.0",

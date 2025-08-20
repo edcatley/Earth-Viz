@@ -1,0 +1,35 @@
+# Source files
+src/examples/
+src/**/*.test.ts
+src/**/*.spec.ts
+
+# Development configs
+vite.config.js
+vite.*.config.js
+tsconfig.json
+.eslintrc.js
+.prettierrc
+
+# Build artifacts
+dist/examples/
+dist/test/
+
+# Development folders
+node_modules/
+public/
+docs/
+
+# Backend output
+../backend/out/
+
+# Editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*

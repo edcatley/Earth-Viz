@@ -13,6 +13,7 @@ private
 # Backend generated images and temporary files
 backend/static/images/
 backend/tmp/
+backend/out/
 backend/__pycache__/
 backend/venv/
 backend/*.pyc

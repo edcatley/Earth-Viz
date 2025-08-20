@@ -114,13 +114,13 @@ class CloudScheduler:
                     logger.error(f"Error checking Python: {e}")
                     return
                 
-                # Check if cloud_generator.py exists (look in scripts directory)
-                script_path = os.path.join('scripts', 'cloud_generator.py')
+                # Check if cloud_generator.py exists in services directory
+                script_path = os.path.join(os.path.dirname(__file__), 'cloud_generator.py')
                 if not os.path.exists(script_path):
                     # Fallback to root directory for backward compatibility
                     script_path = 'cloud_generator.py'
                     if not os.path.exists(script_path):
-                        logger.error("cloud_generator.py not found in scripts/ or root directory")
+                        logger.error("cloud_generator.py not found in services directory or root directory")
                         return
                     
                 logger.info(f"Running cloud generation script: {script_path}")

@@ -53,10 +53,7 @@ if errorlevel 1 (
     exit /b 1
 )
 
-REM pygrib temporarily disabled - using mock data
-echo WARNING: pygrib disabled - using mock weather data
-echo To enable real GRIB2 parsing, fix pygrib installation issues
-echo.
+
 
 REM Start the server
 echo Starting Weather Data API server...
@@ -67,8 +64,8 @@ echo.
 echo Press Ctrl+C to stop the server
 echo.
 
-REM Run the FastAPI server with uvicorn using new structure
-python run.py
+REM Run the FastAPI server using new standalone server
+python standalone_server.py
 
 REM If we get here, the server stopped
 echo.
