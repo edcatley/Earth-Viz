@@ -6,7 +6,9 @@
     "declarationMap": true,
     "sourceMap": true,
     "noEmit": false,
-    "allowImportingTsExtensions": false
+    "allowImportingTsExtensions": false,
+    "noUnusedLocals": false,
+    "noUnusedParameters": false
   },
   "include": ["src/**/*.ts"],
   "exclude": ["node_modules", "**/*.test.ts", "src/examples/**/*"]

@@ -1,0 +1,84 @@
+{
+  "name": "earth-viz",
+  "description": "Earth - Global Weather Visualization Package",
+  "version": "0.1.0",
+  "private": false,
+  "author": {
+    "name": "Edward Catley",
+    "email": "edward.catley@catley.com"
+  },
+  "homepage": "https://github.com/edcatley/earth",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/edcatley/earth"
+  },
+  "keywords": [
+    "earth",
+    "weather",
+    "visualization",
+    "globe",
+    "map",
+    "wind",
+    "particles",
+    "fastapi",
+    "python",
+    "typescript"
+  ],
+  "license": "MIT",
+  "type": "module",
+  "main": "./frontend/dist/index.js",
+  "module": "./frontend/dist/index.js",
+  "types": "./frontend/dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./frontend/dist/index.js",
+      "types": "./frontend/dist/index.d.ts"
+    },
+    "./backend": {
+      "default": "./backend/src/earth_viz_api.py"
+    }
+  },
+  "files": [
+    "frontend/dist",
+    "backend/src",
+    "backend/requirements.txt",
+    "README.md",
+    "LICENSE.md"
+  ],
+  "scripts": {
+    "build": "cd frontend && npm run build:lib",
+    "prepare": "npm run build",
+    "dev": "cd frontend && npm run dev",
+    "start:backend": "cd backend && python standalone_server.py"
+  },
+  "dependencies": {
+    "@geo-maps/earth-coastlines-10km": "^0.6.0",
+    "@geo-maps/earth-coastlines-250m": "^0.6.0",
+    "@geo-maps/earth-coastlines-2km5": "^0.6.0",
+    "@geo-maps/earth-coastlines-5km": "^0.6.0",
+    "@geo-maps/earth-lakes-10km": "^0.6.0",
+    "@geo-maps/earth-lakes-2km5": "^0.6.0",
+    "@geo-maps/earth-rivers-10km": "^0.6.0",
+    "@geo-maps/earth-rivers-2km5": "^0.6.0",
+    "d3": "^7.9.0",
+    "d3-geo-polygon": "^2.0.1",
+    "d3-geo-projection": "^4.0.0",
+    "events": "^3.3.0",
+    "topojson-client": "^3.1.0"
+  },
+  "devDependencies": {
+    "@types/d3": "^7.4.3",
+    "@types/node": "^20.11.24",
+    "@types/topojson-client": "^3.1.5",
+    "typescript": "^5.3.3",
+    "vite": "^5.1.4"
+  },
+  "engines": {
+    "node": ">=18.0.0",
+    "python": ">=3.8.0"
+  },
+  "peerDependencies": {
+    "fastapi": ">=0.68.0",
+    "uvicorn": ">=0.15.0"
+  }
+}

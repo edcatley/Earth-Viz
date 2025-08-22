@@ -662,7 +662,10 @@ async function startEarthModern(): Promise<void> {
     }
 }
 
-// Start when ready
+// Export for NPM package
+export { EarthModernApp };
+
+// Start when ready (only for standalone app)
 if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', startEarthModern);
 } else {

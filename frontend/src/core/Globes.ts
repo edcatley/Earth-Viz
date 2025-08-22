@@ -142,6 +142,11 @@ export class Globes {
     private static standardGlobe(): Globe {
         return {
             /**
+             * The type of projection used by this globe.
+             */
+            projectionType: 'orthographic' as 'orthographic' | 'equirectangular' | 'azimuthal_equidistant' | 'conic_equidistant' | 'stereographic' | 'waterman' | 'winkel3' | 'atlantis',
+
+            /**
              * This globe's current D3 projection.
              */
             projection: null as d3.GeoProjection | null,
