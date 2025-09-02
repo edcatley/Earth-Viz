@@ -6,11 +6,13 @@ This server is used for development and testing of the earth-viz backend
 independently from any parent application.
 """
 
-import uvicorn
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 from contextlib import asynccontextmanager
+import uvicorn
 import logging
+import os
 from earth_viz_backend import create_earth_viz_router, startup_earth_viz, shutdown_earth_viz
 
 # Configure logging
@@ -54,6 +56,20 @@ app.add_middleware(
 # Mount the earth-viz router with standard prefix
 earth_router = create_earth_viz_router()
 app.include_router(earth_router)
+
+# Mount the earth control router for external API
+from earth_viz_backend.earth_control import create_earth_control_router
+earth_control_router = create_earth_control_router()
+app.include_router(earth_control_router)
+
+# Serve static frontend files (production deployment)
+frontend_dist_path = os.path.join(os.path.dirname(__file__), "..", "frontend", "dist")
+if os.path.exists(frontend_dist_path):
+    app.mount("/", StaticFiles(directory=frontend_dist_path, html=True), name="static")
+    logger.info(f"Serving static files from: {frontend_dist_path}")
+else:
+    logger.warning(f"Frontend dist directory not found: {frontend_dist_path}")
+    logger.info("Run 'npm run build' in frontend/ to create production bundle")
 
 if __name__ == "__main__":
     logger.info("Starting Earth-Viz standalone development server on http://localhost:8000")

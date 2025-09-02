@@ -56,6 +56,62 @@ export class EarthAPI {
         };
 
         console.log('[API] EarthAPI exposed on window.EarthAPI');
+        
+        // Connect to WebSocket for external command bridge
+        this.connectToCommandBridge();
+
+    }
+
+    /**
+     * Connect to WebSocket bridge for external command handling
+     */
+    private connectToCommandBridge(): void {
+        const wsUrl = `ws://${window.location.hostname}:8000/api/earth/ws`;
+        console.log(`[API] Connecting to command bridge: ${wsUrl}`);
+        
+        const ws = new WebSocket(wsUrl);
+        
+        ws.onopen = () => {
+            console.log('[API] Connected to Earth command bridge');
+        };
+        
+        ws.onmessage = (event) => {
+            try {
+                const message = JSON.parse(event.data);
+                if (message.type === 'EARTH_COMMAND') {
+                    console.log(`[API] Received external command: ${message.command}`, message.params);
+                    this.executeExternalCommand(message.command, message.params || []);
+                }
+            } catch (error) {
+                console.error('[API] Failed to parse WebSocket message:', error);
+            }
+        };
+        
+        ws.onclose = () => {
+            console.log('[API] Disconnected from command bridge, attempting reconnect in 5s');
+            setTimeout(() => this.connectToCommandBridge(), 5000);
+        };
+        
+        ws.onerror = (error) => {
+            console.error('[API] WebSocket error:', error);
+        };
+    }
+
+    /**
+     * Execute external command received via WebSocket
+     */
+    private executeExternalCommand(command: string, params: any[]): void {
+        const api = (window as any).EarthAPI;
+        if (typeof api[command] === 'function') {
+            try {
+                api[command](...params);
+                console.log(`[API] Executed external command: ${command}`, params);
+            } catch (error) {
+                console.error(`[API] Failed to execute command ${command}:`, error);
+            }
+        } else {
+            console.error(`[API] Unknown command: ${command}`);
+        }
     }
 
     // === Mode Control Methods ===
