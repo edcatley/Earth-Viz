@@ -489,15 +489,18 @@ export class PlanetSystem {
         const { BackendConfig } = await import('../config/BackendConfig');
         const endpoints = BackendConfig.getApiEndpoints();
         
-        // Planet image URLs - you can customize these paths
+        // Planet image URLs - all served from backend API
         const planetUrls: { [key: string]: string } = {
             earth: endpoints.earth,                // Plain earth from API (4096x2048)
             'earth-clouds': endpoints.earthClouds, // Earth with static clouds
             'earth-live': endpoints.earthLive,     // Live earth with real-time day/night
-            mars: '/assets/planets/mars-surface.jpg',
-            moon: '/assets/planets/moon-surface.jpg',
-            venus: '/assets/planets/venus-surface.jpg',
-            jupiter: '/assets/planets/jupiter-surface.jpg'
+            mars: `${endpoints.planets}/mars`,
+            moon: `${endpoints.planets}/moon`,
+            venus: `${endpoints.planets}/venus`,
+            jupiter: `${endpoints.planets}/jupiter`,
+            mercury: `${endpoints.planets}/mercury`,
+            saturn: `${endpoints.planets}/saturn`,
+            sun: `${endpoints.planets}/sun`
         };
 
         const url = planetUrls[planetType];

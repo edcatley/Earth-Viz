@@ -19,11 +19,11 @@ export class BackendConfig {
 
         // Standalone development mode detection
         if (currentPort === '8080' || currentPort === '5173') {
-            // Running on Vite dev server - use standalone backend
-            this._baseUrl = 'http://localhost:8000';
+            // Running on Vite dev server - use standalone backend with earth-viz prefix
+            this._baseUrl = 'http://localhost:8000/earth-viz';
         } else {
             // Integrated mode - use same origin with earth-viz prefix
-            this._baseUrl = `${window.location.origin}/api/earth-viz`;
+            this._baseUrl = `${window.location.origin}/earth-viz`;
         }
 
         console.log(`[BackendConfig] Detected mode: ${this.getMode()}, using backend: ${this._baseUrl}`);
@@ -38,21 +38,24 @@ export class BackendConfig {
         
         return {
             // Weather data endpoints
-            weather: `${baseUrl}/api/v1/weather`,
-            weatherData: `${baseUrl}/api/v1/weather/data`,
-            weatherVector: `${baseUrl}/api/v1/weather/vector`,
+            weather: `${baseUrl}/api/weather`,
+            weatherData: `${baseUrl}/api/weather/data`,
+            weatherVector: `${baseUrl}/api/weather/vector`,
             
             // Earth image endpoints
-            earth: `${baseUrl}/api/v1/earth`,
-            earthClouds: `${baseUrl}/api/v1/earth-clouds`,
-            earthLive: `${baseUrl}/api/v1/earth-clouds-realtime`,
+            earth: `${baseUrl}/api/earth`,
+            earthClouds: `${baseUrl}/api/earth-clouds`,
+            earthLive: `${baseUrl}/api/earth-clouds-realtime`,
             
             // Live earth control endpoints
-            liveEarthStatus: `${baseUrl}/api/v1/live-earth/status`,
-            liveEarthGenerate: `${baseUrl}/api/v1/live-earth/generate`,
+            liveEarthStatus: `${baseUrl}/api/live-earth/status`,
+            liveEarthGenerate: `${baseUrl}/api/live-earth/generate`,
             
             // GRIB proxy endpoint
             gribProxy: `${baseUrl}/cgi-bin/filter_gfs_0p25.pl`,
+            
+            // Planet images
+            planets: `${baseUrl}/api/planets`,
             
             // Health check
             health: `${baseUrl}/health`

@@ -1,0 +1,50 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "earth_viz_backend"
+version = "0.1.0"
+authors = [
+    {name = "Edward Catley", email = "edward.catley@catley.com"},
+]
+description = "Earth Visualization Backend - FastAPI router for weather data and earth imagery"
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.8"
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+]
+dependencies = [
+    "fastapi>=0.68.0",
+    "uvicorn[standard]>=0.15.0",
+    "httpx>=0.24.0",
+    "pydantic>=1.8.0",
+    "numpy>=1.26.0",
+    "Pillow>=10.0.0",
+    "requests>=2.31.0",
+    "eccodes>=1.6.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0.0",
+    "pytest-asyncio>=0.21.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/edcatley/earth"
+Repository = "https://github.com/edcatley/earth"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+earth_viz_backend = ["static_images/**/*"]
