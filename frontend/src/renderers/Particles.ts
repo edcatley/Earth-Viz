@@ -99,7 +99,7 @@ export class ParticleSystem {
             }
             debugLog('PARTICLES', 'WebGL initialization failed, falling back to 2D');
         } else {
-            debugLog('PARTICLES', 'WebGL not suitable for current projection, using 2D');
+            debugLog('PARTICLES', 'WebGL not Implemented for Particles yet');
         }
 
         // Fallback to 2D (current implementation)

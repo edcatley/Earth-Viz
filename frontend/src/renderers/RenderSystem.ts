@@ -123,8 +123,7 @@ export class RenderSystem {
                 Utils.clearCanvas(this.scaleCanvas);
             }
 
-            // Setup map SVG structure (graticule, etc.)
-            this.setupMapStructure(data.globe);
+            // SVG map structure is now handled by Earth.ts lifecycle
 
             // 2. Draw planet canvas (if provided)
             if (data.planetCanvas) {
@@ -161,23 +160,6 @@ export class RenderSystem {
         }
     }
 
-    /**
-     * Setup the basic SVG map structure (graticule, etc.)
-     * MeshSystem handles the actual mesh rendering
-     */
-    private setupMapStructure(globe: Globe): void {
-        // Clear and setup SVG elements
-        const mapNode = d3.select("#map").node();
-        const foregroundNode = d3.select("#foreground").node();
-        if (mapNode) (mapNode as Element).replaceChildren();
-        if (foregroundNode) (foregroundNode as Element).replaceChildren();
-
-        const mapSvg = d3.select("#map");
-        const foregroundSvg = d3.select("#foreground");
-
-        // Let the globe define its map structure (includes graticule)
-        globe.defineMap(mapSvg, foregroundSvg);
-    }
 
 
 

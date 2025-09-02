@@ -135,6 +135,28 @@ class EarthModernApp {
     }
 
     /**
+     * Setup SVG map structure (graticule, sphere, etc.)
+     * Called only when projection or view changes
+     */
+    private setupMapStructure(): void {
+        if (!this.globe) return;
+        
+        console.log('[EARTH] Setting up SVG map structure');
+        
+        // Clear and setup SVG elements
+        const mapNode = d3.select("#map").node();
+        const foregroundNode = d3.select("#foreground").node();
+        if (mapNode) (mapNode as Element).replaceChildren();
+        if (foregroundNode) (foregroundNode as Element).replaceChildren();
+
+        const mapSvg = d3.select("#map");
+        const foregroundSvg = d3.select("#foreground");
+
+        // Let the globe define its map structure (includes graticule)
+        this.globe.defineMap(mapSvg, foregroundSvg);
+    }
+
+    /**
      * Setup window resize handling
      */
     private setupResizeHandling(): void {
@@ -155,6 +177,9 @@ class EarthModernApp {
 
                 // Recreate globe with new view
                 this.createGlobe();
+                
+                // Setup SVG map structure for new view
+                
 
                 // Update render system
                 this.renderSystem.updateDisplay({
@@ -368,6 +393,9 @@ class EarthModernApp {
 
             // Create initial globe
             this.createGlobe();
+            
+            // Setup initial SVG map structure
+            this.setupMapStructure();
 
             // Load weather data
             await this.loadWeatherData();
@@ -407,6 +435,7 @@ class EarthModernApp {
 
         this.particleSystem.setStateProvider(this);
         this.particleSystem.handleDataChange();
+        this.setupMapStructure();
         this.performRender();
     }
 
@@ -429,6 +458,7 @@ class EarthModernApp {
 
         this.particleSystem.setStateProvider(this);
         this.particleSystem.handleRotation();
+        this.setupMapStructure();
         this.performRender();
     }
 
@@ -462,6 +492,8 @@ class EarthModernApp {
         // Update globe if projection changed
         if (projectionChanged) {
             this.createGlobe();
+            // Setup SVG map structure for new projection
+            this.setupMapStructure();
             // Regenerate mask for new projection and trigger state updates
             if (this.globe) {
                 this.mask = Utils.createMask(this.globe, this.view);
@@ -643,6 +675,13 @@ class EarthModernApp {
 
     getMesh(): any {
         return this.mesh;
+    }
+
+    /**
+     * Get the Earth API for external configuration
+     */
+    getAPI(): any {
+        return this.earthAPI;
     }
 }
 
