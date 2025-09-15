@@ -15,7 +15,9 @@ import asyncio
 from pathlib import Path
 from .services.cloud_scheduler import scheduler
 from .services.grib_service import GribService
-from .config import OUTPUT_DIR, STATIC_IMAGES_DIR
+from . import config_loader
+
+import tempfile
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -25,17 +27,18 @@ class HealthResponse(BaseModel):
     timestamp: str
     version: str
 
-def create_earth_viz_router(prefix: str = "/earth-viz") -> APIRouter:
+def create_earth_viz_router(prefix: str = "/earth-viz/api") -> APIRouter:
     """
     Create and configure the Earth-Viz FastAPI router.
     This router can be mounted in any FastAPI application.
     
     Args:
-        prefix: URL prefix for the router (default: "/earth-viz")
+        prefix: URL prefix for the router (default: "/earth-viz/api")
     
     Returns:
         APIRouter: Configured router with all earth-viz endpoints
     """
+    config = config_loader.get_config()
     router = APIRouter(prefix=prefix, tags=["earth-viz"])
 
     # Health check endpoint
@@ -87,12 +90,12 @@ def create_earth_viz_router(prefix: str = "/earth-viz") -> APIRouter:
             raise HTTPException(status_code=500, detail=f"GRIB proxy failed: {str(e)}")
 
     # Earth image endpoints
-    @router.get("/api/earth-clouds")
+    @router.get("/earth-clouds")
     async def get_earth_clouds():
         """Get the earth with clouds (static day version)"""
         try:
             # Use configured output directory
-            image_path = OUTPUT_DIR / "4096x2048" / "earth-clouds.jpg"
+            image_path = config.OUTPUT_DIR / "4096x2048" / "earth-clouds.jpg"
             if not os.path.exists(image_path):
                 raise HTTPException(status_code=404, detail="Earth with clouds image not available")
             
@@ -115,12 +118,12 @@ def create_earth_viz_router(prefix: str = "/earth-viz") -> APIRouter:
             logger.error(f"Error serving earth with clouds image: {str(e)}")
             raise HTTPException(status_code=500, detail="Failed to serve earth with clouds image")
 
-    @router.get("/api/earth-clouds-realtime")
+    @router.get("/earth-clouds-realtime")
     async def get_earth_clouds_realtime():
         """Get the earth with clouds and real-time day/night cycle"""
         try:
             # Use configured output directory
-            image_path = OUTPUT_DIR / "4096x2048" / "earth-clouds-realtime.jpg"
+            image_path = config.OUTPUT_DIR / "4096x2048" / "earth-clouds-realtime.jpg"
             if not os.path.exists(image_path):
                 raise HTTPException(status_code=404, detail="Real-time earth with clouds image not available")
             
@@ -143,12 +146,12 @@ def create_earth_viz_router(prefix: str = "/earth-viz") -> APIRouter:
             logger.error(f"Error serving real-time earth with clouds image: {str(e)}")
             raise HTTPException(status_code=500, detail="Failed to serve real-time earth with clouds image")
 
-    @router.get("/api/earth")
+    @router.get("/earth")
     async def get_earth():
         """Get the plain earth without clouds"""
         try:
             # Use configured output directory
-            image_path = OUTPUT_DIR / "4096x2048" / "earth.jpg"
+            image_path = config.OUTPUT_DIR / "4096x2048" / "earth.jpg"
             logger.info(f"Looking for earth image at path: {image_path}")
             if not os.path.exists(image_path):
                 raise HTTPException(status_code=404, detail="Plain earth image not available")
@@ -173,13 +176,19 @@ def create_earth_viz_router(prefix: str = "/earth-viz") -> APIRouter:
             raise HTTPException(status_code=500, detail="Failed to serve plain earth image")
 
     # Static planet image endpoints
-    @router.get("/api/planets/{planet_name}")
+    @router.get("/planets/{planet_name}")
     async def get_planet_image(planet_name: str):
         """Get static planet images (mars, moon, venus, jupiter, etc.)"""
         try:
-            # Use configured static images directory
-            image_path = STATIC_IMAGES_DIR / "planets" / f"{planet_name}-surface.jpg"
-            
+            from pathlib import Path
+            static_dir = config.STATIC_IMAGES_DIR
+
+            # Ensure static_dir is a Path object for robust path joining
+            if not isinstance(static_dir, Path):
+                static_dir = Path(static_dir)
+
+            image_path = static_dir / "planets" / f"{planet_name}-surface.jpg"
+            print(str(image_path))
             if not image_path.exists():
                 raise HTTPException(status_code=404, detail=f"Planet image not found: {planet_name}")
             
@@ -203,7 +212,7 @@ def create_earth_viz_router(prefix: str = "/earth-viz") -> APIRouter:
             raise HTTPException(status_code=500, detail=f"Failed to serve planet image: {planet_name}")
 
     # Weather data JSON endpoints
-    @router.get("/api/weather/data")
+    @router.get("/weather/data")
     async def get_weather_data(
         parameter: str,
         level: str,
@@ -218,7 +227,7 @@ def create_earth_viz_router(prefix: str = "/earth-viz") -> APIRouter:
             logger.error(f"Weather data error: {str(e)}")
             raise HTTPException(status_code=500, detail=f"Failed to fetch weather data: {str(e)}")
 
-    @router.get("/api/weather/vector")
+    @router.get("/weather/vector")
     async def get_vector_weather_data(
         u_parameter: str,
         v_parameter: str, 
@@ -235,7 +244,7 @@ def create_earth_viz_router(prefix: str = "/earth-viz") -> APIRouter:
             raise HTTPException(status_code=500, detail=f"Failed to fetch vector weather data: {str(e)}")
 
     # Manual cloud generation endpoint
-    @router.post("/api/live-earth/generate")
+    @router.get("/live-earth/status")
     async def trigger_cloud_generation():
         """Manually trigger cloud generation"""
         try:
@@ -246,20 +255,3 @@ def create_earth_viz_router(prefix: str = "/earth-viz") -> APIRouter:
             raise HTTPException(status_code=500, detail="Failed to trigger cloud generation")
 
     return router
-
-# Lifecycle management functions for integration
-async def startup_earth_viz():
-    """
-    Start earth-viz services.
-    Call this from the main app's startup event.
-    """
-    logger.info("Starting earth-viz services...")
-    asyncio.create_task(scheduler.start())
-
-async def shutdown_earth_viz():
-    """
-    Stop earth-viz services.
-    Call this from the main app's shutdown event.
-    """
-    logger.info("Stopping earth-viz services...")
-    await scheduler.stop()

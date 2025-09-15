@@ -66,7 +66,7 @@ export class EarthAPI {
      * Connect to WebSocket bridge for external command handling
      */
     private connectToCommandBridge(): void {
-        const wsUrl = `ws://${window.location.hostname}:8000/api/earth/ws`;
+        const wsUrl = `ws://${window.location.hostname}:8000/earth-viz/ws`;
         console.log(`[API] Connecting to command bridge: ${wsUrl}`);
         
         const ws = new WebSocket(wsUrl);

@@ -4,14 +4,14 @@ Runs the Python cloud generation script periodically
 """
 
 import asyncio
-import subprocess
 import logging
 import os
 import signal
 import sys
-import threading
 from datetime import datetime, timedelta
 from typing import Optional
+
+from .cloud_generator import run_generation
 
 # Configure logging
 logging.basicConfig(
@@ -25,7 +25,7 @@ class CloudScheduler:
         self.interval_minutes = interval_minutes
         self.running = False
         self.task: Optional[asyncio.Task] = None
-        self.current_process: Optional[subprocess.Popen] = None
+        self.generation_in_progress = False
         
     async def start(self):
         """Start the scheduler"""
@@ -55,17 +55,9 @@ class CloudScheduler:
             except asyncio.CancelledError:
                 pass
                 
-        # Kill any running cloud generation process
-        if self.current_process:
-            try:
-                self.current_process.terminate()
-                await asyncio.sleep(5)  # Give it time to terminate gracefully
-                if self.current_process.poll() is None:
-                    self.current_process.kill()
-            except Exception as e:
-                logger.error(f"Error stopping cloud generation process: {e}")
-                
         logger.info("Cloud scheduler stopped")
+        # Note: Any in-progress generation will continue to run in its thread
+        # until completion, but no new tasks will be scheduled.
         
     async def _schedule_loop(self):
         """Main scheduling loop"""
@@ -84,81 +76,27 @@ class CloudScheduler:
                 # Continue running even if there's an error
                 
     async def generate_clouds(self):
-        """Run the cloud generation script"""
-        if self.current_process and self.current_process.poll() is None:
-            logger.warning("Cloud generation already in progress, skipping this run")
+        """Run the cloud generation function in a non-blocking thread."""
+        if self.generation_in_progress:
+            logger.warning("Cloud generation already in progress, skipping this run.")
             return
-            
-        def run_in_thread():
-            """Run cloud generation in a separate thread to avoid asyncio issues"""
-            try:
-                logger.info("Starting cloud generation...")
-                start_time = datetime.now()
-                
-                # Check if Python is available
-                try:
-                    result = subprocess.run(['python', '--version'], 
-                                          capture_output=True, text=True, timeout=10)
-                    if result.returncode != 0:
-                        logger.error("Python not found. Please ensure Python is in PATH.")
-                        return
-                    logger.info(f"Python is available: {result.stdout.strip()}")
-                    
-                except FileNotFoundError:
-                    logger.error("Python executable not found in PATH")
-                    return
-                except subprocess.TimeoutExpired:
-                    logger.error("Timeout checking Python version")
-                    return
-                except Exception as e:
-                    logger.error(f"Error checking Python: {e}")
-                    return
-                
-                # Check if cloud_generator.py exists in services directory
-                script_path = os.path.join(os.path.dirname(__file__), 'cloud_generator.py')
-                if not os.path.exists(script_path):
-                    # Fallback to root directory for backward compatibility
-                    script_path = 'cloud_generator.py'
-                    if not os.path.exists(script_path):
-                        logger.error("cloud_generator.py not found in services directory or root directory")
-                        return
-                    
-                logger.info(f"Running cloud generation script: {script_path}")
-                
-                # Run the cloud generation script
-                self.current_process = subprocess.Popen(
-                    ['python', script_path],
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.STDOUT,
-                    text=True,
-                    bufsize=1,
-                    universal_newlines=True
-                )
-                
-                # Stream output
-                for line in iter(self.current_process.stdout.readline, ''):
-                    if line:
-                        logger.info(f"CloudGen: {line.strip()}")
-                
-                # Wait for completion
-                self.current_process.wait()
-                
-                duration = datetime.now() - start_time
-                
-                if self.current_process.returncode == 0:
-                    logger.info(f"Cloud generation completed successfully in {duration}")
-                else:
-                    logger.error(f"Cloud generation failed with return code {self.current_process.returncode}")
-                    
-            except Exception as e:
-                logger.error(f"Error running cloud generation: {e}", exc_info=True)
-            finally:
-                self.current_process = None
-        
-        # Run in a separate thread to avoid blocking the event loop
-        thread = threading.Thread(target=run_in_thread)
-        thread.daemon = True
-        thread.start()
+
+        try:
+            self.generation_in_progress = True
+            logger.info("Starting cloud generation in a background thread...")
+            start_time = datetime.now()
+
+            # Run the synchronous, CPU-bound code in a separate thread to avoid blocking the event loop.
+            # asyncio.to_thread is available in Python 3.9+
+            await asyncio.to_thread(run_generation)
+
+            duration = datetime.now() - start_time
+            logger.info(f"Cloud generation completed successfully in {duration}.")
+
+        except Exception as e:
+            logger.error(f"Error during cloud generation: {e}", exc_info=True)
+        finally:
+            self.generation_in_progress = False
             
     async def force_generate(self):
         """Force immediate cloud generation (for manual triggers)"""

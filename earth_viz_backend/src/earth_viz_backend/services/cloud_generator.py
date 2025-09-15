@@ -11,81 +11,24 @@ from datetime import datetime, timezone
 import time
 import math
 from pathlib import Path
-from earth_viz_backend.config import OUTPUT_DIR, TEMP_DIR, STATIC_IMAGES_DIR
+import tempfile
+from earth_viz_backend import config_loader
 
-print("Generating cloud maps...")
-
+# --- Globals --- #
+# These are defined at the module level but will be initialized at runtime inside run_generation().
+# This prevents import-time errors when the config hasn't been loaded yet.
+config = None
+images_to_load = []
 SOURCE_WIDTH = 8192
 SOURCE_HEIGHT = SOURCE_WIDTH // 2
-
-month_number = datetime.now().month
-
-images_to_load = [
-    {
-        'type': 'IR_MAP_LEFT',
-        'path': f'https://view.eumetsat.int/geoserver/ows?service=WMS&request=GetMap&version=1.3.0&layers=mumi:worldcloudmap_ir108&styles=&format=image/png&crs=EPSG:4326&bbox=-90,-180,90,0&width={SOURCE_HEIGHT}&height={SOURCE_HEIGHT}',
-        'loaded': False,
-        'image_data': None
-    },
-    {
-        'type': 'IR_MAP_RIGHT',
-        'path': f'https://view.eumetsat.int/geoserver/ows?service=WMS&request=GetMap&version=1.3.0&layers=mumi:worldcloudmap_ir108&styles=&format=image/png&crs=EPSG:4326&bbox=-90,0,90,180&width={SOURCE_HEIGHT}&height={SOURCE_HEIGHT}',
-        'loaded': False,
-        'image_data': None
-    },
-    {
-        'type': 'DUST_MAP_LEFT',
-        'path': f'https://view.eumetsat.int/geoserver/ows?service=WMS&request=GetMap&version=1.3.0&layers=mumi:wideareacoverage_rgb_dust&styles=&format=image/png&crs=EPSG:4326&bbox=-90,-180,90,0&width={SOURCE_HEIGHT}&height={SOURCE_HEIGHT}',
-        'loaded': False,
-        'image_data': None
-    },
-    {
-        'type': 'DUST_MAP_RIGHT',
-        'path': f'https://view.eumetsat.int/geoserver/ows?service=WMS&request=GetMap&version=1.3.0&layers=mumi:wideareacoverage_rgb_dust&styles=&format=image/png&crs=EPSG:4326&bbox=-90,0,90,180&width={SOURCE_HEIGHT}&height={SOURCE_HEIGHT}',
-        'loaded': False,
-        'image_data': None
-    },
-    {
-        'type': 'VISIBLE_MAP_LEFT',
-        'path': f'https://view.eumetsat.int/geoserver/ows?service=WMS&request=GetMap&version=1.3.0&layers=mumi:wideareacoverage_rgb_natural&styles=&format=image/png&crs=EPSG:4326&bbox=-90,-180,90,0&width={SOURCE_HEIGHT}&height={SOURCE_HEIGHT}',
-        'loaded': False,
-        'image_data': None
-    },
-    {
-        'type': 'VISIBLE_MAP_RIGHT',
-        'path': f'https://view.eumetsat.int/geoserver/ows?service=WMS&request=GetMap&version=1.3.0&layers=mumi:wideareacoverage_rgb_natural&styles=&format=image/png&crs=EPSG:4326&bbox=-90,0,90,180&width={SOURCE_HEIGHT}&height={SOURCE_HEIGHT}',
-        'loaded': False,
-        'image_data': None
-    },
-    {
-        'type': 'FRAME',
-        'path': str(STATIC_IMAGES_DIR / 'frame.png'),
-        'loaded': False,
-        'image_data': None
-    },
-    {
-        'type': 'EARTH_WITHOUT_CLOUDS',
-        'path': str(STATIC_IMAGES_DIR / 'monthly' / 'earth' / f'{month_number}.jpg'),
-        'loaded': False,
-        'image_data': None
-    },
-    {
-        'type': 'EARTH_WITHOUT_CLOUDS_NIGHT',
-        'path': str(STATIC_IMAGES_DIR / 'monthly' / 'earth-night' / f'{month_number}.jpg'),
-        'loaded': False,
-        'image_data': None
-    },
-    {
-        'type': 'SPECULAR_BASE',
-        'path': str(STATIC_IMAGES_DIR / 'monthly' / 'specular-base' / f'{month_number}.jpg'),
-        'loaded': False,
-        'image_data': None
-    }
-]
 
 
 def load_image(img):
     """Load an image from URL or local path"""
+    # Ensure config is available
+    if not config:
+        raise RuntimeError("Configuration not initialized before calling load_image.")
+
     print(f"Loading {img['type']} from '{img['path']}'...")
     
     if img['path'].startswith('https://'):
@@ -94,10 +37,10 @@ def load_image(img):
         print(f"Downloaded {img['type']} from '{img['path']}'")
         
         # Ensure temp directory exists
-        os.makedirs(TEMP_DIR, exist_ok=True)
+        os.makedirs(config.TEMP_DIR, exist_ok=True)
         
         # Save to temp file
-        temp_path = os.path.join(TEMP_DIR, f"{img['type']}.png")
+        temp_path = os.path.join(config.TEMP_DIR, f"{img['type']}.png")
         with open(temp_path, 'wb') as f:
             f.write(response.content)
         
@@ -449,7 +392,11 @@ def process_images():
 
 def save_image_resolutions(image, filename, formats):
     """Save image at multiple resolutions - exact JavaScript translation"""
-    os.makedirs(OUTPUT_DIR, exist_ok=True)
+    # Ensure config is available
+    if not config:
+        raise RuntimeError("Configuration not initialized before calling save_image_resolutions.")
+
+    os.makedirs(config.OUTPUT_DIR, exist_ok=True)
     
     for format_ext in formats:
         # JavaScript: for (let i = 0; i < 4; i++)
@@ -458,7 +405,7 @@ def save_image_resolutions(image, filename, formats):
             width = SOURCE_WIDTH // scale
             height = SOURCE_HEIGHT // scale
             
-            output_subdir = os.path.join(OUTPUT_DIR, f'{width}x{height}')
+            output_subdir = os.path.join(config.OUTPUT_DIR, f'{width}x{height}')
             os.makedirs(output_subdir, exist_ok=True)
             
             resized_image = image.resize((width, height), Image.LANCZOS)
@@ -579,6 +526,83 @@ def create_day_night_blend(earth_with_clouds_img, night_earth_img):
     print(f'Day/night blend complete! Solar subsolar point: {solar_lat:.2f}°N, {solar_lon:.2f}°E')
 
 
-# Start loading images
-for img in images_to_load:
-    load_image(img)
+def run_generation():
+    """Main entry point to start the cloud generation process."""
+    global config, images_to_load, SOURCE_WIDTH, SOURCE_HEIGHT
+
+    # --- Runtime Initialization ---
+    # This code now runs when the function is called, not at import time.
+    config = config_loader.get_config()
+    config.OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+    config.TEMP_DIR.mkdir(parents=True, exist_ok=True)
+    print("Generating cloud maps...")
+
+    month_number = datetime.now().month
+
+    # The list of images to load is now defined at runtime, using the loaded config.
+    images_to_load = [
+        {
+            'type': 'IR_MAP_LEFT',
+            'path': f'https://view.eumetsat.int/geoserver/ows?service=WMS&request=GetMap&version=1.3.0&layers=mumi:worldcloudmap_ir108&styles=&format=image/png&crs=EPSG:4326&bbox=-90,-180,90,0&width={SOURCE_HEIGHT}&height={SOURCE_HEIGHT}',
+            'loaded': False, 'image_data': None
+        },
+        {
+            'type': 'IR_MAP_RIGHT',
+            'path': f'https://view.eumetsat.int/geoserver/ows?service=WMS&request=GetMap&version=1.3.0&layers=mumi:worldcloudmap_ir108&styles=&format=image/png&crs=EPSG:4326&bbox=-90,0,90,180&width={SOURCE_HEIGHT}&height={SOURCE_HEIGHT}',
+            'loaded': False, 'image_data': None
+        },
+        {
+            'type': 'DUST_MAP_LEFT',
+            'path': f'https://view.eumetsat.int/geoserver/ows?service=WMS&request=GetMap&version=1.3.0&layers=mumi:wideareacoverage_rgb_dust&styles=&format=image/png&crs=EPSG:4326&bbox=-90,-180,90,0&width={SOURCE_HEIGHT}&height={SOURCE_HEIGHT}',
+            'loaded': False, 'image_data': None
+        },
+        {
+            'type': 'DUST_MAP_RIGHT',
+            'path': f'https://view.eumetsat.int/geoserver/ows?service=WMS&request=GetMap&version=1.3.0&layers=mumi:wideareacoverage_rgb_dust&styles=&format=image/png&crs=EPSG:4326&bbox=-90,0,90,180&width={SOURCE_HEIGHT}&height={SOURCE_HEIGHT}',
+            'loaded': False, 'image_data': None
+        },
+        {
+            'type': 'VISIBLE_MAP_LEFT',
+            'path': f'https://view.eumetsat.int/geoserver/ows?service=WMS&request=GetMap&version=1.3.0&layers=mumi:wideareacoverage_rgb_natural&styles=&format=image/png&crs=EPSG:4326&bbox=-90,-180,90,0&width={SOURCE_HEIGHT}&height={SOURCE_HEIGHT}',
+            'loaded': False, 'image_data': None
+        },
+        {
+            'type': 'VISIBLE_MAP_RIGHT',
+            'path': f'https://view.eumetsat.int/geoserver/ows?service=WMS&request=GetMap&version=1.3.0&layers=mumi:wideareacoverage_rgb_natural&styles=&format=image/png&crs=EPSG:4326&bbox=-90,0,90,180&width={SOURCE_HEIGHT}&height={SOURCE_HEIGHT}',
+            'loaded': False, 'image_data': None
+        },
+        {
+            'type': 'FRAME',
+            'path': str(config.STATIC_IMAGES_DIR / 'frame.png'),
+            'loaded': False, 'image_data': None
+        },
+        {
+            'type': 'EARTH_WITHOUT_CLOUDS',
+            'path': str(config.STATIC_IMAGES_DIR / 'monthly' / 'earth' / f'{month_number}.jpg'),
+            'loaded': False, 'image_data': None
+        },
+        {
+            'type': 'EARTH_WITHOUT_CLOUDS_NIGHT',
+            'path': str(config.STATIC_IMAGES_DIR / 'monthly' / 'earth-night' / f'{month_number}.jpg'),
+            'loaded': False, 'image_data': None
+        },
+        {
+            'type': 'SPECULAR_BASE',
+            'path': str(config.STATIC_IMAGES_DIR / 'monthly' / 'specular-base' / f'{month_number}.jpg'),
+            'loaded': False, 'image_data': None
+        }
+    ]
+
+    # --- Start Image Loading ---
+    # This kicks off the asynchronous loading and processing pipeline.
+    for img in images_to_load:
+        load_image(img)
+
+
+# This allows the script to be run directly for testing if needed,
+# but its primary use is now to be imported as a module.
+if __name__ == "__main__":
+    # To run this directly, the config must be initialized first.
+    # This is now the responsibility of the calling script, 
+    # e.g., a standalone test runner.
+    print("This script is now intended to be used as a module. To run directly, you must initialize config first.")

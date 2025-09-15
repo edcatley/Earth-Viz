@@ -47,4 +47,4 @@ Repository = "https://github.com/edcatley/earth"
 where = ["src"]
 
 [tool.setuptools.package-data]
-earth_viz_backend = ["static_images/**/*"]
+earth_viz_backend = ["static_images/**/*", "static/**/*"]

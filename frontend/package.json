@@ -67,7 +67,8 @@
         "@types/node": "^20.11.24",
         "@types/topojson-client": "^3.1.5",
         "typescript": "^5.3.3",
-        "vite": "^5.1.4"
+        "vite": "^5.1.4",
+        "vite-plugin-static-copy": "^3.1.2"
     },
     "engines": {
         "node": ">=18.0.0"

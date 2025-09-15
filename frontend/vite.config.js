@@ -7,7 +7,15 @@ export default defineConfig({
   publicDir: '../src/assets',
   server: {
     port: 8080,
-    open: true
+    open: true,
+    proxy: {
+      // Proxy API requests to the backend server
+      '/earth-viz': {
+        target: 'http://localhost:8000',
+        changeOrigin: true,
+        secure: false
+      }
+    }
   },
   resolve: {
     alias: {

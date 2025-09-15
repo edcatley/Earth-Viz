@@ -43,6 +43,16 @@ export class PlanetSystem {
     // Planet image cache
     private imageCache: { [key: string]: HTMLImageElement } = {};
 
+    // API endpoints are now relative, handled by Vite proxy
+    private apiEndpoints = {
+        earth: '/earth-viz/api/earth',
+        earthClouds: '/earth-viz/api/earth-clouds',
+        earthLive: '/earth-viz/api/earth-clouds-realtime',
+        planets: '/earth-viz/api/planets',
+        liveEarthStatus: '/earth-viz/api/live-earth/status',
+        liveEarthGenerate: '/earth-viz/api/live-earth/generate'
+    };
+
     constructor() {
         // Create canvases
         this.webglCanvas = document.createElement("canvas");
@@ -485,22 +495,18 @@ export class PlanetSystem {
             return this.imageCache[planetType];
         }
 
-        // Import backend config for dynamic URLs
-        const { BackendConfig } = await import('../config/BackendConfig');
-        const endpoints = BackendConfig.getApiEndpoints();
-        
         // Planet image URLs - all served from backend API
         const planetUrls: { [key: string]: string } = {
-            earth: endpoints.earth,                // Plain earth from API (4096x2048)
-            'earth-clouds': endpoints.earthClouds, // Earth with static clouds
-            'earth-live': endpoints.earthLive,     // Live earth with real-time day/night
-            mars: `${endpoints.planets}/mars`,
-            moon: `${endpoints.planets}/moon`,
-            venus: `${endpoints.planets}/venus`,
-            jupiter: `${endpoints.planets}/jupiter`,
-            mercury: `${endpoints.planets}/mercury`,
-            saturn: `${endpoints.planets}/saturn`,
-            sun: `${endpoints.planets}/sun`
+            earth: this.apiEndpoints.earth,                // Plain earth from API (4096x2048)
+            'earth-clouds': this.apiEndpoints.earthClouds, // Earth with static clouds
+            'earth-live': this.apiEndpoints.earthLive,     // Live earth with real-time day/night
+            mars: `${this.apiEndpoints.planets}/mars`,
+            moon: `${this.apiEndpoints.planets}/moon`,
+            venus: `${this.apiEndpoints.planets}/venus`,
+            jupiter: `${this.apiEndpoints.planets}/jupiter`,
+            mercury: `${this.apiEndpoints.planets}/mercury`,
+            saturn: `${this.apiEndpoints.planets}/saturn`,
+            sun: `${this.apiEndpoints.planets}/sun`
         };
 
         const url = planetUrls[planetType];
@@ -581,9 +587,7 @@ export class PlanetSystem {
      */
     async checkLiveEarthStatus(): Promise<any> {
         try {
-            const { BackendConfig } = await import('../config/BackendConfig');
-            const endpoints = BackendConfig.getApiEndpoints();
-            const response = await fetch(endpoints.liveEarthStatus);
+            const response = await fetch(this.apiEndpoints.liveEarthStatus);
             if (response.ok) {
                 return await response.json();
             }
@@ -598,9 +602,7 @@ export class PlanetSystem {
      */
     async triggerCloudGeneration(): Promise<boolean> {
         try {
-            const { BackendConfig } = await import('../config/BackendConfig');
-            const endpoints = BackendConfig.getApiEndpoints();
-            const response = await fetch(endpoints.liveEarthGenerate, {
+            const response = await fetch(this.apiEndpoints.liveEarthGenerate, {
                 method: 'POST'
             });
             return response.ok;

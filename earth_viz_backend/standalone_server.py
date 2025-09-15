@@ -1,82 +1,48 @@
 """
-Standalone Development Server for Earth-Viz
-This file is excluded from NPM packaging via .npmignore
-
-This server is used for development and testing of the earth-viz backend
-independently from any parent application.
+Standalone server for earth-viz backend development
+Run this for standalone development and testing
 """
 
-from fastapi import FastAPI
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.staticfiles import StaticFiles
-from contextlib import asynccontextmanager
 import uvicorn
-import logging
-import os
-from earth_viz_backend import create_earth_viz_router, startup_earth_viz, shutdown_earth_viz
+import sys
+from pathlib import Path
 
-# Configure logging
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+# Add the src directory to Python path for development
+src_path = Path(__file__).parent / "src"
+if str(src_path) not in sys.path:
+    sys.path.insert(0, str(src_path))
 
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    """Lifespan context manager for startup and shutdown events"""
-    # Startup
-    logger.info("Starting Earth-Viz standalone server...")
-    await startup_earth_viz()
-    yield
-    # Shutdown
-    logger.info("Shutting down Earth-Viz standalone server...")
-    await shutdown_earth_viz()
+# --- New Config Initialization for Standalone Mode ---
+# 1. Import the local config file for standalone mode
+import config as standalone_config
 
-app = FastAPI(
-    title="Earth-Viz Standalone Server",
-    description="Development server for earth-viz backend",
-    version="1.0.0",
-    lifespan=lifespan
-)
+# 2. Import the initializer from the package
+from earth_viz_backend.config_loader import init_config
 
-# Enable CORS for development
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=[
-        "http://localhost:3000", 
-        "http://localhost:5173", 
-        "http://localhost:8080",
-        "http://127.0.0.1:3000",
-        "http://127.0.0.1:5173", 
-        "http://127.0.0.1:8080"
-    ],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+# 3. Initialize the package's config with the standalone config
+# This MUST be done before any other imports from the package that need config.
+init_config(standalone_config)
 
-# Mount the earth-viz router with standard prefix
-earth_router = create_earth_viz_router()
-app.include_router(earth_router)
+# 4. Now it's safe to import the app factory
+from earth_viz_backend.main import create_app
 
-# Mount the earth control router for external API
-from earth_viz_backend.earth_control import create_earth_control_router
-earth_control_router = create_earth_control_router()
-app.include_router(earth_control_router)
 
-# Serve static frontend files (production deployment)
-frontend_dist_path = os.path.join(os.path.dirname(__file__), "..", "frontend", "dist")
-if os.path.exists(frontend_dist_path):
-    app.mount("/", StaticFiles(directory=frontend_dist_path, html=True), name="static")
-    logger.info(f"Serving static files from: {frontend_dist_path}")
-else:
-    logger.warning(f"Frontend dist directory not found: {frontend_dist_path}")
-    logger.info("Run 'npm run build' in frontend/ to create production bundle")
+def main():
+    """Main entry point for standalone server"""
 
-if __name__ == "__main__":
-    logger.info("Starting Earth-Viz standalone development server on http://localhost:8000")
+    # Since config is now initialized before this, we can't use the uvicorn
+    # factory string anymore. We create the app instance directly.
+    app = create_app()
+
+    # Run the server with the app instance.
+    # Note: Uvicorn's reload can be less reliable with this pattern.
+    # If issues arise, consider using an external watcher like `watchfiles`.
     uvicorn.run(
-        "standalone_server:app",  # Use import string for reload
-        host="0.0.0.0", 
+        app,
+        host="0.0.0.0",
         port=8000,
-        reload=True,  # Now works with import string
         log_level="info"
     )
+
+if __name__ == "__main__":
+    main()
