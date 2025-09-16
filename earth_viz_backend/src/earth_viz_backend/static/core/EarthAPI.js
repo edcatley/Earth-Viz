@@ -96,17 +96,7 @@ export class EarthAPI {
     }
     // === Mode Control Methods ===
     /**
-     * Set the visualization mode
-     */
-    /**
      * Switch to air mode and configure its properties.
-     *
-     * @param {string} [level='1000hPa'] - The atmospheric pressure level.
-     *   Permissible values: '1000hPa', '850hPa', '700hPa', '500hPa', '250hPa', '70hPa', '10hPa'.
-     * @param {string} [particleType='wind'] - The particle animation type.
-     *   Permissible values: 'wind', 'off'.
-     * @param {string} [overlayType='off'] - The data overlay to display.
-     *   Permissible values: 'off', 'wind', 'temp', 'relative_humidity', 'mean_sea_level_pressure', 'total_precipitable_water', 'total_cloud_water'.
      */
     setAirMode(level = '1000hPa', particleType = 'wind', overlayType = 'off') {
         console.log(`[API] Setting mode: air, level: ${level}, particles: ${particleType}, overlay: ${overlayType}`);
@@ -119,11 +109,6 @@ export class EarthAPI {
     }
     /**
      * Switch to ocean mode and configure its properties.
-     *
-     * @param {string} [particleType='oceancurrent'] - The particle animation type.
-     *   Permissible values: 'oceancurrent', 'wave', 'off'.
-     * @param {string} [overlayType='off'] - The data overlay to display.
-     *   Permissible values: 'off', 'currents'. (Note: Ocean overlays are limited).
      */
     setOceanMode(particleType = 'oceancurrent', overlayType = 'off') {
         console.log(`[API] Setting mode: ocean, particles: ${particleType}, overlay: ${overlayType}`);

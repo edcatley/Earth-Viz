@@ -165,7 +165,7 @@ export class Utils {
     }
     /**
      * Interpolates a sinebow color where 0 <= i <= j, then fades to white where j < i <= 1.
-     * This matches the original earth.js implementation exactly.
+     *
      */
     static extendedSinebowColor(i, a) {
         const BOUNDARY = 0.45;

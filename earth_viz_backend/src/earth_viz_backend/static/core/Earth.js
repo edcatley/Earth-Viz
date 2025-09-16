@@ -502,15 +502,17 @@ class EarthModernApp {
         // Update globe if projection or orientation changed
         if (projectionChanged) {
             this.createGlobe();
-        }
-        else if (orientationChanged && this.globe) {
-            this.globe.orientation(this.config.orientation, this.view);
-        }
-        // If the globe was changed, we need to update dependent components
-        if (projectionChanged || orientationChanged) {
             this.setupMapStructure();
             if (this.globe) {
                 this.mask = Utils.createMask(this.globe, this.view);
+                // CRITICAL: Update the render system with the new projection
+                const orientation = (this.config.orientation || '0,0,0').split(',').map(Number);
+                this.renderSystem.updateDisplay({
+                    width: this.view.width,
+                    height: this.view.height,
+                    projection: this.globe.projection,
+                    orientation: orientation
+                });
             }
         }
         // Always reload weather data and update systems

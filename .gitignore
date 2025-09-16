@@ -11,14 +11,15 @@ private
 .npmrc
 
 # Backend generated images and temporary files
-backend/static/images/
-backend/tmp/
-backend/out/
-backend/__pycache__/
-backend/venv/
-backend/*.pyc
+earth_viz_backend/static/images/
+earth_viz_backend/tmp/
+earth_viz_backend/out/
+earth_viz_backend/__pycache__/
+earth_viz_backend/venv/
+earth_viz_backend/*.pyc
 backend/**/*.pyc
-
+backend/
+earth_viz_backend/src/earth_viz_backend/static/
 # Frontend build artifacts
 frontend/dist/
 frontend/build/

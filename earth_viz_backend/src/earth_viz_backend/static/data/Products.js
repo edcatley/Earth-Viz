@@ -393,9 +393,11 @@ export class Products {
             },
             load: async function (cancel) {
                 if (cancel.requested)
-                    return null;
+                    return this;
                 const builder = await Products.dataManager.buildParticleGrid(particleName, date, attr.level);
-                return Object.assign(this, Products.buildGrid(builder));
+                const grid = Products.buildGrid(builder);
+                Object.assign(this, grid);
+                return this;
             },
             builder: function () { throw new Error("Use load() instead"); },
             units: config.units,

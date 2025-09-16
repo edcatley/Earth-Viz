@@ -101,7 +101,7 @@ export declare class Utils {
     static sinebowColor(hue: number, a: number): RGBA;
     /**
      * Interpolates a sinebow color where 0 <= i <= j, then fades to white where j < i <= 1.
-     * This matches the original earth.js implementation exactly.
+     *
      */
     static extendedSinebowColor(i: number, a: number): RGBA;
     static asColorStyle(r: number, g: number, b: number, a: number): string;

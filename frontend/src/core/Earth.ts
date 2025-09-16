@@ -493,12 +493,6 @@ class EarthModernApp {
         // Update globe if projection or orientation changed
         if (projectionChanged) {
             this.createGlobe();
-        } else if (orientationChanged && this.globe) {
-            this.globe.orientation(this.config.orientation, this.view);
-        }
-
-        // If the globe was changed, we need to update dependent components
-        if (projectionChanged || orientationChanged) {
             this.setupMapStructure();
             if (this.globe) {
                 this.mask = Utils.createMask(this.globe, this.view);

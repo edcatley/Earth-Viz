@@ -2,7 +2,6 @@
  * Products - Clean separation of particle and overlay configurations
  */
 
-import * as d3 from 'd3';
 import { Utils } from '../utils/Utils';
 import { weatherDataService } from '../services/WeatherDataService';
 
@@ -507,9 +506,11 @@ export class Products {
                 return Products.gfsStep(this.date!, step);
             },
             load: async function (cancel: { requested: boolean }): Promise<any> {
-                if (cancel.requested) return null;
+                if (cancel.requested) return this;
                 const builder = await Products.dataManager.buildParticleGrid(particleName, date, attr.level);
-                return Object.assign(this, Products.buildGrid(builder));
+                const grid = Products.buildGrid(builder);
+                Object.assign(this, grid);
+                return this;
             },
             builder: function () { throw new Error("Use load() instead"); },
             units: config.units,
