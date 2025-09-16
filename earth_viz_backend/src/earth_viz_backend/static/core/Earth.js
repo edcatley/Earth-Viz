@@ -493,7 +493,7 @@ class EarthModernApp {
         this.config.level = config.level;
         this.config.showGridPoints = config.showGridPoints;
         this.config.windUnits = config.windUnits;
-        this.config.orientation = config.orientation;
+        //this.config.orientation = config.orientation;
         if (config.planetType) {
             this.config.planetType = config.planetType;
         }

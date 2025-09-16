@@ -65,7 +65,7 @@ export class OverlaySystem {
      */
     public initialize(): void {
         debugLog('OVERLAY', 'Starting initialization');
-        
+
         // Reset everything
         this.reset();
         
