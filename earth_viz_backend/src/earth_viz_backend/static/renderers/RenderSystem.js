@@ -81,12 +81,12 @@ export class RenderSystem {
         this.scaleCanvas = d3.select("#scale").node();
         if (this.scaleCanvas) {
             this.scaleContext = this.scaleCanvas.getContext("2d");
-            // Set scale canvas dimensions dynamically like earth.js does
+            // Set scale canvas dimensions dynamically
             this.setSizeScale();
         }
     }
     /**
-     * Set scale canvas size dynamically like the original earth.js
+     * Set scale canvas size dynamically
      * Width: (menu width - label width) * 0.97
      * Height: label height / 2
      */
@@ -183,7 +183,6 @@ export class RenderSystem {
             const [x] = d3.pointer(event);
             const pct = Utils.clamp((Math.round(x) - 2) / (width - 2), 0, 1);
             const value = Utils.spread(pct, bounds[0], bounds[1]);
-            // Use proper unit formatting like the original earth.js
             if (overlayGrid.units && overlayGrid.units[0]) {
                 const units = overlayGrid.units[0];
                 const convertedValue = units.conversion(value);

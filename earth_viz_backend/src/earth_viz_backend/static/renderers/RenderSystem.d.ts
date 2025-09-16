@@ -25,7 +25,7 @@ export declare class RenderSystem {
      */
     setupCanvases(): void;
     /**
-     * Set scale canvas size dynamically like the original earth.js
+     * Set scale canvas size dynamically
      * Width: (menu width - label width) * 0.97
      * Height: label height / 2
      */

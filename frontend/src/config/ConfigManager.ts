@@ -8,7 +8,6 @@ export interface EarthConfig {
     projection: string;
     overlayType: string;
     planetType?: string;
-    surface: string;
     level: string;
     showGridPoints: boolean;
     windUnits: string;

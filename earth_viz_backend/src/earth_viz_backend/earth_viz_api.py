@@ -89,108 +89,32 @@ def create_earth_viz_router(prefix: str = "/earth-viz/api") -> APIRouter:
             logger.error(f"GRIB proxy error: {str(e)}")
             raise HTTPException(status_code=500, detail=f"GRIB proxy failed: {str(e)}")
 
-    # Earth image endpoints
-    @router.get("/earth-clouds")
-    async def get_earth_clouds():
-        """Get the earth with clouds (static day version)"""
-        try:
-            # Use configured output directory
-            image_path = config.OUTPUT_DIR / "4096x2048" / "earth-clouds.jpg"
-            if not os.path.exists(image_path):
-                raise HTTPException(status_code=404, detail="Earth with clouds image not available")
-            
-            stat = os.stat(image_path)
-            last_modified = datetime.fromtimestamp(stat.st_mtime).strftime('%a, %d %b %Y %H:%M:%S GMT')
-            
-            with open(image_path, "rb") as f:
-                content = f.read()
-            
-            return Response(
-                content=content,
-                media_type="image/jpeg",
-                headers={
-                    "Last-Modified": last_modified,
-                    "Cache-Control": "public, max-age=1800",
-                    "Access-Control-Allow-Origin": "*"
-                }
-            )
-        except Exception as e:
-            logger.error(f"Error serving earth with clouds image: {str(e)}")
-            raise HTTPException(status_code=500, detail="Failed to serve earth with clouds image")
-
-    @router.get("/earth-clouds-realtime")
-    async def get_earth_clouds_realtime():
-        """Get the earth with clouds and real-time day/night cycle"""
-        try:
-            # Use configured output directory
-            image_path = config.OUTPUT_DIR / "4096x2048" / "earth-clouds-realtime.jpg"
-            if not os.path.exists(image_path):
-                raise HTTPException(status_code=404, detail="Real-time earth with clouds image not available")
-            
-            stat = os.stat(image_path)
-            last_modified = datetime.fromtimestamp(stat.st_mtime).strftime('%a, %d %b %Y %H:%M:%S GMT')
-            
-            with open(image_path, "rb") as f:
-                content = f.read()
-            
-            return Response(
-                content=content,
-                media_type="image/jpeg",
-                headers={
-                    "Last-Modified": last_modified,
-                    "Cache-Control": "public, max-age=1800",
-                    "Access-Control-Allow-Origin": "*"
-                }
-            )
-        except Exception as e:
-            logger.error(f"Error serving real-time earth with clouds image: {str(e)}")
-            raise HTTPException(status_code=500, detail="Failed to serve real-time earth with clouds image")
-
-    @router.get("/earth")
-    async def get_earth():
-        """Get the plain earth without clouds"""
-        try:
-            # Use configured output directory
-            image_path = config.OUTPUT_DIR / "4096x2048" / "earth.jpg"
-            logger.info(f"Looking for earth image at path: {image_path}")
-            if not os.path.exists(image_path):
-                raise HTTPException(status_code=404, detail="Plain earth image not available")
-            
-            stat = os.stat(image_path)
-            last_modified = datetime.fromtimestamp(stat.st_mtime).strftime('%a, %d %b %Y %H:%M:%S GMT')
-            
-            with open(image_path, "rb") as f:
-                content = f.read()
-            
-            return Response(
-                content=content,
-                media_type="image/jpeg",
-                headers={
-                    "Last-Modified": last_modified,
-                    "Cache-Control": "public, max-age=1800",
-                    "Access-Control-Allow-Origin": "*"
-                }
-            )
-        except Exception as e:
-            logger.error(f"Error serving plain earth image: {str(e)}")
-            raise HTTPException(status_code=500, detail="Failed to serve plain earth image")
-
-    # Static planet image endpoints
+    # Planet image endpoints
     @router.get("/planets/{planet_name}")
     async def get_planet_image(planet_name: str):
-        """Get static planet images (mars, moon, venus, jupiter, etc.)"""
+        """Serves all planet and earth images from a single dynamic endpoint."""
         try:
-            from pathlib import Path
-            static_dir = config.STATIC_IMAGES_DIR
+            image_path: Path
 
-            # Ensure static_dir is a Path object for robust path joining
-            if not isinstance(static_dir, Path):
-                static_dir = Path(static_dir)
+            # Handle earth-related images (generated)
+            if planet_name in ["earth", "earth-clouds", "earth-live"]:
+                output_dir = config.OUTPUT_DIR / "4096x2048"
+                filename_map = {
+                    "earth": "earth.jpg",
+                    "earth-clouds": "earth-clouds.jpg",
+                    "earth-live": "earth-clouds-realtime.jpg"
+                }
+                image_path = output_dir / filename_map[planet_name]
+            
+            # Handle other static planet images
+            else:
+                static_dir = config.STATIC_IMAGES_DIR
+                if not isinstance(static_dir, Path):
+                    static_dir = Path(static_dir)
+                image_path = static_dir / "planets" / f"{planet_name}-surface.jpg"
 
-            image_path = static_dir / "planets" / f"{planet_name}-surface.jpg"
-            print(str(image_path))
             if not image_path.exists():
-                raise HTTPException(status_code=404, detail=f"Planet image not found: {planet_name}")
+                raise HTTPException(status_code=404, detail=f"Image not found for: {planet_name}")
             
             stat = os.stat(image_path)
             last_modified = datetime.fromtimestamp(stat.st_mtime).strftime('%a, %d %b %Y %H:%M:%S GMT')

@@ -7,6 +7,7 @@
  * - initialize2D() - Sets up 2D fallback
  * - generateFrame() - Produces final canvas output
  */
+export declare const AVAILABLE_PLANETS: string[];
 export interface PlanetResult {
     canvas: HTMLCanvasElement | null;
     planetType: string;
@@ -21,7 +22,6 @@ export declare class PlanetSystem {
     private stateProvider;
     private eventHandlers;
     private imageCache;
-    private apiEndpoints;
     constructor();
     /**
      * Main initialization - decides WebGL vs 2D based on projection and data availability
@@ -93,18 +93,6 @@ export declare class PlanetSystem {
      * Emit events to subscribers
      */
     private emit;
-    /**
-     * Get available planet types
-     */
-    getAvailablePlanets(): string[];
-    /**
-     * Check live earth status
-     */
-    checkLiveEarthStatus(): Promise<any>;
-    /**
-     * Trigger manual cloud generation
-     */
-    triggerCloudGeneration(): Promise<boolean>;
     /**
      * Check if a planet image is loaded
      */

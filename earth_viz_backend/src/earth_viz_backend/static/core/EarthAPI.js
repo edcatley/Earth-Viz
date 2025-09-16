@@ -15,20 +15,16 @@ export class EarthAPI {
         // Expose API methods on window object for external systems
         window.EarthAPI = {
             // Mode control
-            setMode: this.setMode.bind(this),
             setAirMode: this.setAirMode.bind(this),
             setOceanMode: this.setOceanMode.bind(this),
             setPlanetMode: this.setPlanetMode.bind(this),
             // Display control
             setProjection: this.setProjection.bind(this),
             setOverlay: this.setOverlay.bind(this),
-            setPlanet: this.setPlanet.bind(this),
-            setSurface: this.setSurface.bind(this),
             setLevel: this.setLevel.bind(this),
             // Grid and units
             showGrid: this.showGrid.bind(this),
             hideGrid: this.hideGrid.bind(this),
-            toggleGrid: this.toggleGrid.bind(this),
             setWindUnits: this.setWindUnits.bind(this),
             // Time navigation
             setDate: this.setDate.bind(this),
@@ -42,7 +38,6 @@ export class EarthAPI {
             // API mode control
             enableApiMode: this.enableApiMode.bind(this),
             disableApiMode: this.disableApiMode.bind(this),
-            isApiMode: this.isApiMode.bind(this),
             // Event helpers
             onConfigChange: this.onConfigChange.bind(this),
             offConfigChange: this.offConfigChange.bind(this)
@@ -103,38 +98,41 @@ export class EarthAPI {
     /**
      * Set the visualization mode
      */
-    setMode(mode) {
-        console.log(`[API] Setting mode: ${mode}`);
-        const config = { mode };
-        // Set appropriate defaults for each mode
-        switch (mode) {
-            case 'air':
-                config.particleType = 'wind';
-                config.overlayType = 'off';
-                break;
-            case 'ocean':
-                config.particleType = 'oceancurrent';
-                config.overlayType = 'off';
-                break;
-            case 'planet':
-                config.particleType = 'off';
-                config.overlayType = 'off';
-                config.planetType = config.planetType || 'earth';
-                break;
-        }
-        this.configManager.updateConfig(config);
+    /**
+     * Switch to air mode and configure its properties.
+     *
+     * @param {string} [level='1000hPa'] - The atmospheric pressure level.
+     *   Permissible values: '1000hPa', '850hPa', '700hPa', '500hPa', '250hPa', '70hPa', '10hPa'.
+     * @param {string} [particleType='wind'] - The particle animation type.
+     *   Permissible values: 'wind', 'off'.
+     * @param {string} [overlayType='off'] - The data overlay to display.
+     *   Permissible values: 'off', 'wind', 'temp', 'relative_humidity', 'mean_sea_level_pressure', 'total_precipitable_water', 'total_cloud_water'.
+     */
+    setAirMode(level = '1000hPa', particleType = 'wind', overlayType = 'off') {
+        console.log(`[API] Setting mode: air, level: ${level}, particles: ${particleType}, overlay: ${overlayType}`);
+        this.configManager.updateConfig({
+            mode: 'air',
+            level,
+            particleType,
+            overlayType
+        });
     }
     /**
-     * Switch to air mode with wind particles
+     * Switch to ocean mode and configure its properties.
+     *
+     * @param {string} [particleType='oceancurrent'] - The particle animation type.
+     *   Permissible values: 'oceancurrent', 'wave', 'off'.
+     * @param {string} [overlayType='off'] - The data overlay to display.
+     *   Permissible values: 'off', 'currents'. (Note: Ocean overlays are limited).
      */
-    setAirMode() {
-        this.setMode('air');
-    }
-    /**
-     * Switch to ocean mode with current particles
-     */
-    setOceanMode() {
-        this.setMode('ocean');
+    setOceanMode(particleType = 'oceancurrent', overlayType = 'off') {
+        console.log(`[API] Setting mode: ocean, particles: ${particleType}, overlay: ${overlayType}`);
+        this.configManager.updateConfig({
+            mode: 'ocean',
+            particleType,
+            overlayType,
+            level: '1000hPa' // Ocean data is always at the surface
+        });
     }
     /**
      * Switch to planet mode
@@ -146,6 +144,17 @@ export class EarthAPI {
             overlayType: 'off',
             planetType
         });
+    }
+    /**
+     * Set the full screen mode
+     */
+    setFullScreen() {
+        console.log('[API] Setting full screen');
+        const currentConfig = this.configManager.getConfig();
+        const currentOrientation = currentConfig.orientation || '0,0,0';
+        const parts = currentOrientation.split(',');
+        const newOrientation = `${parts[0]},${parts[1]},NaN`;
+        this.configManager.updateConfig({ orientation: newOrientation });
     }
     // === Display Control Methods ===
     /**
@@ -163,26 +172,8 @@ export class EarthAPI {
         this.configManager.updateConfig({ overlayType });
     }
     /**
-     * Set the planet type (for planet mode)
-     */
-    setPlanet(planetType) {
-        console.log(`[API] Setting planet: ${planetType}`);
-        this.configManager.updateConfig({
-            mode: 'planet',
-            planetType,
-            particleType: 'off',
-            overlayType: 'off'
-        });
-    }
-    /**
-     * Set the surface type
-     */
-    setSurface(surface) {
-        console.log(`[API] Setting surface: ${surface}`);
-        this.configManager.updateConfig({ surface });
-    }
-    /**
-     * Set the pressure level
+     * Set the pressure level or surface type.
+     * @param level - The pressure level (e.g., '500hPa') or the string 'surface'.
      */
     setLevel(level) {
         console.log(`[API] Setting level: ${level}`);
@@ -202,14 +193,6 @@ export class EarthAPI {
     hideGrid() {
         console.log('[API] Hiding grid');
         this.configManager.updateConfig({ showGridPoints: false });
-    }
-    /**
-     * Toggle the coordinate grid
-     */
-    toggleGrid() {
-        const currentConfig = this.configManager.getConfig();
-        console.log(`[API] Toggling grid (currently: ${currentConfig.showGridPoints})`);
-        this.configManager.updateConfig({ showGridPoints: !currentConfig.showGridPoints });
     }
     /**
      * Set wind units
@@ -270,8 +253,7 @@ export class EarthAPI {
             mode: 'air',
             projection: 'orthographic',
             overlayType: 'off',
-            surface: 'surface',
-            level: 'level',
+            level: '1000hPa',
             showGridPoints: false,
             windUnits: 'm/s',
             particleType: 'wind',
@@ -294,12 +276,6 @@ export class EarthAPI {
     disableApiMode() {
         console.log('[API] Disabling API mode');
         this.configManager.setApiMode(false);
-    }
-    /**
-     * Check if currently in API mode
-     */
-    isApiMode() {
-        return this.configManager.isApiMode();
     }
     // === Event Helpers ===
     /**

@@ -25,7 +25,7 @@ export declare class MenuSystem {
     private setupPlanetControls;
     private navigateTime;
     private updateModeDisplay;
-    private updateSurfaceDisplay;
+    private updateLevelDisplay;
     private updateOverlayDisplay;
     private updateProjectionDisplay;
     private updateGridDisplay;

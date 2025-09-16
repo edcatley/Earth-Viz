@@ -183,7 +183,6 @@ class EarthModernApp {
             mode: 'air',
             projection: 'orthographic',
             overlayType: 'off',
-            surface: 'surface',
             level: 'level',
             showGridPoints: false,
             windUnits: 'm/s',
@@ -486,25 +485,30 @@ class EarthModernApp {
         console.log('[EARTH-MODERN] Configuration changed', config);
         // Check if projection changed (need to compare with previous)
         const projectionChanged = this.config.projection !== config.projection;
+        const orientationChanged = this.config.orientation !== config.orientation;
         // Update internal config from EarthConfig
         this.config.mode = config.mode;
         this.config.projection = config.projection;
         this.config.overlayType = config.overlayType;
-        this.config.surface = config.surface;
         this.config.level = config.level;
         this.config.showGridPoints = config.showGridPoints;
         this.config.windUnits = config.windUnits;
+        this.config.orientation = config.orientation;
         if (config.planetType) {
             this.config.planetType = config.planetType;
         }
         // Update menu display to reflect new state
         this.menuSystem.updateMenuState(config);
-        // Update globe if projection changed
+        // Update globe if projection or orientation changed
         if (projectionChanged) {
             this.createGlobe();
-            // Setup SVG map structure for new projection
+        }
+        else if (orientationChanged && this.globe) {
+            this.globe.orientation(this.config.orientation, this.view);
+        }
+        // If the globe was changed, we need to update dependent components
+        if (projectionChanged || orientationChanged) {
             this.setupMapStructure();
-            // Regenerate mask for new projection and trigger state updates
             if (this.globe) {
                 this.mask = Utils.createMask(this.globe, this.view);
             }
@@ -592,7 +596,6 @@ class EarthModernApp {
             hour: "current",
             mode: "air",
             particleType: "wind",
-            surface: "surface",
             level: "1000hPa",
             overlayType: "off",
             planetType: "earth",
@@ -661,25 +664,6 @@ class EarthModernApp {
         return this.earthAPI;
     }
 }
-// ===== BOOTSTRAP =====
-async function startEarthModern() {
-    console.log('[EARTH-MODERN] Starting clean earth visualization');
-    try {
-        const app = new EarthModernApp();
-        await app.start();
-        console.log('[EARTH-MODERN] Success!');
-    }
-    catch (error) {
-        console.error('[EARTH-MODERN] Failed to start:', error);
-    }
-}
 // Export for NPM package
 export { EarthModernApp };
-// Start when ready (only for standalone app)
-if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', startEarthModern);
-}
-else {
-    startEarthModern();
-}
 //# sourceMappingURL=Earth.js.map

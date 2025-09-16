@@ -81,9 +81,20 @@
                 class="text-button" id="ocean-mode-enable">Ocean</span> – <span
                 class="text-button" id="planet-mode-enable">Planet</span>
             </p>
+            <p class="planet-mode">Planet | 
+                <span class="planet text-button" id="planet-earth">Earth</span> – 
+                <span class="planet text-button" id="planet-earth-clouds">Clouds</span> – 
+                <span class="planet text-button" id="planet-earth-live">Live</span> – 
+                <span class="planet text-button" id="planet-mercury">Mercury</span> – 
+                <span class="planet text-button" id="planet-venus">Venus</span> – 
+                <span class="planet text-button" id="planet-moon">Moon</span> – 
+                <span class="planet text-button" id="planet-mars">Mars</span> – 
+                <span class="planet text-button" id="planet-jupiter">Jupiter</span> – 
+                <span class="planet text-button" id="planet-saturn">Saturn</span> – 
+                <span class="planet text-button" id="planet-sun">Sun</span>
+            </p>
             <p class="wind-mode">Height | <span
                 class="surface text-button" id="surface-level" title="Surface">Sfc</span> – <span
-                class="surface text-button" id="isobaric-1000hPa">1000</span> – <span
                 class="surface text-button" id="isobaric-850hPa">850</span> – <span
                 class="surface text-button" id="isobaric-700hPa">700</span> – <span
                 class="surface text-button" id="isobaric-500hPa">500</span> – <span
@@ -133,7 +144,6 @@
             </p>
             <!--<p>免責事項 | 正確な情報を提供するためのものではありません</p>-->
             <p>
-                <a href="about.html" class="internal-link">about</a>
                 <a href="https://www.facebook.com/EarthWindMap" class="social-icon" title="Facebook">&#xe027;</a>
                 <a href="https://twitter.com/cambecc" class="social-icon" title="Twitter">&#xe086;</a>
             </p>
@@ -155,12 +165,8 @@
         window.topojson = topojson;
     </script>
 
-    <!-- GRIB2 processing now handled by npm package grib22json -->
-
-    <script type="module" src="/libs/earth/1.0.0/micro.umd.js" charset="utf-8"></script>
-    <script type="module" src="/libs/earth/1.0.0/globes.umd.js" charset="utf-8"></script>
-    <script type="module" src="/libs/earth/1.0.0/products.umd.js" charset="utf-8"></script>
-    <script type="module" src="/libs/earth/1.0.0/earth.umd.js" charset="utf-8"></script>
+    <!-- Main application entry point -->
+    <script type="module" src="/../src/main.ts"></script>
 
 </body>
 </html>

@@ -31,6 +31,9 @@ dependencies = [
     "Pillow>=10.0.0",
     "requests>=2.31.0",
     "eccodes>=1.6.0",
+    "moderngl>=5.8.0",
+    "aiohttp>=3.8.0",
+    "pyrr>=0.10.0",
 ]
 
 [project.optional-dependencies]

@@ -3,6 +3,7 @@
  * Now works with ConfigManager for centralized configuration management
  */
 import * as d3 from 'd3';
+import { AVAILABLE_PLANETS } from '../renderers/PlanetSystem';
 export class MenuSystem {
     constructor(configManager) {
         Object.defineProperty(this, "configManager", {
@@ -94,17 +95,17 @@ export class MenuSystem {
         });
     }
     setupSurfaceControls() {
-        // Surface level
+        // Surface level (acts as an alias for 1000hPa)
         d3.select("#surface-level").on("click", () => {
-            console.log('[MENU] Set surface level');
-            this.triggerConfigChange({ surface: "surface", level: "level" });
+            console.log('[MENU] Set level to Surface (1000hPa)');
+            this.triggerConfigChange({ level: "1000hPa" });
         });
-        // Pressure levels
-        const pressureLevels = ["1000", "850", "700", "500", "250", "70", "10"];
+        // Pressure levels (1000hPa is handled by the "Surface" button)
+        const pressureLevels = ["850", "700", "500", "250", "70", "10"];
         pressureLevels.forEach(level => {
             d3.select(`#isobaric-${level}hPa`).on("click", () => {
                 console.log(`[MENU] Set pressure level: ${level}hPa`);
-                this.triggerConfigChange({ surface: "isobaric", level: `${level}hPa` });
+                this.triggerConfigChange({ level: `${level}hPa` });
             });
         });
     }
@@ -182,8 +183,7 @@ export class MenuSystem {
     }
     setupPlanetControls() {
         // Planet selection
-        const planets = ["earth", "earth-clouds", "earth-live", "mars", "moon", "venus", "jupiter"];
-        planets.forEach(planet => {
+        AVAILABLE_PLANETS.forEach(planet => {
             d3.select(`#planet-${planet}`).on("click", () => {
                 console.log(`[MENU] Set planet: ${planet}`);
                 this.triggerConfigChange({ planetType: planet });
@@ -205,14 +205,15 @@ export class MenuSystem {
         d3.select("#ocean-mode-enable").classed("highlighted", mode === "ocean");
         d3.select("#planet-mode-enable").classed("highlighted", mode === "planet");
     }
-    updateSurfaceDisplay(surface) {
-        // Update surface button highlighting
+    updateLevelDisplay(level) {
+        // Update level button highlighting
         d3.selectAll(".surface").classed("highlighted", false);
-        if (surface === "surface") {
+        if (level === "1000hPa") {
             d3.select("#surface-level").classed("highlighted", true);
         }
         else {
-            d3.select(`#isobaric-${surface}hPa`).classed("highlighted", true);
+            const levelValue = level.replace("hPa", "");
+            d3.select(`#isobaric-${levelValue}hPa`).classed("highlighted", true);
         }
     }
     updateOverlayDisplay(overlay) {
@@ -259,7 +260,7 @@ export class MenuSystem {
     }
     updatePlanetDisplay(planetType) {
         // Update planet button highlighting
-        d3.selectAll("[id^='planet-']").classed("highlighted", false);
+        d3.selectAll(".planet.text-button").classed("highlighted", false);
         d3.select(`#planet-${planetType}`).classed("highlighted", true);
     }
     triggerConfigChange(changes) {
@@ -310,16 +311,8 @@ export class MenuSystem {
         // Update mode display
         const mode = config.mode || "air";
         this.updateModeDisplay(mode);
-        // Update surface display
-        if (config.surface === "surface") {
-            this.updateSurfaceDisplay("surface");
-        }
-        else {
-            const level = config.level?.replace("hPa", "");
-            if (level) {
-                this.updateSurfaceDisplay(level);
-            }
-        }
+        // Update level display
+        this.updateLevelDisplay(config.level || "1000hPa");
         // Update overlay display
         this.updateOverlayDisplay(config.overlayType || "off");
         // Update projection display

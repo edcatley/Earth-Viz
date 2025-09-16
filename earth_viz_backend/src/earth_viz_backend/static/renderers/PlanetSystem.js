@@ -8,7 +8,21 @@
  * - generateFrame() - Produces final canvas output
  */
 import { WebGLRenderer } from '../services/WebGLRenderer';
-// Debug logging
+// --- Constants ---
+export const AVAILABLE_PLANETS = [
+    'earth',
+    'earth-clouds',
+    'earth-live',
+    'mercury',
+    'venus',
+    'moon',
+    'mars',
+    'jupiter',
+    'saturn',
+    'sun'
+];
+const PLANETS_API_ENDPOINT = '/earth-viz/api/planets';
+// --- Debug logging ---
 function debugLog(category, message, data) {
     console.log(`[${category}] ${message}`, data || '');
 }
@@ -73,20 +87,6 @@ export class PlanetSystem {
             configurable: true,
             writable: true,
             value: {}
-        });
-        // API endpoints are now relative, handled by Vite proxy
-        Object.defineProperty(this, "apiEndpoints", {
-            enumerable: true,
-            configurable: true,
-            writable: true,
-            value: {
-                earth: '/earth-viz/api/earth',
-                earthClouds: '/earth-viz/api/earth-clouds',
-                earthLive: '/earth-viz/api/earth-clouds-realtime',
-                planets: '/earth-viz/api/planets',
-                liveEarthStatus: '/earth-viz/api/live-earth/status',
-                liveEarthGenerate: '/earth-viz/api/live-earth/generate'
-            }
         });
         // Create canvases
         this.webglCanvas = document.createElement("canvas");
@@ -450,23 +450,10 @@ export class PlanetSystem {
         if (this.imageCache[planetType]) {
             return this.imageCache[planetType];
         }
-        // Planet image URLs - all served from backend API
-        const planetUrls = {
-            earth: this.apiEndpoints.earth, // Plain earth from API (4096x2048)
-            'earth-clouds': this.apiEndpoints.earthClouds, // Earth with static clouds
-            'earth-live': this.apiEndpoints.earthLive, // Live earth with real-time day/night
-            mars: `${this.apiEndpoints.planets}/mars`,
-            moon: `${this.apiEndpoints.planets}/moon`,
-            venus: `${this.apiEndpoints.planets}/venus`,
-            jupiter: `${this.apiEndpoints.planets}/jupiter`,
-            mercury: `${this.apiEndpoints.planets}/mercury`,
-            saturn: `${this.apiEndpoints.planets}/saturn`,
-            sun: `${this.apiEndpoints.planets}/sun`
-        };
-        const url = planetUrls[planetType];
-        if (!url) {
+        if (!AVAILABLE_PLANETS.includes(planetType)) {
             throw new Error(`Unknown planet type: ${planetType}`);
         }
+        const url = `${PLANETS_API_ENDPOINT}/${planetType}`;
         return new Promise((resolve, reject) => {
             const img = new Image();
             img.crossOrigin = 'anonymous'; // Handle CORS if needed
@@ -520,42 +507,6 @@ export class PlanetSystem {
         }
     }
     // ===== ADDITIONAL PLANET-SPECIFIC METHODS =====
-    /**
-     * Get available planet types
-     */
-    getAvailablePlanets() {
-        return ['earth', 'earth-clouds', 'earth-live', 'mars', 'moon', 'venus', 'jupiter'];
-    }
-    /**
-     * Check live earth status
-     */
-    async checkLiveEarthStatus() {
-        try {
-            const response = await fetch(this.apiEndpoints.liveEarthStatus);
-            if (response.ok) {
-                return await response.json();
-            }
-        }
-        catch (error) {
-            debugLog('PLANET', 'Error checking live earth status:', error);
-        }
-        return null;
-    }
-    /**
-     * Trigger manual cloud generation
-     */
-    async triggerCloudGeneration() {
-        try {
-            const response = await fetch(this.apiEndpoints.liveEarthGenerate, {
-                method: 'POST'
-            });
-            return response.ok;
-        }
-        catch (error) {
-            debugLog('PLANET', 'Error triggering cloud generation:', error);
-            return false;
-        }
-    }
     /**
      * Check if a planet image is loaded
      */

@@ -19,10 +19,6 @@ export default defineConfig({
   },
   resolve: {
     alias: {
-      '/libs/earth/1.0.0/micro.umd.js': resolve(__dirname, 'src/utils/Utils.ts'),
-      '/libs/earth/1.0.0/globes.umd.js': resolve(__dirname, 'src/core/Globes.ts'),
-      '/libs/earth/1.0.0/products.umd.js': resolve(__dirname, 'src/data/Products.ts'),
-      '/libs/earth/1.0.0/earth.umd.js': resolve(__dirname, 'src/core/Earth.ts'),
       '@': resolve(__dirname, 'src'),
       '/styles': resolve(__dirname, 'src/styles')
     }

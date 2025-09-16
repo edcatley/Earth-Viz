@@ -259,17 +259,17 @@ const ISOBARIC_LEVELS: { [level: string]: string } = {
 
 class WeatherDataManager {
     // Resolve parameter level based on configuration and user selection
-    private resolveLevel(param: ParameterConfig, userSurface: string, userLevel: string): string {
+    private resolveLevel(param: ParameterConfig, userLevel: string): string {
         switch (param.levelType) {
             case 'fixed':
                 return param.fixedLevel!;
             case 'surface':
-                if (userSurface === 'surface') {
+                // For surface-type parameters, 1000hPa is the trigger to use the specific surface level.
+                // Otherwise, use the specified isobaric level.
+                if (userLevel === '1000hPa') {
                     return SURFACE_LEVELS[param.name] || '10_m_above_ground';
-                } else if (userSurface === 'isobaric') {
-                    return ISOBARIC_LEVELS[userLevel] || '1000_mb';
                 }
-                return SURFACE_LEVELS[param.name] || '10_m_above_ground';
+                return ISOBARIC_LEVELS[userLevel] || '1000_mb'; // Fallback to user's level
             case 'isobaric':
                 return ISOBARIC_LEVELS[userLevel] || '1000_mb';
             default:
@@ -278,34 +278,32 @@ class WeatherDataManager {
     }
 
     // Fetch a single parameter
-    private async fetchParameter(param: ParameterConfig, date: Date, userSurface: string, userLevel: string): Promise<GridBuilder> {
-        const level = this.resolveLevel(param, userSurface, userLevel);
+    private async fetchParameter(param: ParameterConfig, date: Date, userLevel: string): Promise<GridBuilder> {
+        const level = this.resolveLevel(param, userLevel);
         const scalarData = await weatherDataService.fetchScalarData(param.name, level, date);
         return weatherDataService.createScalarGridBuilder(scalarData);
     }
 
     // Fetch wind vector data (special case)
-    private async fetchWindVector(uParam: ParameterConfig, vParam: ParameterConfig, date: Date, userSurface: string, userLevel: string): Promise<GridBuilder> {
-        const level = this.resolveLevel(uParam, userSurface, userLevel);
+    private async fetchWindVector(uParam: ParameterConfig, vParam: ParameterConfig, date: Date, userLevel: string): Promise<GridBuilder> {
+        const level = this.resolveLevel(uParam, userLevel);
         const vectorData = await weatherDataService.fetchVectorData(uParam.name, vParam.name, level, date);
         return weatherDataService.createVectorGridBuilder(vectorData);
     }
 
     // Build particle grid
-    async buildParticleGrid(particleName: string, date: Date, userSurface: string, userLevel: string): Promise<GridBuilder> {
+    async buildParticleGrid(particleName: string, date: Date, userLevel: string): Promise<GridBuilder> {
         const config = PARTICLE_CONFIGS[particleName];
         if (!config) throw new Error(`Unknown particle: ${particleName}`);
 
         if (config.type === 'vector') {
-            // Direct vector particles (wind, ocean current)
             const [uParam, vParam] = config.parameters;
-            return await this.fetchWindVector(uParam, vParam, date, userSurface, userLevel);
+            return await this.fetchWindVector(uParam, vParam, date, userLevel);
         }
 
         if (config.type === 'computed') {
-            // Computed vector particles (waves)
             const dataBuilders = await Promise.all(
-                config.parameters.map(param => this.fetchParameter(param, date, userSurface, userLevel))
+                config.parameters.map(param => this.fetchParameter(param, date, userLevel))
             );
 
             const computeFn = PARTICLE_COMPUTATIONS[config.computation!];
@@ -318,20 +316,18 @@ class WeatherDataManager {
     }
 
     // Build overlay grid  
-    async buildOverlayGrid(overlayName: string, date: Date, userSurface: string, userLevel: string): Promise<GridBuilder> {
+    async buildOverlayGrid(overlayName: string, date: Date, userLevel: string): Promise<GridBuilder> {
         const config = OVERLAY_CONFIGS[overlayName];
         if (!config) throw new Error(`Unknown overlay: ${overlayName}`);
 
         if (config.type === 'scalar') {
-            // Simple scalar overlays
             const param = config.parameters[0];
-            return await this.fetchParameter(param, date, userSurface, userLevel);
+            return await this.fetchParameter(param, date, userLevel);
         }
 
         if (config.type === 'vector') {
-            // Vector magnitude overlays (wind speed)
             const [uParam, vParam] = config.parameters;
-            const builder = await this.fetchWindVector(uParam, vParam, date, userSurface, userLevel);
+            const builder = await this.fetchWindVector(uParam, vParam, date, userLevel);
 
             // Convert vector to magnitude for overlay
             return {
@@ -410,10 +406,8 @@ export class Products {
         return adjusted;
     }
 
-    private static describeSurface(attr: any): string {
-        if (attr.surface === "surface") return "Surface";
-        if (attr.surface === "isobaric") return attr.level || "1000hPa";
-        return "Surface";
+    private static describeLevel(attr: any): string {
+        return attr.level || "1000hPa";
     }
 
     private static localize(table: any): (langCode: string) => any {
@@ -504,7 +498,7 @@ export class Products {
         const date = Products.gfsDate(attr);
 
         const product: Product = {
-            description: config.description + " @ " + Products.describeSurface(attr),
+            description: config.description + " @ " + Products.describeLevel(attr),
             paths: [],
             date: date,
             field: 'vector', // All particles are vector fields
@@ -514,7 +508,7 @@ export class Products {
             },
             load: async function (cancel: { requested: boolean }): Promise<any> {
                 if (cancel.requested) return null;
-                const builder = await Products.dataManager.buildParticleGrid(particleName, date, attr.surface, attr.level);
+                const builder = await Products.dataManager.buildParticleGrid(particleName, date, attr.level);
                 return Object.assign(this, Products.buildGrid(builder));
             },
             builder: function () { throw new Error("Use load() instead"); },
@@ -532,7 +526,7 @@ export class Products {
         const date = Products.gfsDate(attr);
 
         const product: Product = {
-            description: config.description + " @ " + Products.describeSurface(attr),
+            description: config.description + " @ " + Products.describeLevel(attr),
             paths: [],
             date: date,
             field: 'scalar', // All overlays are scalar fields
@@ -542,7 +536,7 @@ export class Products {
             },
             load: async function (cancel: { requested: boolean }): Promise<any> {
                 if (cancel.requested) return null;
-                const builder = await Products.dataManager.buildOverlayGrid(overlayName, date, attr.surface, attr.level);
+                const builder = await Products.dataManager.buildOverlayGrid(overlayName, date, attr.level);
                 return Object.assign(this, Products.buildGrid(builder));
             },
             builder: function () { throw new Error("Use load() instead"); },

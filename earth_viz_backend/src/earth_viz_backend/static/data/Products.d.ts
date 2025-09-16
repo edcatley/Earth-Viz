@@ -56,7 +56,7 @@ export declare class Products {
     private static dataManager;
     private static gfsDate;
     private static gfsStep;
-    private static describeSurface;
+    private static describeLevel;
     private static localize;
     static bilinearInterpolateScalar(x: number, y: number, g00: number, g10: number, g01: number, g11: number): number;
     static bilinearInterpolateVector(x: number, y: number, g00: [number, number], g10: [number, number], g01: [number, number], g11: [number, number]): [number, number, number];

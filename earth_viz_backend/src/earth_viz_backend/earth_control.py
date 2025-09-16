@@ -61,10 +61,6 @@ class EarthWebSocketManager:
 earth_ws_manager = EarthWebSocketManager()
 
 # Direct control functions for integrated mode
-async def set_mode(mode: str):
-    """Set visualization mode"""
-    return await earth_ws_manager.send_command_to_earth("setMode", [mode])
-
 async def set_projection(projection: str):
     """Set projection"""
     return await earth_ws_manager.send_command_to_earth("setProjection", [projection])
@@ -94,15 +90,6 @@ async def set_planet_mode(planet_type: str = "earth"):
     """Set planet mode"""
     return await earth_ws_manager.send_command_to_earth("setPlanetMode", [planet_type])
 
-# Display controls
-async def set_planet(planet_type: str):
-    """Set planet type"""
-    return await earth_ws_manager.send_command_to_earth("setPlanet", [planet_type])
-
-async def set_surface(surface: str):
-    """Set surface type"""
-    return await earth_ws_manager.send_command_to_earth("setSurface", [surface])
-
 async def set_level(level: str):
     """Set level"""
     return await earth_ws_manager.send_command_to_earth("setLevel", [level])
@@ -115,10 +102,6 @@ async def show_grid():
 async def hide_grid():
     """Hide grid"""
     return await earth_ws_manager.send_command_to_earth("hideGrid", [])
-
-async def toggle_grid():
-    """Toggle grid"""
-    return await earth_ws_manager.send_command_to_earth("toggleGrid", [])
 
 async def set_wind_units(units: str):
     """Set wind units"""
@@ -150,9 +133,6 @@ async def disable_api_mode():
     """Disable API mode"""
     return await earth_ws_manager.send_command_to_earth("disableApiMode", [])
 
-async def is_api_mode():
-    """Check API mode status"""
-    return await earth_ws_manager.send_command_to_earth("isApiMode", [])
 
 def get_status():
     """Get current WebSocket connection status"""

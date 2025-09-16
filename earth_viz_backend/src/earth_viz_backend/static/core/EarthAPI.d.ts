@@ -17,19 +17,34 @@ export declare class EarthAPI {
     /**
      * Set the visualization mode
      */
-    setMode(mode: 'air' | 'ocean' | 'planet'): void;
     /**
-     * Switch to air mode with wind particles
+     * Switch to air mode and configure its properties.
+     *
+     * @param {string} [level='1000hPa'] - The atmospheric pressure level.
+     *   Permissible values: '1000hPa', '850hPa', '700hPa', '500hPa', '250hPa', '70hPa', '10hPa'.
+     * @param {string} [particleType='wind'] - The particle animation type.
+     *   Permissible values: 'wind', 'off'.
+     * @param {string} [overlayType='off'] - The data overlay to display.
+     *   Permissible values: 'off', 'wind', 'temp', 'relative_humidity', 'mean_sea_level_pressure', 'total_precipitable_water', 'total_cloud_water'.
      */
-    setAirMode(): void;
+    setAirMode(level?: string, particleType?: string, overlayType?: string): void;
     /**
-     * Switch to ocean mode with current particles
+     * Switch to ocean mode and configure its properties.
+     *
+     * @param {string} [particleType='oceancurrent'] - The particle animation type.
+     *   Permissible values: 'oceancurrent', 'wave', 'off'.
+     * @param {string} [overlayType='off'] - The data overlay to display.
+     *   Permissible values: 'off', 'currents'. (Note: Ocean overlays are limited).
      */
-    setOceanMode(): void;
+    setOceanMode(particleType?: string, overlayType?: string): void;
     /**
      * Switch to planet mode
      */
     setPlanetMode(planetType?: string): void;
+    /**
+     * Set the full screen mode
+     */
+    setFullScreen(): void;
     /**
      * Set the map projection
      */
@@ -39,15 +54,8 @@ export declare class EarthAPI {
      */
     setOverlay(overlayType: string): void;
     /**
-     * Set the planet type (for planet mode)
-     */
-    setPlanet(planetType: string): void;
-    /**
-     * Set the surface type
-     */
-    setSurface(surface: string): void;
-    /**
-     * Set the pressure level
+     * Set the pressure level or surface type.
+     * @param level - The pressure level (e.g., '500hPa') or the string 'surface'.
      */
     setLevel(level: string): void;
     /**
@@ -58,10 +66,6 @@ export declare class EarthAPI {
      * Hide the coordinate grid
      */
     hideGrid(): void;
-    /**
-     * Toggle the coordinate grid
-     */
-    toggleGrid(): void;
     /**
      * Set wind units
      */
@@ -103,10 +107,6 @@ export declare class EarthAPI {
      */
     disableApiMode(): void;
     /**
-     * Check if currently in API mode
-     */
-    isApiMode(): boolean;
-    /**
      * Add a listener for configuration changes
      */
     onConfigChange(callback: (event: CustomEvent) => void): void;
@@ -118,18 +118,15 @@ export declare class EarthAPI {
 declare global {
     interface Window {
         EarthAPI: {
-            setMode(mode: 'air' | 'ocean' | 'planet'): void;
-            setAirMode(): void;
-            setOceanMode(): void;
+            setAirMode(level?: string, particleType?: string, overlayType?: string): void;
+            setOceanMode(particleType?: string, overlayType?: string): void;
             setPlanetMode(planetType?: string): void;
+            setFullScreen(): void;
             setProjection(projection: string): void;
             setOverlay(overlayType: string): void;
-            setPlanet(planetType: string): void;
-            setSurface(surface: string): void;
             setLevel(level: string): void;
             showGrid(): void;
             hideGrid(): void;
-            toggleGrid(): void;
             setWindUnits(units: string): void;
             setDate(date: string): void;
             setHour(hour: string): void;
@@ -140,7 +137,6 @@ declare global {
             resetConfig(): void;
             enableApiMode(): void;
             disableApiMode(): void;
-            isApiMode(): boolean;
             onConfigChange(callback: (event: CustomEvent) => void): void;
             offConfigChange(callback: (event: CustomEvent) => void): void;
         };
