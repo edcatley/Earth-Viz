@@ -18,29 +18,20 @@ export interface EarthConfig {
     toggleGrid?: boolean;
     toggleWindUnits?: boolean;
     toggleValueUnits?: boolean;
+    showUI?: boolean;
+    isFullScreen?: boolean;
 }
-export type ConfigChangeCallback = (config: EarthConfig) => void;
+export type ConfigChangeCallback = (config: EarthConfig, changes?: Partial<EarthConfig>) => void;
 export declare class ConfigManager {
     private config;
     private listeners;
-    private apiMode;
     constructor(initialConfig: EarthConfig);
     /**
-     * Enable or disable API control mode
-     * When enabled, UI controls are hidden and only API calls can change config
-     */
-    setApiMode(enabled: boolean): void;
-    /**
-     * Check if currently in API mode
-     */
-    isApiMode(): boolean;
-    /**
-     * Update configuration (only works in API mode)
-     * Used by external systems via the EarthAPI
+     * Update configuration
      */
     updateConfig(changes: Partial<EarthConfig>): void;
     /**
-     * Update configuration from UI interactions (only works when not in API mode)
+     * Update configuration from UI interactions
      * Used by MenuSystem for user interactions
      */
     updateFromUI(changes: any): void;
@@ -62,11 +53,8 @@ export declare class ConfigManager {
     private processUIChanges;
     /**
      * Notify all listeners of configuration changes
+     * @param changes Optional parameter with specific changes that were made
      */
     private notifyListeners;
-    /**
-     * Show or hide the menu based on API mode
-     */
-    private toggleMenuVisibility;
 }
 //# sourceMappingURL=ConfigManager.d.ts.map

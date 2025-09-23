@@ -16,47 +16,17 @@ export class ConfigManager {
             writable: true,
             value: []
         });
-        Object.defineProperty(this, "apiMode", {
-            enumerable: true,
-            configurable: true,
-            writable: true,
-            value: false
-        });
         this.config = { ...initialConfig };
         console.log('[CONFIG] ConfigManager initialized with config:', this.config);
     }
     /**
-     * Enable or disable API control mode
-     * When enabled, UI controls are hidden and only API calls can change config
-     */
-    setApiMode(enabled) {
-        console.log(`[CONFIG] Setting API mode: ${enabled}`);
-        this.apiMode = enabled;
-        this.toggleMenuVisibility(!enabled);
-        // Dispatch custom event for external systems to listen to
-        window.dispatchEvent(new CustomEvent('earth:apiModeChanged', {
-            detail: { apiMode: enabled }
-        }));
-    }
-    /**
-     * Check if currently in API mode
-     */
-    isApiMode() {
-        return this.apiMode;
-    }
-    /**
-     * Update configuration (only works in API mode)
-     * Used by external systems via the EarthAPI
+     * Update configuration
      */
     updateConfig(changes) {
-        if (!this.apiMode) {
-            console.warn('[CONFIG] Attempted to update config via API while not in API mode');
-            return;
-        }
-        console.log('[CONFIG] Updating config via API:', changes);
+        console.log('[CONFIG] Updating config:', changes);
         const previousConfig = { ...this.config };
         Object.assign(this.config, changes);
-        this.notifyListeners();
+        this.notifyListeners(changes);
         // Dispatch custom event for external systems
         window.dispatchEvent(new CustomEvent('earth:configChanged', {
             detail: {
@@ -67,17 +37,13 @@ export class ConfigManager {
         }));
     }
     /**
-     * Update configuration from UI interactions (only works when not in API mode)
+     * Update configuration from UI interactions
      * Used by MenuSystem for user interactions
      */
     updateFromUI(changes) {
-        if (this.apiMode) {
-            console.warn('[CONFIG] Attempted to update config from UI while in API mode');
-            return;
-        }
         console.log('[CONFIG] Updating config from UI:', changes);
         this.processUIChanges(changes);
-        this.notifyListeners();
+        this.notifyListeners(changes);
     }
     /**
      * Get current configuration (read-only copy)
@@ -127,43 +93,17 @@ export class ConfigManager {
     }
     /**
      * Notify all listeners of configuration changes
+     * @param changes Optional parameter with specific changes that were made
      */
-    notifyListeners() {
+    notifyListeners(changes) {
         this.listeners.forEach(callback => {
             try {
-                callback(this.config);
+                callback(this.config, changes);
             }
             catch (error) {
                 console.error('[CONFIG] Error in config change listener:', error);
             }
         });
-    }
-    /**
-     * Show or hide the menu based on API mode
-     */
-    toggleMenuVisibility(visible) {
-        const menu = document.getElementById('menu');
-        const showMenuButton = document.getElementById('show-menu');
-        if (menu) {
-            if (visible) {
-                menu.classList.remove('api-hidden');
-                menu.style.display = '';
-            }
-            else {
-                menu.classList.add('api-hidden');
-                menu.style.display = 'none';
-            }
-        }
-        if (showMenuButton) {
-            if (visible) {
-                showMenuButton.style.display = '';
-            }
-            else {
-                showMenuButton.style.display = 'none';
-            }
-        }
-        // Add CSS class to body to indicate API mode
-        document.body.classList.toggle('api-mode', !visible);
     }
 }
 //# sourceMappingURL=ConfigManager.js.map

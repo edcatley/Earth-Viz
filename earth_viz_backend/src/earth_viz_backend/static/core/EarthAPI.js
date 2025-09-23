@@ -17,10 +17,28 @@ export class EarthAPI {
             // Mode control
             setAirMode: this.setAirMode.bind(this),
             setOceanMode: this.setOceanMode.bind(this),
+            /**
+             * Set the planet to display.
+             * @param planetType - one of: 'earth', 'earth-clouds', 'earth-live', 'mercury', 'venus', 'moon', 'mars', 'jupiter', 'saturn', 'sun'
+             */
             setPlanetMode: this.setPlanetMode.bind(this),
+            enableFullScreen: this.enableFullScreen.bind(this),
+            disableFullScreen: this.disableFullScreen.bind(this),
             // Display control
+            /**
+             * Set the map projection.
+             * @param projection - one of: 'atlantis', 'azimuthal_equidistant', 'conic_equidistant', 'equirectangular', 'orthographic', 'stereographic', 'waterman', 'winkel3'
+             */
             setProjection: this.setProjection.bind(this),
+            /**
+             * Set the weather overlay.
+             * @param overlayType - one of: 'off', 'wind', 'temp', 'relative_humidity', 'mean_sea_level_pressure', 'total_precipitable_water', 'total_cloud_water'
+             */
             setOverlay: this.setOverlay.bind(this),
+            /**
+             * Set the atmospheric pressure level.
+             * @param level - one of: 'surface', '1000hPa', '850hPa', '700hPa', '500hPa', '250hPa', '70hPa', '10hPa'
+             */
             setLevel: this.setLevel.bind(this),
             // Grid and units
             showGrid: this.showGrid.bind(this),
@@ -35,12 +53,12 @@ export class EarthAPI {
             setConfig: this.setConfig.bind(this),
             getConfig: this.getConfig.bind(this),
             resetConfig: this.resetConfig.bind(this),
-            // API mode control
-            enableApiMode: this.enableApiMode.bind(this),
-            disableApiMode: this.disableApiMode.bind(this),
             // Event helpers
             onConfigChange: this.onConfigChange.bind(this),
-            offConfigChange: this.offConfigChange.bind(this)
+            offConfigChange: this.offConfigChange.bind(this),
+            // UI visibility
+            showUI: this.showUI.bind(this),
+            hideUI: this.hideUI.bind(this)
         };
         console.log('[API] EarthAPI exposed on window.EarthAPI');
         // Connect to WebSocket for external command bridge
@@ -131,15 +149,18 @@ export class EarthAPI {
         });
     }
     /**
-     * Set the full screen mode
+     * Enable full screen mode
      */
-    setFullScreen() {
-        console.log('[API] Setting full screen');
-        const currentConfig = this.configManager.getConfig();
-        const currentOrientation = currentConfig.orientation || '0,0,0';
-        const parts = currentOrientation.split(',');
-        const newOrientation = `${parts[0]},${parts[1]},NaN`;
-        this.configManager.updateConfig({ orientation: newOrientation });
+    enableFullScreen() {
+        console.log('[API] Enabling full screen');
+        this.configManager.updateConfig({ isFullScreen: true });
+    }
+    /**
+     * Disable full screen mode
+     */
+    disableFullScreen() {
+        console.log('[API] Disabling full screen');
+        this.configManager.updateConfig({ isFullScreen: false });
     }
     // === Display Control Methods ===
     /**
@@ -247,21 +268,6 @@ export class EarthAPI {
         };
         this.configManager.updateConfig(defaultConfig);
     }
-    // === API Mode Control ===
-    /**
-     * Enable API control mode (hides UI menu)
-     */
-    enableApiMode() {
-        console.log('[API] Enabling API mode');
-        this.configManager.setApiMode(true);
-    }
-    /**
-     * Disable API control mode (shows UI menu)
-     */
-    disableApiMode() {
-        console.log('[API] Disabling API mode');
-        this.configManager.setApiMode(false);
-    }
     // === Event Helpers ===
     /**
      * Add a listener for configuration changes
@@ -274,6 +280,48 @@ export class EarthAPI {
      */
     offConfigChange(callback) {
         window.removeEventListener('earth:configChanged', callback);
+    }
+    // === UI Visibility Methods ===
+    /**
+     * Show the Earth UI (menus, controls, etc.)
+     */
+    showUI() {
+        console.log('[API] Showing Earth UI');
+        this.configManager.updateConfig({ showUI: true });
+        // Show main menu button
+        const earthElement = document.getElementById('earth');
+        if (earthElement)
+            earthElement.style.display = '';
+        // Show menu if it was previously visible
+        const menuElement = document.getElementById('menu');
+        // Only show menu if it doesn't have 'invisible' class
+        // This preserves the menu state (open/closed)
+        if (menuElement && !menuElement.classList.contains('invisible')) {
+            menuElement.style.display = '';
+        }
+        // Show location info
+        const locationElement = document.getElementById('location');
+        if (locationElement)
+            locationElement.style.display = '';
+    }
+    /**
+     * Hide the Earth UI (menus, controls, etc.) for clean visualization
+     */
+    hideUI() {
+        console.log('[API] Hiding Earth UI');
+        this.configManager.updateConfig({ showUI: false });
+        // Hide main menu button
+        const earthElement = document.getElementById('earth');
+        if (earthElement)
+            earthElement.style.display = 'none';
+        // Hide menu
+        const menuElement = document.getElementById('menu');
+        if (menuElement)
+            menuElement.style.display = 'none';
+        // Hide location info
+        const locationElement = document.getElementById('location');
+        if (locationElement)
+            locationElement.style.display = 'none';
     }
 }
 //# sourceMappingURL=EarthAPI.js.map

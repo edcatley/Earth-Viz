@@ -27,9 +27,13 @@ export declare class EarthAPI {
      */
     setPlanetMode(planetType?: string): void;
     /**
-     * Set the full screen mode
+     * Enable full screen mode
      */
-    setFullScreen(): void;
+    enableFullScreen(): void;
+    /**
+     * Disable full screen mode
+     */
+    disableFullScreen(): void;
     /**
      * Set the map projection
      */
@@ -84,14 +88,6 @@ export declare class EarthAPI {
      */
     resetConfig(): void;
     /**
-     * Enable API control mode (hides UI menu)
-     */
-    enableApiMode(): void;
-    /**
-     * Disable API control mode (shows UI menu)
-     */
-    disableApiMode(): void;
-    /**
      * Add a listener for configuration changes
      */
     onConfigChange(callback: (event: CustomEvent) => void): void;
@@ -99,16 +95,40 @@ export declare class EarthAPI {
      * Remove a configuration change listener
      */
     offConfigChange(callback: (event: CustomEvent) => void): void;
+    /**
+     * Show the Earth UI (menus, controls, etc.)
+     */
+    showUI(): void;
+    /**
+     * Hide the Earth UI (menus, controls, etc.) for clean visualization
+     */
+    hideUI(): void;
 }
 declare global {
     interface Window {
         EarthAPI: {
             setAirMode(level?: string, particleType?: string, overlayType?: string): void;
             setOceanMode(particleType?: string, overlayType?: string): void;
+            /**
+             * Set the planet to display.
+             * @param planetType - one of: 'earth', 'earth-clouds', 'earth-live', 'mercury', 'venus', 'moon', 'mars', 'jupiter', 'saturn', 'sun'
+             */
             setPlanetMode(planetType?: string): void;
             setFullScreen(): void;
+            /**
+             * Set the map projection.
+             * @param projection - one of: 'atlantis', 'azimuthal_equidistant', 'conic_equidistant', 'equirectangular', 'orthographic', 'stereographic', 'waterman', 'winkel3'
+             */
             setProjection(projection: string): void;
+            /**
+             * Set the weather overlay.
+             * @param overlayType - one of: 'off', 'wind', 'temp', 'relative_humidity', 'mean_sea_level_pressure', 'total_precipitable_water', 'total_cloud_water'
+             */
             setOverlay(overlayType: string): void;
+            /**
+             * Set the atmospheric pressure level.
+             * @param level - one of: 'surface', '1000hPa', '850hPa', '700hPa', '500hPa', '250hPa', '70hPa', '10hPa'
+             */
             setLevel(level: string): void;
             showGrid(): void;
             hideGrid(): void;
@@ -120,10 +140,12 @@ declare global {
             setConfig(config: Partial<EarthConfig>): void;
             getConfig(): EarthConfig;
             resetConfig(): void;
-            enableApiMode(): void;
-            disableApiMode(): void;
             onConfigChange(callback: (event: CustomEvent) => void): void;
             offConfigChange(callback: (event: CustomEvent) => void): void;
+            enableFullScreen(): void;
+            disableFullScreen(): void;
+            showUI(): void;
+            hideUI(): void;
         };
     }
 }

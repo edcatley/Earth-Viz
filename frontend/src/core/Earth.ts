@@ -37,8 +37,6 @@ const rivers10km = (rivers10kmModule as any).default || rivers10kmModule;
 
 // ===== CLEAN INTERFACES =====
 
-type Configuration = EarthConfig;
-
 interface WeatherData {
     wind: any;
     overlay: any;
@@ -50,7 +48,6 @@ interface WeatherData {
 
 class EarthModernApp {
     // Core state (minimal)
-    private config: Configuration;
     private view: ViewportSize;
 
     // Configuration management
@@ -95,21 +92,9 @@ class EarthModernApp {
 
         // Initialize core state
         this.view = Utils.view();
-        this.config = this.createInitialConfig();
 
         // Initialize configuration management
-        const initialEarthConfig: EarthConfig = {
-            mode: 'air',
-            projection: 'orthographic',
-            overlayType: 'off',
-            level: 'level',
-            showGridPoints: false,
-            windUnits: 'm/s',
-            particleType: 'wind',
-            date: 'current',
-            hour: '0000'
-        };
-        this.configManager = new ConfigManager(initialEarthConfig);
+        this.configManager = new ConfigManager(this.createInitialConfig());
         this.earthAPI = new EarthAPI(this.configManager);
 
         // Initialize systems (no coupling yet)
@@ -222,8 +207,8 @@ class EarthModernApp {
         console.log('[EARTH-MODERN] Wiring callback chain');
 
         // 1. Configuration changes → System updates (single source of truth)
-        this.configManager.addListener((config) => {
-            this.handleConfigChange(config);
+        this.configManager.addListener((config, changes) => {
+            this.handleConfigChange(config, changes);
         });
 
         // 2. Input changes → Globe manipulation
@@ -288,13 +273,29 @@ class EarthModernApp {
      * Setup RenderSystem to listen to actual visual state changes
      */
     private setupRenderSubscriptions(): void {
-        // Any visual state change just triggers a render of current state
-
-        // this.on('overlayChanged', () => this.performRender());
-        // this.on('planetChanged', () => this.performRender());
-        // this.on('meshChanged', () => this.performRender());
-        this.on('particlesChanged', () => this.performRender());
-        //  this.on('systemsReady', () => this.performRender());
+        // Any visual state change triggers a render of current state
+        console.log('[EARTH-MODERN] Setting up render subscriptions for all visual systems');
+        
+        // Listen for all visual system events and render when any system updates
+        this.on('overlayChanged', () => {
+            console.log('[EARTH-MODERN] Overlay changed, triggering render');
+            this.performRender();
+        });
+        
+        this.on('planetChanged', () => {
+            console.log('[EARTH-MODERN] Planet changed, triggering render');
+            this.performRender();
+        });
+        
+        this.on('meshChanged', () => {
+            console.log('[EARTH-MODERN] Mesh changed, triggering render');
+            this.performRender();
+        });
+        
+        this.on('particlesChanged', () => {
+            console.log('[EARTH-MODERN] Particles changed, triggering render');
+            this.performRender();
+        });
 
         // Only regenerate mask on zoom end (scale changes)
         this.on('zoomEnd', () => {
@@ -315,8 +316,9 @@ class EarthModernApp {
         if (!this.globe) return;
 
         // Determine what should be rendered based on current mode and overlay state
-        const mode = this.config.mode || 'air';
-        const overlayType = this.config.overlayType || 'off';
+        const config = this.configManager.getConfig();
+        const mode = config.mode || 'air';
+        const overlayType = config.overlayType || 'off';
 
         // Determine what canvases to pass based on mode
         let planetCanvas = null;
@@ -341,7 +343,7 @@ class EarthModernApp {
             }
 
             // Show particles if enabled
-            const particleType = this.config.particleType || 'off';
+            const particleType = this.configManager.getConfig().particleType || 'off';
             if (particleType !== 'off') {
                 particleCanvas = this.particleCanvas;
             }
@@ -401,7 +403,7 @@ class EarthModernApp {
             await this.loadWeatherData();
 
             // Update menu to reflect initial configuration
-            this.menuSystem.updateMenuState(this.config);
+            this.menuSystem.updateMenuState(this.configManager.getConfig());
 
             // Everything ready - trigger centralized system updates
             this.updateSystemsOnDataChange();
@@ -436,7 +438,8 @@ class EarthModernApp {
         this.particleSystem.setStateProvider(this);
         this.particleSystem.handleDataChange();
         this.setupMapStructure();
-        this.performRender();
+        
+
     }
 
     /**
@@ -459,7 +462,6 @@ class EarthModernApp {
         this.particleSystem.setStateProvider(this);
         this.particleSystem.handleRotation();
         this.setupMapStructure();
-        this.performRender();
     }
 
     // ===== CALLBACK HANDLERS (Clean and focused) =====
@@ -467,30 +469,27 @@ class EarthModernApp {
     /**
      * Handle configuration changes - trigger the reactive chain
      */
-    private handleConfigChange(config: EarthConfig): void {
-        console.log('[EARTH-MODERN] Configuration changed', config);
-
-        // Check if projection changed (need to compare with previous)
-        const projectionChanged = this.config.projection !== config.projection;
-        const orientationChanged = this.config.orientation !== config.orientation;
-
-        // Update internal config from EarthConfig
-        this.config.mode = config.mode;
-        this.config.projection = config.projection;
-        this.config.overlayType = config.overlayType;
-        this.config.level = config.level;
-        this.config.showGridPoints = config.showGridPoints;
-        this.config.windUnits = config.windUnits;
-
-        if (config.planetType) {
-            this.config.planetType = config.planetType;
-        }
+    private handleConfigChange(config: EarthConfig, changes?: Partial<EarthConfig>): void {
+        console.log('[EARTH-MODERN] Configuration changed', changes);
 
         // Update menu display to reflect new state
         this.menuSystem.updateMenuState(config);
 
-        // Update globe if projection or orientation changed
-        if (projectionChanged) {
+        // If changes is undefined, treat as a complete config update
+        const changesObj = changes || {};
+
+        // Check specific properties in changes directly
+        if ('projection' in changesObj) {
+            console.log('[EARTH-MODERN] Projection changed, recreating globe');
+            this.createGlobe();
+            this.setupMapStructure();
+            if (this.globe) {
+                this.mask = Utils.createMask(this.globe, this.view);
+            }
+        }
+        
+        if ('orientation' in changesObj) {
+            console.log('[EARTH-MODERN] Orientation changed');
             this.createGlobe();
             this.setupMapStructure();
             if (this.globe) {
@@ -498,20 +497,32 @@ class EarthModernApp {
             }
         }
 
-        // Always reload weather data and update systems
-        // (ConfigManager will only call this when something actually changed)
-        this.loadWeatherData().then(() => {
-            // Weather data loaded - now trigger centralized system updates
-            console.log('[EARTH-MODERN] Weather data loaded, updating systems');
-            this.updateSystemsOnDataChange();
-        }).catch(error => {
-            console.error('[EARTH-MODERN] Failed to reload weather data:', error);
-            // Even on error, update systems so they don't get stuck
-            this.updateSystemsOnDataChange();
-        });
-    }
+        if ('isFullScreen' in changesObj) {
+            console.log('[EARTH-MODERN] Full screen changed');
+            this.createGlobe();
+            this.setupMapStructure();
+            if (this.globe) {
+                this.mask = Utils.createMask(this.globe, this.view);
+            }
+        }
 
-    // ===== SYSTEM INITIALIZATION (Clean and focused) =====
+        // Only reload weather data if related properties changed
+        if ('particleType' in changesObj || 'overlayType' in changesObj || 'level' in changesObj || 'mode' in changesObj) {
+            console.log('[EARTH-MODERN] Weather-related config changed, reloading data');
+            this.loadWeatherData().then(() => {
+                // Weather data loaded - now trigger centralized system updates
+                console.log('[EARTH-MODERN] Weather data loaded, updating systems');
+                this.updateSystemsOnDataChange();
+            }).catch(error => {
+                console.error('[EARTH-MODERN] Failed to reload weather data:', error);
+                // Even on error, update systems so they don't get stuck
+                this.updateSystemsOnDataChange();
+            });
+        } else {
+            // For other changes, just update systems without reloading data
+            this.updateSystemsOnDataChange();
+        }
+    }
 
     /**
      * Create globe - single responsibility
@@ -519,18 +530,30 @@ class EarthModernApp {
     private createGlobe(): void {
         console.log('[EARTH-MODERN] Creating globe');
 
-        const globeBuilder = Globes.get(this.config.projection);
+        const config = this.configManager.getConfig();
+        const globeBuilder = Globes.get(config.projection);
         if (!globeBuilder) {
-            throw new Error(`Unknown projection: ${this.config.projection}`);
+            throw new Error(`Unknown projection: ${config.projection}`);
         }
 
         this.globe = globeBuilder();
 
-        // Always set orientation to ensure proper scaling and positioning
         if (this.globe) {
-            this.globe.orientation(this.config.orientation, this.view);
+            // Set orientation and apply aesthetic scaling in one sequence
+            this.globe.orientation(config.orientation, this.view);
+            
+            // Apply 100% or 90% scale based on isFullScreen flag
+            const orientation = this.globe.orientation(undefined, this.view) as string;
+            const [lat, lon, rawScale] = orientation.split(',');
+            const scaleFactor = !!config.isFullScreen ? 1.0 : 0.9;
+            const finalScale = Math.round(parseFloat(rawScale) * scaleFactor);
+            
+            // Apply final orientation with adjusted scale
+            const finalOrientation = `${lat},${lon},${finalScale}`;
+            console.log(`[EARTH-MODERN] Applying ${config.isFullScreen ? 'fullscreen' : 'normal'} scale:`, finalOrientation);
+            this.globe.orientation(finalOrientation, this.view);
 
-            // Create initial mask for this globe/view combination
+            // Create mask after final orientation is set
             this.mask = Utils.createMask(this.globe, this.view);
             console.log('[EARTH-MODERN] Initial mask created');
         }
@@ -548,19 +571,20 @@ class EarthModernApp {
         console.log('[EARTH-MODERN] Loading weather data');
 
         try {
+            const config = this.configManager.getConfig();
             // Load particle data if needed (wind, waves, ocean currents, etc.)
-            if (this.config.particleType && this.config.particleType !== 'off') {
-                console.log('[EARTH-MODERN] Loading particle data:', this.config.particleType);
-                this.particleProduct = Products.createParticleProduct(this.config.particleType, this.config);
+            if (config.particleType && config.particleType !== 'off') {
+                console.log('[EARTH-MODERN] Loading particle data:', config.particleType);
+                this.particleProduct = Products.createParticleProduct(config.particleType, config);
                 await this.particleProduct.load({ requested: false });
             } else {
                 this.particleProduct = null;
             }
 
             // Load overlay data if needed  
-            if (this.config.overlayType && this.config.overlayType !== 'off' && this.config.overlayType !== 'default') {
-                console.log('[EARTH-MODERN] Loading overlay data:', this.config.overlayType);
-                this.overlayProduct = Products.createOverlayProduct(this.config.overlayType, this.config);
+            if (config.overlayType && config.overlayType !== 'off' && config.overlayType !== 'default') {
+                console.log('[EARTH-MODERN] Loading overlay data:', config.overlayType);
+                this.overlayProduct = Products.createOverlayProduct(config.overlayType, config);
                 await this.overlayProduct.load({ requested: false });
             } else {
                 this.overlayProduct = null;
@@ -587,7 +611,7 @@ class EarthModernApp {
 
     // ===== UTILITIES (Simple and focused) =====
 
-    private createInitialConfig(): Configuration {
+    private createInitialConfig(): EarthConfig {
         return {
             projection: "orthographic",
             orientation: "0,0,NaN",  // NaN scale will trigger fit() calculation
@@ -599,7 +623,8 @@ class EarthModernApp {
             overlayType: "off",
             planetType: "earth",
             showGridPoints: false,
-            windUnits: "m/s"
+            windUnits: "m/s",
+            showUI: true          // UI is visible by default
         };
     }
 
@@ -658,8 +683,8 @@ class EarthModernApp {
         return this.view;
     }
 
-    getConfig(): Configuration {
-        return this.config;
+    getConfig(): EarthConfig {
+        return this.configManager.getConfig();
     }
 
     getParticleProduct(): any {

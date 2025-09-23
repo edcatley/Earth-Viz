@@ -79,7 +79,7 @@ export class Globes {
                 var bounds = d3.geoPath().projection(defaultProjection).bounds({ type: "Sphere" });
                 var hScale = (bounds[1][0] - bounds[0][0]) / defaultProjection.scale();
                 var vScale = (bounds[1][1] - bounds[0][1]) / defaultProjection.scale();
-                var rawScale = Math.min(view.width / hScale, view.height / vScale) * 0.9;
+                var rawScale = Math.min(view.width / hScale, view.height / vScale);
                 // Ensure the globe dimensions are even numbers to avoid half-pixel alignment issues
                 var globeWidth = rawScale * hScale;
                 var globeHeight = rawScale * vScale;

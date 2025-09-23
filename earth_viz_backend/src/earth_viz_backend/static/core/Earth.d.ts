@@ -10,9 +10,7 @@
 import '../styles/styles.css';
 import { Globe, ViewportSize } from '../core/Globes';
 import { EarthConfig } from '../config/ConfigManager';
-type Configuration = EarthConfig;
 declare class EarthModernApp {
-    private config;
     private view;
     private configManager;
     private earthAPI;
@@ -94,7 +92,7 @@ declare class EarthModernApp {
     getGlobe(): Globe | null;
     getMask(): any;
     getView(): ViewportSize;
-    getConfig(): Configuration;
+    getConfig(): EarthConfig;
     getParticleProduct(): any;
     getOverlayProduct(): any;
     getMesh(): any;

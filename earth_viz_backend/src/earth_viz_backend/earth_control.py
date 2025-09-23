@@ -65,10 +65,6 @@ async def set_projection(projection: str):
     """Set projection"""
     return await earth_ws_manager.send_command_to_earth("setProjection", [projection])
 
-async def set_height(level: str):
-    """Set height/level"""
-    return await earth_ws_manager.send_command_to_earth("setHeight", [level])
-
 async def set_overlay(overlay_type: str):
     """Set overlay"""
     return await earth_ws_manager.send_command_to_earth("setOverlay", [overlay_type])
@@ -78,18 +74,20 @@ async def set_config(config: dict):
     return await earth_ws_manager.send_command_to_earth("setConfig", [config])
 
 # Mode variants
-async def set_air_mode():
-    """Set air mode"""
-    return await earth_ws_manager.send_command_to_earth("setAirMode", [])
+async def set_air_mode(level: str = None, particle_type: str = None, overlay_type: str = None):
+    """Set air mode with optional parameters"""
+    params = [p for p in [level, particle_type, overlay_type] if p is not None]
+    return await earth_ws_manager.send_command_to_earth("setAirMode", params)
 
-async def set_ocean_mode():
-    """Set ocean mode"""
-    return await earth_ws_manager.send_command_to_earth("setOceanMode", [])
+async def set_ocean_mode(particle_type: str = None, overlay_type: str = None):
+    """Set ocean mode with optional parameters"""
+    params = [p for p in [particle_type, overlay_type] if p is not None]
+    return await earth_ws_manager.send_command_to_earth("setOceanMode", params)
 
 async def set_planet_mode(planet_type: str = "earth"):
     """Set planet mode"""
     return await earth_ws_manager.send_command_to_earth("setPlanetMode", [planet_type])
-
+    
 async def set_level(level: str):
     """Set level"""
     return await earth_ws_manager.send_command_to_earth("setLevel", [level])
@@ -103,6 +101,7 @@ async def hide_grid():
     """Hide grid"""
     return await earth_ws_manager.send_command_to_earth("hideGrid", [])
 
+# Units
 async def set_wind_units(units: str):
     """Set wind units"""
     return await earth_ws_manager.send_command_to_earth("setWindUnits", [units])
@@ -117,28 +116,40 @@ async def set_hour(hour: str):
     return await earth_ws_manager.send_command_to_earth("setHour", [hour])
 
 async def navigate_time(hours: int):
-    """Navigate time"""
+    """Navigate time by a number of hours"""
     return await earth_ws_manager.send_command_to_earth("navigateTime", [hours])
 
 async def go_to_now():
-    """Go to current time"""
+    """Reset time to current"""
     return await earth_ws_manager.send_command_to_earth("goToNow", [])
 
+# Config management
+async def reset_config():
+    """Reset configuration to defaults"""
+    return await earth_ws_manager.send_command_to_earth("resetConfig", [])
+
 # API mode controls
-async def enable_api_mode():
-    """Enable API mode"""
-    return await earth_ws_manager.send_command_to_earth("enableApiMode", [])
+async def hideUI():
+    """Hide UI"""
+    return await earth_ws_manager.send_command_to_earth("hideUI", [])
 
-async def disable_api_mode():
-    """Disable API mode"""
-    return await earth_ws_manager.send_command_to_earth("disableApiMode", [])
+async def showUI():
+    """Show UI"""
+    return await earth_ws_manager.send_command_to_earth("showUI", [])
 
+async def enable_full_screen():
+    """Enable full screen mode"""
+    return await earth_ws_manager.send_command_to_earth("enableFullScreen", [])
 
-def get_status():
-    """Get current WebSocket connection status"""
+async def disable_full_screen():
+    """Disable full screen mode"""
+    return await earth_ws_manager.send_command_to_earth("disableFullScreen", [])
+
+async def get_status():
+    """Get connection status"""
     return {
-        "connected_clients": len(earth_ws_manager.active_connections),
-        "status": "connected" if earth_ws_manager.active_connections else "disconnected"
+        "status": "ok",
+        "client_count": len(earth_ws_manager.active_connections)
     }
 
 def create_earth_control_router() -> APIRouter:
@@ -169,6 +180,16 @@ def create_earth_control_router() -> APIRouter:
         except Exception as e:
             logger.error(f"Failed to send Earth command: {e}")
             raise HTTPException(status_code=500, detail=str(e))
+    
+    @router.post("/enableFullScreen")
+    async def enable_full_screen_api():
+        """Enable full screen mode via API"""
+        return await enable_full_screen()
+    
+    @router.post("/disableFullScreen")
+    async def disable_full_screen_api():
+        """Disable full screen mode via API"""
+        return await disable_full_screen()
     
     @router.post("/setMode")
     async def set_mode_api(mode: str):
