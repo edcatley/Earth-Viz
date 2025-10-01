@@ -7,24 +7,37 @@ from typing import Dict, List, Any
 import json
 import logging
 from datetime import datetime
+import asyncio
 
 logger = logging.getLogger(__name__)
 
 class EarthWebSocketManager:
     """Manages WebSocket connections to Earth frontend clients"""
-    
     def __init__(self):
         self.active_connections: List[WebSocket] = []
-    
+        self.connection_event = asyncio.Event()  # ADD THIS
+
+        
     async def connect(self, websocket: WebSocket):
         await websocket.accept()
         self.active_connections.append(websocket)
+        self.connection_event.set()  # ADD THIS - Signal that a client connected
         logger.info(f"Earth client connected. Total connections: {len(self.active_connections)}")
     
     def disconnect(self, websocket: WebSocket):
         if websocket in self.active_connections:
             self.active_connections.remove(websocket)
+        if not self.active_connections:
+            self.connection_event.clear()  # ADD THIS - No clients left
         logger.info(f"Earth client disconnected. Total connections: {len(self.active_connections)}")
+    
+    async def wait_for_connection(self, timeout: float = 30.0):  # ADD THIS METHOD
+        """Wait for at least one client to connect"""
+        try:
+            await asyncio.wait_for(self.connection_event.wait(), timeout=timeout)
+            return True
+        except asyncio.TimeoutError:
+            return False
     
     async def send_command_to_earth(self, command: str, params: List[Any] = None):
         """Send command to all connected Earth clients"""
@@ -151,6 +164,10 @@ async def get_status():
         "status": "ok",
         "client_count": len(earth_ws_manager.active_connections)
     }
+async def await_earth_connection(timeout: float = 30.0) -> bool:
+    """Wait for earth-viz frontend to connect. Returns True if connected, False if timeout."""
+    return await earth_ws_manager.wait_for_connection(timeout)
+
 
 def create_earth_control_router() -> APIRouter:
     """Create FastAPI router for Earth control endpoints"""
