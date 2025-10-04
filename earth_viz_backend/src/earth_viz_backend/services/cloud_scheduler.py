@@ -36,8 +36,8 @@ class CloudScheduler:
         self.running = True
         logger.info(f"Starting cloud scheduler with {self.interval_minutes} minute intervals")
         
-        # Run immediately on start
-        await self.generate_clouds()
+        # Generate clouds in background (don't block startup)
+        asyncio.create_task(self.generate_clouds())
         
         # Then schedule periodic runs
         self.task = asyncio.create_task(self._schedule_loop())
