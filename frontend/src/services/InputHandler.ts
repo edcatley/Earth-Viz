@@ -123,11 +123,7 @@ export class InputHandler {
 
         // Setup menu button
         d3.select("#show-menu").on("click", () => {
-            if (Utils.isEmbeddedInIFrame()) {
-                window.open("http://earth.nullschool.net/" + window.location.hash, "_blank");
-            } else {
-                d3.select("#menu").classed("invisible", !d3.select("#menu").classed("invisible"));
-            }
+            d3.select("#menu").classed("invisible", !d3.select("#menu").classed("invisible"));
         });
 
         // Setup location button

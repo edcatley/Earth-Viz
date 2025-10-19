@@ -61,7 +61,7 @@ vec2 project(in vec2 coord) {
     float lon = coord.x;
     float lat = coord.y;
     
-    // Apply rotation (based on $S function from main.js)
+    // Apply rotation
     lon -= u_lon0;
     
     // Apply 3D rotation if gamma is involved (complex equirectangular)
