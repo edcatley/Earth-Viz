@@ -6,8 +6,6 @@ if (Test-Path "dist") { Remove-Item -Recurse -Force "dist" }
 Get-ChildItem -Filter "*.tgz" | Remove-Item -Force
 npm install
 npm run build
-npm run build:lib
-npm pack
 
 # Copy frontend build to backend static directory
 Set-Location ".."
