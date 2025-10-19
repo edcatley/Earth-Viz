@@ -3,6 +3,7 @@ import { resolve } from 'path';
 
 // Simple configuration that builds all our TypeScript files
 export default defineConfig({
+  base: '/earth-viz-app/',
   root: 'public',
   publicDir: '../src/assets',
   server: {

@@ -54,19 +54,14 @@ def create_app() -> FastAPI:
     control_router.prefix = "/earth-viz"
     app.include_router(control_router)
     
-    # Mount static files
+    # Mount static files under /earth-viz-app/
     current_dir = os.path.dirname(__file__)
     static_path = os.path.join(current_dir, "static")
     
     if os.path.exists(static_path):
-        # Mount assets at root
-        assets_path = os.path.join(static_path, "assets")
-        if os.path.exists(assets_path):
-            app.mount("/assets", StaticFiles(directory=assets_path), name="assets")
-        
-        # Mount main app
-        app.mount("/", StaticFiles(directory=static_path, html=True), name="static")
-        logger.info(f"Static files mounted from: {static_path}")
+        # Mount entire static directory at /earth-viz-app/
+        app.mount("/earth-viz-app", StaticFiles(directory=static_path, html=True), name="static")
+        logger.info(f"Static files mounted at /earth-viz-app/ from: {static_path}")
     else:
         logger.warning(f"Static files not found at: {static_path}")
     
