@@ -4,11 +4,12 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "earth_viz_backend"
-version = "0.1.0"
+version = "0.0.1"
 authors = [
     {name = "Edward Catley", email = "edward.catley@catley.com"},
 ]
 description = "Earth Visualization Backend - FastAPI router for weather data and earth imagery"
+keywords = ["weather", "visualization", "gfs", "meteorology", "earth", "globe", "fastapi", "noaa"]
 readme = "README.md"
 license = "MIT"
 requires-python = ">=3.8"
@@ -21,6 +22,9 @@ classifiers = [
     "Programming Language :: Python :: 3.9",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
+    "Topic :: Scientific/Engineering :: Atmospheric Science",
+    "Topic :: Scientific/Engineering :: Visualization",
+    "Framework :: FastAPI",
 ]
 dependencies = [
     "fastapi>=0.68.0",
