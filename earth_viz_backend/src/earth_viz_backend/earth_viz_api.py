@@ -16,6 +16,7 @@ from pathlib import Path
 from .services.cloud_scheduler import scheduler
 from .services.grib_service import GribService
 from . import config_loader
+from .earth_control import earth_ws_manager
 
 import tempfile
 
@@ -50,6 +51,16 @@ def create_earth_viz_router(prefix: str = "/earth-viz/api") -> APIRouter:
             timestamp=datetime.utcnow().isoformat(),
             version="1.0.0"
         )
+    
+    # Status endpoint with WebSocket connection info
+    @router.get("/status")
+    async def status():
+        """Get API status including WebSocket connections"""
+        return {
+            "status": "active" if earth_ws_manager.active_connections else "no_clients",
+            "connected_clients": len(earth_ws_manager.active_connections),
+            "timestamp": datetime.utcnow().isoformat()
+        }
 
     # GRIB proxy endpoint - replaces the localhost:3001 proxy
     @router.get("/cgi-bin/filter_gfs_0p25.pl")

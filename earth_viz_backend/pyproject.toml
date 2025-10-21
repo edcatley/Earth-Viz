@@ -3,8 +3,8 @@ requires = ["setuptools>=61.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "earth_viz_backend"
-version = "0.0.1"
+name = "earth_viz"
+version = "0.0.3"
 authors = [
     {name = "Edward Catley", email = "edward.catley@catley.com"},
 ]

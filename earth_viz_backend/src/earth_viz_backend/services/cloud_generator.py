@@ -4,7 +4,7 @@
 """
 
 import os
-import requests
+import httpx
 import numpy as np
 from PIL import Image, ImageFilter
 from datetime import datetime, timezone
@@ -13,6 +13,7 @@ import math
 from pathlib import Path
 import tempfile
 from earth_viz_backend import config_loader
+import asyncio
 
 # --- Globals --- #
 # These are defined at the module level but will be initialized at runtime inside run_generation().
@@ -23,8 +24,8 @@ SOURCE_WIDTH = 8192
 SOURCE_HEIGHT = SOURCE_WIDTH // 2
 
 
-def load_image(img):
-    """Load an image from URL or local path"""
+async def load_image(img):
+    """Load an image from URL or local path (async)"""
     # Ensure config is available
     if not config:
         raise RuntimeError("Configuration not initialized before calling load_image.")
@@ -32,8 +33,10 @@ def load_image(img):
     print(f"Loading {img['type']} from '{img['path']}'...")
     
     if img['path'].startswith('https://'):
-        # Download image from URL
-        response = requests.get(img['path'])
+        # Download image from URL asynchronously
+        async with httpx.AsyncClient(timeout=120.0) as client:
+            response = await client.get(img['path'])
+            response.raise_for_status()
         print(f"Downloaded {img['type']} from '{img['path']}'")
         
         # Ensure temp directory exists
@@ -526,8 +529,8 @@ def create_day_night_blend(earth_with_clouds_img, night_earth_img):
     print(f'Day/night blend complete! Solar subsolar point: {solar_lat:.2f}°N, {solar_lon:.2f}°E')
 
 
-def run_generation():
-    """Main entry point to start the cloud generation process."""
+async def run_generation():
+    """Main entry point to start the cloud generation process (async)."""
     global config, images_to_load, SOURCE_WIDTH, SOURCE_HEIGHT
 
     # --- Runtime Initialization ---
@@ -594,9 +597,8 @@ def run_generation():
     ]
 
     # --- Start Image Loading ---
-    # This kicks off the asynchronous loading and processing pipeline.
-    for img in images_to_load:
-        load_image(img)
+    # Load all images concurrently for maximum performance
+    await asyncio.gather(*[load_image(img) for img in images_to_load])
 
 
 # This allows the script to be run directly for testing if needed,

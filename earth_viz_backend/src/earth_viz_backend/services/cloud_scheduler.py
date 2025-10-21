@@ -76,19 +76,18 @@ class CloudScheduler:
                 # Continue running even if there's an error
                 
     async def generate_clouds(self):
-        """Run the cloud generation function in a non-blocking thread."""
+        """Run the cloud generation function asynchronously."""
         if self.generation_in_progress:
             logger.warning("Cloud generation already in progress, skipping this run.")
             return
 
         try:
             self.generation_in_progress = True
-            logger.info("Starting cloud generation in a background thread...")
+            logger.info("Starting cloud generation...")
             start_time = datetime.now()
 
-            # Run the synchronous, CPU-bound code in a separate thread to avoid blocking the event loop.
-            # asyncio.to_thread is available in Python 3.9+
-            await asyncio.to_thread(run_generation)
+            # Run the async cloud generation (downloads are concurrent, CPU work is still blocking)
+            await run_generation()
 
             duration = datetime.now() - start_time
             logger.info(f"Cloud generation completed successfully in {duration}.")

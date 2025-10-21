@@ -66,3 +66,8 @@ tmp/
 *.grib2
 *.grb
 *.grb2
+
+# Static image files and generated output
+/static_images/
+/out/
+/tmp/

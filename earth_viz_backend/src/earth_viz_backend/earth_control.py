@@ -15,23 +15,23 @@ class EarthWebSocketManager:
     """Manages WebSocket connections to Earth frontend clients"""
     def __init__(self):
         self.active_connections: List[WebSocket] = []
-        self.connection_event = asyncio.Event()  # ADD THIS
+        self.connection_event = asyncio.Event()  
 
         
     async def connect(self, websocket: WebSocket):
         await websocket.accept()
         self.active_connections.append(websocket)
-        self.connection_event.set()  # ADD THIS - Signal that a client connected
+        self.connection_event.set()  
         logger.info(f"Earth client connected. Total connections: {len(self.active_connections)}")
     
     def disconnect(self, websocket: WebSocket):
         if websocket in self.active_connections:
             self.active_connections.remove(websocket)
         if not self.active_connections:
-            self.connection_event.clear()  # ADD THIS - No clients left
+            self.connection_event.clear()  
         logger.info(f"Earth client disconnected. Total connections: {len(self.active_connections)}")
     
-    async def wait_for_connection(self, timeout: float = 30.0):  # ADD THIS METHOD
+    async def wait_for_connection(self, timeout: float = 30.0):  
         """Wait for at least one client to connect"""
         try:
             await asyncio.wait_for(self.connection_event.wait(), timeout=timeout)
@@ -185,61 +185,5 @@ def create_earth_control_router() -> APIRouter:
                 # Could handle client-to-server messages here if needed
         except WebSocketDisconnect:
             earth_ws_manager.disconnect(websocket)
-    
-    @router.post("/command/{command}")
-    async def send_earth_command(command: str, params: List[Any] = None):
-        """Send command to Earth visualization"""
-        try:
-            result = await earth_ws_manager.send_command_to_earth(command, params)
-            return result
-        except HTTPException:
-            raise
-        except Exception as e:
-            logger.error(f"Failed to send Earth command: {e}")
-            raise HTTPException(status_code=500, detail=str(e))
-    
-    @router.post("/enableFullScreen")
-    async def enable_full_screen_api():
-        """Enable full screen mode via API"""
-        return await enable_full_screen()
-    
-    @router.post("/disableFullScreen")
-    async def disable_full_screen_api():
-        """Disable full screen mode via API"""
-        return await disable_full_screen()
-    
-    @router.post("/setMode")
-    async def set_mode_api(mode: str):
-        """Set visualization mode via API"""
-        return await set_mode(mode)
-    
-    @router.post("/setProjection")
-    async def set_projection_api(projection: str):
-        """Set projection via API"""
-        return await set_projection(projection)
-    
-    @router.post("/setOverlay")
-    async def set_overlay_api(overlay_type: str):
-        """Set overlay via API"""
-        return await set_overlay(overlay_type)
-    
-    @router.post("/setConfig")
-    async def set_config_api(config: Dict[str, Any]):
-        """Set configuration via API"""
-        return await set_config(config)
-    
-    @router.post("/enableApiMode")
-    async def enable_api_mode_api():
-        """Enable API mode via API"""
-        return await enable_api_mode()
-    
-    @router.get("/status")
-    async def get_status_api():
-        """Get control status"""
-        return {
-            "status": "active" if earth_ws_manager.active_connections else "no_clients",
-            "connected_clients": len(earth_ws_manager.active_connections),
-            "timestamp": datetime.now().isoformat()
-        }
     
     return router
