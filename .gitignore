@@ -11,7 +11,7 @@ private
 .npmrc
 
 # Backend generated images and temporary files
-earth_viz_backend/static/images/
+earth_viz_backend/static/images
 earth_viz_backend/tmp/
 earth_viz_backend/out/
 earth_viz_backend/__pycache__/
@@ -23,3 +23,5 @@ earth_viz_backend/src/earth_viz_backend/static/
 # Frontend build artifacts
 frontend/dist/
 frontend/build/
+earth_viz_backend/static_images.tar.gz
+

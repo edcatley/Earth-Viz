@@ -22,17 +22,16 @@ logger = logging.getLogger(__name__)
 def create_app() -> FastAPI:
     """
     Create the FastAPI application with all earth-viz functionality
-    Config is automatically discovered from current working directory
+    All paths auto-detected from ~/.earth_viz/
     
     Returns:
         FastAPI: Configured application
     """
     
-    # The config must be initialized by the parent application before calling create_app.
-    from . import config_loader
-    config = config_loader.get_config()
+    from pathlib import Path
+    static_images_dir = Path.home() / ".earth_viz" / "static_images"
     
-    logger.info(f"Using static images from: {config.STATIC_IMAGES_DIR}")
+    logger.info(f"Using static images from: {static_images_dir}")
     
     # Create FastAPI app
     app = FastAPI(title="Earth-Viz Backend", version="1.0.0")

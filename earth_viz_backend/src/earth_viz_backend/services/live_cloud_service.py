@@ -6,7 +6,9 @@ import aiohttp
 import io
 from datetime import datetime
 from pathlib import Path
-from earth_viz_backend import config_loader
+
+# Static images location
+STATIC_IMAGES_DIR = Path.home() / ".earth_viz" / "static_images"
 
 class LiveCloudService:
     """
@@ -15,7 +17,6 @@ class LiveCloudService:
     def __init__(self, source_width=8192, source_height=4096):
         self.source_width = source_width
         self.source_height = source_height
-        self.config = config_loader.get_config()
 
         # Create a headless OpenGL context
         try:
@@ -86,10 +87,10 @@ class LiveCloudService:
             'DUST_MAP_RIGHT': f'https://view.eumetsat.int/geoserver/ows?service=WMS&request=GetMap&version=1.3.0&layers=mumi:wideareacoverage_rgb_dust&styles=&format=image/png&crs=EPSG:4326&bbox=-90,0,90,180&width={req_height}&height={req_height}',
             'VISIBLE_MAP_LEFT': f'https://view.eumetsat.int/geoserver/ows?service=WMS&request=GetMap&version=1.3.0&layers=mumi:wideareacoverage_rgb_natural&styles=&format=image/png&crs=EPSG:4326&bbox=-90,-180,90,0&width={req_height}&height={req_height}',
             'VISIBLE_MAP_RIGHT': f'https://view.eumetsat.int/geoserver/ows?service=WMS&request=GetMap&version=1.3.0&layers=mumi:wideareacoverage_rgb_natural&styles=&format=image/png&crs=EPSG:4326&bbox=-90,0,90,180&width={req_height}&height={req_height}',
-            'FRAME': str(self.config.STATIC_IMAGES_DIR / 'frame.png'),
-            'EARTH_WITHOUT_CLOUDS': str(self.config.STATIC_IMAGES_DIR / 'monthly' / 'earth' / f'{month_number}.jpg'),
-            'EARTH_WITHOUT_CLOUDS_NIGHT': str(self.config.STATIC_IMAGES_DIR / 'monthly' / 'earth-night' / f'{month_number}.jpg'),
-            'SPECULAR_BASE': str(self.config.STATIC_IMAGES_DIR / 'monthly' / 'specular-base' / f'{month_number}.jpg'),
+            'FRAME': str(STATIC_IMAGES_DIR / 'frame.png'),
+            'EARTH_WITHOUT_CLOUDS': str(STATIC_IMAGES_DIR / 'monthly' / 'earth' / f'{month_number}.jpg'),
+            'EARTH_WITHOUT_CLOUDS_NIGHT': str(STATIC_IMAGES_DIR / 'monthly' / 'earth-night' / f'{month_number}.jpg'),
+            'SPECULAR_BASE': str(STATIC_IMAGES_DIR / 'monthly' / 'specular-base' / f'{month_number}.jpg'),
         }
 
     async def _fetch_image(self, session, url):

@@ -23,6 +23,11 @@ images_to_load = []
 SOURCE_WIDTH = 8192
 SOURCE_HEIGHT = SOURCE_WIDTH // 2
 
+# All earth-viz data in user's home directory
+EARTH_VIZ_DIR = Path.home() / ".earth_viz"
+STATIC_IMAGES_DIR = EARTH_VIZ_DIR / "static_images"
+OUTPUT_DIR = EARTH_VIZ_DIR / "images"
+TEMP_DIR = EARTH_VIZ_DIR / "tmp"
 
 async def load_image(img):
     """Load an image from URL or local path (async)"""
@@ -40,10 +45,10 @@ async def load_image(img):
         print(f"Downloaded {img['type']} from '{img['path']}'")
         
         # Ensure temp directory exists
-        os.makedirs(config.TEMP_DIR, exist_ok=True)
+        os.makedirs(TEMP_DIR, exist_ok=True)
         
         # Save to temp file
-        temp_path = os.path.join(config.TEMP_DIR, f"{img['type']}.png")
+        temp_path = os.path.join(TEMP_DIR, f"{img['type']}.png")
         with open(temp_path, 'wb') as f:
             f.write(response.content)
         
@@ -399,7 +404,7 @@ def save_image_resolutions(image, filename, formats):
     if not config:
         raise RuntimeError("Configuration not initialized before calling save_image_resolutions.")
 
-    os.makedirs(config.OUTPUT_DIR, exist_ok=True)
+    os.makedirs(OUTPUT_DIR, exist_ok=True)
     
     for format_ext in formats:
         # JavaScript: for (let i = 0; i < 4; i++)
@@ -408,7 +413,7 @@ def save_image_resolutions(image, filename, formats):
             width = SOURCE_WIDTH // scale
             height = SOURCE_HEIGHT // scale
             
-            output_subdir = os.path.join(config.OUTPUT_DIR, f'{width}x{height}')
+            output_subdir = os.path.join(OUTPUT_DIR, f'{width}x{height}')
             os.makedirs(output_subdir, exist_ok=True)
             
             resized_image = image.resize((width, height), Image.LANCZOS)
@@ -536,8 +541,8 @@ async def run_generation():
     # --- Runtime Initialization ---
     # This code now runs when the function is called, not at import time.
     config = config_loader.get_config()
-    config.OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-    config.TEMP_DIR.mkdir(parents=True, exist_ok=True)
+    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+    TEMP_DIR.mkdir(parents=True, exist_ok=True)
     print("Generating cloud maps...")
 
     month_number = datetime.now().month
@@ -576,22 +581,22 @@ async def run_generation():
         },
         {
             'type': 'FRAME',
-            'path': str(config.STATIC_IMAGES_DIR / 'frame.png'),
+            'path': str(STATIC_IMAGES_DIR / 'frame.png'),
             'loaded': False, 'image_data': None
         },
         {
             'type': 'EARTH_WITHOUT_CLOUDS',
-            'path': str(config.STATIC_IMAGES_DIR / 'monthly' / 'earth' / f'{month_number}.jpg'),
+            'path': str(STATIC_IMAGES_DIR / 'monthly' / 'earth' / f'{month_number}.jpg'),
             'loaded': False, 'image_data': None
         },
         {
             'type': 'EARTH_WITHOUT_CLOUDS_NIGHT',
-            'path': str(config.STATIC_IMAGES_DIR / 'monthly' / 'earth-night' / f'{month_number}.jpg'),
+            'path': str(STATIC_IMAGES_DIR / 'monthly' / 'earth-night' / f'{month_number}.jpg'),
             'loaded': False, 'image_data': None
         },
         {
             'type': 'SPECULAR_BASE',
-            'path': str(config.STATIC_IMAGES_DIR / 'monthly' / 'specular-base' / f'{month_number}.jpg'),
+            'path': str(STATIC_IMAGES_DIR / 'monthly' / 'specular-base' / f'{month_number}.jpg'),
             'loaded': False, 'image_data': None
         }
     ]

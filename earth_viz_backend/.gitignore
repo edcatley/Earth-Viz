@@ -71,3 +71,5 @@ tmp/
 /static_images/
 /out/
 /tmp/
+
+.static_images.tar.gz

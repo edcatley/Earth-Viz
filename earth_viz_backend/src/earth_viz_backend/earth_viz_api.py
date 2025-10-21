@@ -20,6 +20,10 @@ from .earth_control import earth_ws_manager
 
 import tempfile
 
+# Hardcoded paths
+STATIC_IMAGES_DIR = Path.home() / ".earth_viz" / "static_images"
+OUTPUT_DIR = Path.home() / ".earth_viz" / "images"
+
 # Configure logging
 logger = logging.getLogger(__name__)
 
@@ -109,7 +113,7 @@ def create_earth_viz_router(prefix: str = "/earth-viz/api") -> APIRouter:
 
             # Handle earth-related images (generated)
             if planet_name in ["earth", "earth-clouds", "earth-live"]:
-                output_dir = config.OUTPUT_DIR / "4096x2048"
+                output_dir = OUTPUT_DIR / "4096x2048"
                 filename_map = {
                     "earth": "earth.jpg",
                     "earth-clouds": "earth-clouds.jpg",
@@ -119,10 +123,7 @@ def create_earth_viz_router(prefix: str = "/earth-viz/api") -> APIRouter:
             
             # Handle other static planet images
             else:
-                static_dir = config.STATIC_IMAGES_DIR
-                if not isinstance(static_dir, Path):
-                    static_dir = Path(static_dir)
-                image_path = static_dir / "planets" / f"{planet_name}-surface.jpg"
+                image_path = STATIC_IMAGES_DIR / "planets" / f"{planet_name}-surface.jpg"
 
             if not image_path.exists():
                 raise HTTPException(status_code=404, detail=f"Image not found for: {planet_name}")

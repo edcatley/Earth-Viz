@@ -40,6 +40,9 @@ dependencies = [
     "pyrr>=0.10.0",
 ]
 
+[project.scripts]
+earth-viz-setup = "earth_viz_backend.setup:download_static_files"
+
 [project.optional-dependencies]
 dev = [
     "pytest>=7.0.0",
