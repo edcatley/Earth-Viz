@@ -29,9 +29,16 @@ if ($content -match 'version = "(\d+)\.(\d+)\.(\d+)"') {
     Write-Host "Version bumped to $newVersion"
 }
 
-# Build backend package
+# Clean old build artifacts
+Write-Host "Cleaning old build artifacts..."
 if (Test-Path "dist") { Remove-Item -Recurse -Force "dist" }
+if (Test-Path "build") { Remove-Item -Recurse -Force "build" }
 Get-ChildItem -Filter "*.tar.gz" | Remove-Item -Force
+Get-ChildItem -Filter "*.egg-info" -Recurse | Remove-Item -Recurse -Force
+Get-ChildItem -Path "src" -Filter "*.egg-info" -Recurse | Remove-Item -Recurse -Force
+
+# Build backend package
+Write-Host "Building backend package..."
 pip install -e .
 python -m build
 

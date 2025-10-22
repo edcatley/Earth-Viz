@@ -62,9 +62,9 @@ def download_static_files():
         
         print("\nExtracting files...")
         
-        # Extract the tar.gz
+        # Extract the tar.gz to parent directory (archive contains static_images/ folder)
         with tarfile.open(fileobj=io.BytesIO(archive_data), mode="r:gz") as tar:
-            tar.extractall(package_dir)
+            tar.extractall(static_dir.parent)
         
         # Mark as complete
         marker_file.touch()

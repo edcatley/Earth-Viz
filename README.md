@@ -69,11 +69,8 @@ Use earth-viz as a component in your own FastAPI application:
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 from earth_viz_backend import create_earth_viz_router, create_earth_control_router
-from earth_viz_backend.config_loader import init_config
-import config  # Your app's config module
-
-# Initialize config
-init_config(config)
+from pathlib import Path
+import earth_viz_backend
 
 app = FastAPI()
 
@@ -82,8 +79,6 @@ app.include_router(create_earth_viz_router())
 app.include_router(create_earth_control_router())
 
 # Mount static frontend (after running build_package.ps1)
-from pathlib import Path
-import earth_viz_backend
 package_dir = Path(earth_viz_backend.__file__).parent
 static_dir = package_dir / "static"
 app.mount("/earth-viz-app", StaticFiles(directory=static_dir, html=True))
@@ -112,20 +107,13 @@ await set_overlay("wind")
 
 ## Configuration
 
-**No manual configuration required!** The backend auto-detects all paths:
+**No manual configuration required!** All earth-viz data is stored in `~/.earth_viz/`:
 
-- **Static images**: Downloaded to package directory via `earth-viz-setup`
-- **Generated images**: System temp directory (`/tmp/earth_viz/images/`)
-- **Temp files**: System temp directory (`/tmp/earth_viz/tmp/`)
+- **Static images**: `~/.earth_viz/static_images/` (downloaded via `earth-viz-setup`)
+- **Generated cloud maps**: `~/.earth_viz/images/` (persists across reboots)
+- **Temp files**: `~/.earth_viz/tmp/` (satellite image downloads)
 
-For embedded mode, your config module must provide:
-```python
-from pathlib import Path
-
-OUTPUT_DIR = Path("./out")
-TEMP_DIR = Path("./tmp")
-STATIC_IMAGES_DIR = Path("./static_images")
-```
+Everything is automatically created and managed. No config files needed!
 
 ## Building for Production
 
