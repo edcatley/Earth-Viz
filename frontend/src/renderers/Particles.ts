@@ -366,7 +366,7 @@ export class ParticleSystem {
 
         field.randomize = (): { x: number; y: number; age: number } => {
             if (validPositions.length === 0) {
-                debugLog('PARTICLES', 'ERROR: No valid positions available for particle spawning!');
+                //debugLog('PARTICLES', 'ERROR: No valid positions available for particle spawning!');
                 return { x: bounds.x, y: bounds.y, age: Math.random() * MAX_PARTICLE_AGE };
             }
 

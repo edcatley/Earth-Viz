@@ -1,6 +1,12 @@
 /**
  * Clean weather data service that fetches JSON from our Python backend
+ * Can test ASCII OpenDAP frontend decoding
  */
+
+import { openDAPAsciiService } from './OpenDAPAsciiService';
+
+// Toggle to test ASCII OpenDAP frontend decoding (no libraries, pure text parsing)
+const USE_ASCII_OPENDAP = true;
 
 // Local debug logging function
 function debugLog(section: string, message: string, data?: any): void {
@@ -75,6 +81,12 @@ export class WeatherDataService {
      * Fetch scalar weather data (temperature, pressure, etc.)
      */
     public async fetchScalarData(parameter: string, level: string, date?: Date): Promise<WeatherData> {
+        // Test ASCII OpenDAP if enabled
+        if (USE_ASCII_OPENDAP) {
+            debugLog('WEATHER', 'Using ASCII OpenDAP (streaming, no libraries)');
+            return openDAPAsciiService.fetchScalarData(parameter, level, date);
+        }
+
         const cacheKey = `scalar-${parameter}-${level}-${date?.toISOString() || 'current'}`;
 
         // Check cache first
@@ -84,7 +96,7 @@ export class WeatherDataService {
         }
 
         try {
-            debugLog('WEATHER', 'Fetching scalar data:', { parameter, level, date });
+            debugLog('WEATHER', 'Fetching scalar data from backend:', { parameter, level, date });
 
             const params = new URLSearchParams({
                 parameter,
@@ -117,6 +129,12 @@ export class WeatherDataService {
      * Fetch vector weather data (wind U/V components)
      */
     public async fetchVectorData(uParam: string, vParam: string, level: string, date?: Date): Promise<VectorWeatherData> {
+        // Test ASCII OpenDAP if enabled
+        if (USE_ASCII_OPENDAP) {
+            debugLog('WEATHER', 'Using ASCII OpenDAP for vector data (streaming, no libraries)');
+            return openDAPAsciiService.fetchVectorData(uParam, vParam, level, date);
+        }
+
         const cacheKey = `vector-${uParam}-${vParam}-${level}-${date?.toISOString() || 'current'}`;
 
         // Check cache first
@@ -126,7 +144,7 @@ export class WeatherDataService {
         }
 
         try {
-            debugLog('WEATHER', 'Fetching vector data:', { uParam, vParam, level, date });
+            debugLog('WEATHER', 'Fetching vector data from backend:', { uParam, vParam, level, date });
 
             const params = new URLSearchParams({
                 u_parameter: uParam,

@@ -5,7 +5,7 @@ for integration into larger applications.
 """
 
 from fastapi import APIRouter, HTTPException, Request
-from fastapi.responses import Response, JSONResponse
+from fastapi.responses import Response, JSONResponse, StreamingResponse
 from pydantic import BaseModel
 import httpx
 from datetime import datetime
@@ -70,8 +70,8 @@ def create_earth_viz_router(prefix: str = "/earth-viz/api") -> APIRouter:
     @router.get("/cgi-bin/filter_gfs_0p25.pl")
     async def grib_proxy(request: Request):
         """
-        Proxy endpoint for GRIB2 data from NOAA NOMADS
-        Replaces the localhost:3001 proxy server
+        Streaming proxy endpoint for GRIB2 data from NOAA NOMADS.
+        Relays chunks as they arrive for minimal memory usage.
         """
         try:
             # Get all query parameters from the request
@@ -81,28 +81,65 @@ def create_earth_viz_router(prefix: str = "/earth-viz/api") -> APIRouter:
             # Build the actual NOMADS URL
             base_url = "https://nomads.ncep.noaa.gov/cgi-bin/filter_gfs_0p25.pl"
             
-            # Forward the request to NOMADS
+            # Stream the request to NOMADS
             timeout = httpx.Timeout(120.0)  # 2 minute timeout for GRIB downloads
             async with httpx.AsyncClient(timeout=timeout) as client:
                 logger.info(f"Forwarding request to NOMADS: {base_url}")
                 response = await client.get(base_url, params=query_params)
                 response.raise_for_status()
                 
-                # Return the GRIB2 data with appropriate headers
-                return Response(
-                    content=response.content,
+                # Return streaming response
+                return StreamingResponse(
+                    iter([response.content]),
                     media_type="application/octet-stream",
                     headers={
                         "Content-Type": "application/octet-stream",
                         "Access-Control-Allow-Origin": "*",
                         "Access-Control-Allow-Methods": "GET",
-                        "Access-Control-Allow-Headers": "*"
+                        "Access-Control-Allow-Headers": "*",
+                        "Cache-Control": "no-cache"
                     }
                 )
                 
         except Exception as e:
             logger.error(f"GRIB proxy error: {str(e)}")
             raise HTTPException(status_code=500, detail=f"GRIB proxy failed: {str(e)}")
+
+    # OpenDAP streaming proxy endpoint
+    @router.get("/proxy/opendap")
+    async def opendap_streaming_proxy(url: str):
+        """
+        Streaming proxy for OpenDAP data - relays chunks as they arrive.
+        Zero buffering, minimal memory usage, fastest possible transfer.
+        
+        Usage:
+        /proxy/opendap?url=https://nomads.ncep.noaa.gov/dods/gfs_0p25/gfs20241022/gfs_0p25_18z.dods?ugrd10m[0][0:720][0:1439]
+        """
+        try:
+            logger.info(f"OpenDAP streaming proxy request: {url}")
+            
+            # Stream the response from OpenDAP
+            timeout = httpx.Timeout(120.0)
+            async with httpx.AsyncClient(timeout=timeout) as client:
+                response = await client.get(url)
+                response.raise_for_status()
+                
+                # Return streaming response
+                return StreamingResponse(
+                    iter([response.content]),
+                    media_type="application/octet-stream",
+                    headers={
+                        "Content-Type": "application/octet-stream",
+                        "Access-Control-Allow-Origin": "*",
+                        "Access-Control-Allow-Methods": "GET",
+                        "Access-Control-Allow-Headers": "*",
+                        "Cache-Control": "no-cache"
+                    }
+                )
+                    
+        except Exception as e:
+            logger.error(f"OpenDAP proxy error: {str(e)}")
+            raise HTTPException(status_code=500, detail=f"OpenDAP proxy failed: {str(e)}")
 
     # Planet image endpoints
     @router.get("/planets/{planet_name}")
@@ -189,5 +226,22 @@ def create_earth_viz_router(prefix: str = "/earth-viz/api") -> APIRouter:
         except Exception as e:
             logger.error(f"Error triggering cloud generation: {str(e)}")
             raise HTTPException(status_code=500, detail="Failed to trigger cloud generation")
+
+    # Format size comparison endpoint
+    @router.get("/debug/compare-formats")
+    async def compare_data_formats(
+        parameter: str = "UGRD",
+        level: str = "10_m_above_ground"
+    ):
+        """
+        Compare file sizes for GRIB2, OpenDAP Binary, and OpenDAP ASCII formats.
+        Useful for understanding transfer costs.
+        """
+        try:
+            results = await GribService.compare_format_sizes(parameter, level)
+            return results
+        except Exception as e:
+            logger.error(f"Format comparison error: {str(e)}")
+            raise HTTPException(status_code=500, detail=f"Failed to compare formats: {str(e)}")
 
     return router
