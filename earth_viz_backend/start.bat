@@ -35,20 +35,11 @@ call venv\Scripts\activate.bat
 echo Using virtual environment: %VIRTUAL_ENV%
 
 echo.
-echo Installing dependencies...
-pip install -r requirements.txt
-if errorlevel 1 (
-    echo ERROR: Failed to install dependencies
-    echo Try: pip install --upgrade pip
-    pause
-    exit /b 1
-)
-
-echo.
-echo Installing earth_viz_backend package...
+echo Installing earth_viz_backend package and dependencies...
 pip install -e .
 if errorlevel 1 (
     echo ERROR: Failed to install earth_viz_backend package
+    echo Try: pip install --upgrade pip
     pause
     exit /b 1
 )
