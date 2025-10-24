@@ -14,8 +14,6 @@ import os
 import asyncio
 from pathlib import Path
 from .services.cloud_scheduler import scheduler
-from .services.grib_service import GribService
-from . import config_loader
 from .earth_control import earth_ws_manager
 
 import tempfile
@@ -43,7 +41,6 @@ def create_earth_viz_router(prefix: str = "/earth-viz/api") -> APIRouter:
     Returns:
         APIRouter: Configured router with all earth-viz endpoints
     """
-    config = config_loader.get_config()
     router = APIRouter(prefix=prefix, tags=["earth-viz"])
 
     # Health check endpoint
@@ -144,23 +141,10 @@ def create_earth_viz_router(prefix: str = "/earth-viz/api") -> APIRouter:
     # Planet image endpoints
     @router.get("/planets/{planet_name}")
     async def get_planet_image(planet_name: str):
-        """Serves all planet and earth images from a single dynamic endpoint."""
+        """Serves planet images - simple static file serving."""
         try:
-            image_path: Path
-
-            # Handle earth-related images (generated)
-            if planet_name in ["earth", "earth-clouds", "earth-live"]:
-                output_dir = OUTPUT_DIR / "4096x2048"
-                filename_map = {
-                    "earth": "earth.jpg",
-                    "earth-clouds": "earth-clouds.jpg",
-                    "earth-live": "earth-clouds-realtime.jpg"
-                }
-                image_path = output_dir / filename_map[planet_name]
-            
-            # Handle other static planet images
-            else:
-                image_path = STATIC_IMAGES_DIR / "planets" / f"{planet_name}-surface.jpg"
+            # All planets are just static files now
+            image_path = STATIC_IMAGES_DIR / "planets" / f"{planet_name}.jpg"
 
             if not image_path.exists():
                 raise HTTPException(status_code=404, detail=f"Image not found for: {planet_name}")
@@ -184,37 +168,7 @@ def create_earth_viz_router(prefix: str = "/earth-viz/api") -> APIRouter:
             logger.error(f"Error serving planet image {planet_name}: {str(e)}")
             raise HTTPException(status_code=500, detail=f"Failed to serve planet image: {planet_name}")
 
-    # Weather data JSON endpoints
-    @router.get("/weather/data")
-    async def get_weather_data(
-        parameter: str,
-        level: str,
-        date: str = "current",
-        hour: str = "00"
-    ):
-        """Get weather data as JSON (parsed from GRIB2 using eccodes)"""
-        try:
-            weather_data = await GribService.fetch_and_parse_grib(parameter, level, date, hour)
-            return JSONResponse(content=weather_data)
-        except Exception as e:
-            logger.error(f"Weather data error: {str(e)}")
-            raise HTTPException(status_code=500, detail=f"Failed to fetch weather data: {str(e)}")
-
-    @router.get("/weather/vector")
-    async def get_vector_weather_data(
-        u_parameter: str,
-        v_parameter: str, 
-        level: str,
-        date: str = "current",
-        hour: str = "00"
-    ):
-        """Get vector weather data (U,V components) as JSON"""
-        try:
-            vector_data = await GribService.fetch_vector_data(u_parameter, v_parameter, level, date, hour)
-            return JSONResponse(content=vector_data)
-        except Exception as e:
-            logger.error(f"Vector weather data error: {str(e)}")
-            raise HTTPException(status_code=500, detail=f"Failed to fetch vector weather data: {str(e)}")
+    # Weather data endpoints removed - frontend now uses OpenDAP directly via proxy
 
     # Manual cloud generation endpoint
     @router.get("/live-earth/status")
@@ -227,21 +181,6 @@ def create_earth_viz_router(prefix: str = "/earth-viz/api") -> APIRouter:
             logger.error(f"Error triggering cloud generation: {str(e)}")
             raise HTTPException(status_code=500, detail="Failed to trigger cloud generation")
 
-    # Format size comparison endpoint
-    @router.get("/debug/compare-formats")
-    async def compare_data_formats(
-        parameter: str = "UGRD",
-        level: str = "10_m_above_ground"
-    ):
-        """
-        Compare file sizes for GRIB2, OpenDAP Binary, and OpenDAP ASCII formats.
-        Useful for understanding transfer costs.
-        """
-        try:
-            results = await GribService.compare_format_sizes(parameter, level)
-            return results
-        except Exception as e:
-            logger.error(f"Format comparison error: {str(e)}")
-            raise HTTPException(status_code=500, detail=f"Failed to compare formats: {str(e)}")
+    # Format comparison endpoint removed - no longer using GRIB2
 
     return router

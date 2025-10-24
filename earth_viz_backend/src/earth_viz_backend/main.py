@@ -78,3 +78,14 @@ def create_app() -> FastAPI:
         logger.info("Earth-viz services stopped")
     
     return app
+
+def run_server():
+    """Console script entry point for running the standalone server"""
+    import uvicorn
+    app = create_app()
+    uvicorn.run(
+        app,
+        host="0.0.0.0",
+        port=8000,
+        log_level="info"
+    )

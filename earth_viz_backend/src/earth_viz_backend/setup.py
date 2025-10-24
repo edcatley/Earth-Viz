@@ -38,33 +38,49 @@ def download_static_files():
     print("This may take a few minutes depending on your connection.\n")
     
     try:
-        # Download the tar.gz file
-        with httpx.stream("GET", url, follow_redirects=True, timeout=600.0) as response:
-            response.raise_for_status()
-            
-            total = int(response.headers.get("content-length", 0))
-            downloaded = 0
-            chunks = []
-            
-            print("Downloading...")
-            for chunk in response.iter_bytes(chunk_size=1024*1024):  # 1MB chunks
-                chunks.append(chunk)
-                downloaded += len(chunk)
-                if total > 0:
-                    percent = (downloaded / total) * 100
-                    mb_downloaded = downloaded / (1024 * 1024)
-                    mb_total = total / (1024 * 1024)
-                    print(f"\r  Progress: {percent:.1f}% ({mb_downloaded:.1f}/{mb_total:.1f} MB)", end="", flush=True)
-            print()  # New line
-            
-            # Combine chunks into bytes
-            archive_data = b"".join(chunks)
+        # Create temp file for download
+        import tempfile
+        temp_file = tempfile.NamedTemporaryFile(delete=False, suffix='.tar.gz')
+        temp_path = temp_file.name
         
-        print("\nExtracting files...")
+        try:
+            # Download the tar.gz file directly to disk
+            with httpx.stream("GET", url, follow_redirects=True, timeout=600.0) as response:
+                response.raise_for_status()
+                
+                total = int(response.headers.get("content-length", 0))
+                downloaded = 0
+                
+                print("Downloading...")
+                for chunk in response.iter_bytes(chunk_size=1024*1024):  # 1MB chunks
+                    temp_file.write(chunk)
+                    downloaded += len(chunk)
+                    if total > 0:
+                        percent = (downloaded / total) * 100
+                        mb_downloaded = downloaded / (1024 * 1024)
+                        mb_total = total / (1024 * 1024)
+                        print(f"\r  Progress: {percent:.1f}% ({mb_downloaded:.1f}/{mb_total:.1f} MB)", end="", flush=True)
+                print()  # New line
+            
+            temp_file.close()
+            
+            print("\nExtracting files...")
+            
+            # Extract with streaming iterator (doesn't load all members into memory)
+            with tarfile.open(temp_path, mode="r|gz") as tar:  # Note: r|gz for streaming
+                count = 0
+                for member in tar:
+                    tar.extract(member, static_dir.parent)
+                    count += 1
+                    if count % 10 == 0:
+                        print(f"\r  Extracted {count} files...", end="", flush=True)
+                print(f"\r  Extracted {count} files total")  # Final count
         
-        # Extract the tar.gz to parent directory (archive contains static_images/ folder)
-        with tarfile.open(fileobj=io.BytesIO(archive_data), mode="r:gz") as tar:
-            tar.extractall(static_dir.parent)
+        finally:
+            # Clean up temp file
+            import os
+            if os.path.exists(temp_path):
+                os.unlink(temp_path)
         
         # Mark as complete
         marker_file.touch()

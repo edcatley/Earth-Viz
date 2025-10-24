@@ -15,8 +15,8 @@ if (-not (Test-Path "venv")) {
 Write-Host "Installing dependencies..."
 pip install -e .
 
-# Start backend server
-Start-Process powershell -ArgumentList "-NoExit", "-Command", "cd '$PWD'; .\venv\Scripts\Activate.ps1; python standalone_server.py"
+# Start backend server using console script
+Start-Process powershell -ArgumentList "-NoExit", "-Command", "cd '$PWD'; .\venv\Scripts\Activate.ps1; earth-viz-server"
 
 Start-Sleep 3
 

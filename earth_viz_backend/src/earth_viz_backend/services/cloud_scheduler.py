@@ -1,17 +1,16 @@
 """
 Cloud Map Scheduler
-Runs the Python cloud generation script periodically
+Downloads cloud images from matteason's CDN periodically
 """
 
 import asyncio
 import logging
-import os
 import signal
-import sys
-from datetime import datetime, timedelta
+import httpx
+import tempfile
+import shutil
+from pathlib import Path
 from typing import Optional
-
-from .cloud_generator import run_generation
 
 # Configure logging
 logging.basicConfig(
@@ -20,8 +19,13 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+# Configuration
+RESOLUTION = "2048x1024"
+CLOUD_BASE_URL = f"https://clouds.matteason.co.uk/images/{RESOLUTION}"
+PLANETS_DIR = Path.home() / ".earth_viz"/ "static_images" / "planets"
+
 class CloudScheduler:
-    def __init__(self, interval_minutes: int = 30):
+    def __init__(self, interval_minutes: int = 180):
         self.interval_minutes = interval_minutes
         self.running = False
         self.task: Optional[asyncio.Task] = None
@@ -76,24 +80,44 @@ class CloudScheduler:
                 # Continue running even if there's an error
                 
     async def generate_clouds(self):
-        """Run the cloud generation function asynchronously."""
+        """Download cloud images from matteason's CDN"""
         if self.generation_in_progress:
-            logger.warning("Cloud generation already in progress, skipping this run.")
+            logger.warning("Cloud download already in progress, skipping this run.")
             return
 
         try:
             self.generation_in_progress = True
-            logger.info("Starting cloud generation...")
-            start_time = datetime.now()
-
-            # Run the async cloud generation (downloads are concurrent, CPU work is still blocking)
-            await run_generation()
-
-            duration = datetime.now() - start_time
-            logger.info(f"Cloud generation completed successfully in {duration}.")
+            logger.info("Downloading cloud images from matteason's CDN...")
+            
+            # Ensure directory exists
+            PLANETS_DIR.mkdir(parents=True, exist_ok=True)
+            
+            # Download both images in parallel
+            async with httpx.AsyncClient(timeout=120.0) as client:
+                day_response, night_response = await asyncio.gather(
+                    client.get(f"{CLOUD_BASE_URL}/earth.jpg"),
+                    client.get(f"{CLOUD_BASE_URL}/earth-night.jpg")
+                )
+                day_response.raise_for_status()
+                night_response.raise_for_status()
+            
+            # Atomic writes using temp files
+            with tempfile.NamedTemporaryFile(mode='wb', delete=False, suffix='.jpg') as tmp:
+                tmp.write(day_response.content)
+                tmp.flush()
+                tmp.close()
+                shutil.move(tmp.name, str(PLANETS_DIR / "earth-clouds.jpg"))
+            
+            with tempfile.NamedTemporaryFile(mode='wb', delete=False, suffix='.jpg') as tmp:
+                tmp.write(night_response.content)
+                tmp.flush()
+                tmp.close()
+                shutil.move(tmp.name, str(PLANETS_DIR / "earth-clouds-night.jpg"))
+            
+            logger.info("Cloud images downloaded successfully!")
 
         except Exception as e:
-            logger.error(f"Error during cloud generation: {e}", exc_info=True)
+            logger.error(f"Error downloading cloud images: {e}", exc_info=True)
         finally:
             self.generation_in_progress = False
             
@@ -104,29 +128,3 @@ class CloudScheduler:
 
 # Global scheduler instance
 scheduler = CloudScheduler()
-
-async def main():
-    """Main function for running as standalone script"""
-    
-    # Handle shutdown signals
-    def signal_handler(signum, frame):
-        logger.info(f"Received signal {signum}, shutting down...")
-        asyncio.create_task(scheduler.stop())
-        
-    signal.signal(signal.SIGINT, signal_handler)
-    signal.signal(signal.SIGTERM, signal_handler)
-    
-    try:
-        await scheduler.start()
-        
-        # Keep running until stopped
-        while scheduler.running:
-            await asyncio.sleep(1)
-            
-    except KeyboardInterrupt:
-        logger.info("Keyboard interrupt received")
-    finally:
-        await scheduler.stop()
-
-if __name__ == "__main__":
-    asyncio.run(main())

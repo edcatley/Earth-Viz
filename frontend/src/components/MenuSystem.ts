@@ -225,6 +225,14 @@ export class MenuSystem {
                 this.triggerConfigChange({ planetType: planet });
             });
         });
+
+        // Day/Night toggle
+        d3.select("#toggle-day-night").on("click", () => {
+            const config = this.configManager.getConfig();
+            const newValue = !config.useDayNight;
+            console.log(`[MENU] Toggle day/night: ${newValue}`);
+            this.triggerConfigChange({ useDayNight: newValue });
+        });
     }
 
     private navigateTime(hours: number): void {
@@ -271,6 +279,11 @@ export class MenuSystem {
         // Update projection button highlighting
         d3.selectAll(".proj").classed("highlighted", false);
         d3.select(`#${projection}`).classed("highlighted", true);
+    }
+
+    private updateDayNightDisplay(useDayNight: boolean): void {
+        // Update day/night toggle button state
+        d3.select("#toggle-day-night").classed("highlighted", useDayNight);
     }
 
     private updateGridDisplay(showGrid: boolean): void {
@@ -381,6 +394,9 @@ export class MenuSystem {
 
         // Update grid display
         this.updateGridDisplay(config.showGridPoints || false);
+
+        // Update day/night display
+        this.updateDayNightDisplay(config.useDayNight || false);
 
         // Update date display (in case timezone toggle changed)
         this.updateDateDisplay();

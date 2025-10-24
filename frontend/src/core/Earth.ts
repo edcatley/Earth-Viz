@@ -622,6 +622,7 @@ class EarthModernApp {
             level: "1000hPa",
             overlayType: "off",
             planetType: "earth",
+            useDayNight: false,   // Day/night blending off by default
             showGridPoints: false,
             windUnits: "m/s",
             showUI: true          // UI is visible by default

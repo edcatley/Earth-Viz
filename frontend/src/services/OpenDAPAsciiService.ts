@@ -16,14 +16,33 @@ function debugLog(section: string, message: string, data?: any): void {
 
 // Parameter name mapping: our names -> OpenDAP variable base names
 const PARAMETER_MAP: Record<string, string> = {
-    'TMP': 'tmp',
+    // Wind components
     'UGRD': 'ugrd',
     'VGRD': 'vgrd',
-    'RH': 'rh',
-    'PRMSL': 'prmsl',
-    'APCP': 'apcp',
-    'TCDC': 'tcdc',
     'GUST': 'gust',
+    
+    // Temperature and humidity
+    'TMP': 'tmp',
+    'RH': 'rh',
+    
+    // Pressure
+    'PRMSL': 'prmsl',  // Mean sea level pressure
+    
+    // Precipitation and water
+    'APCP': 'apcp',    // Accumulated precipitation
+    'PWAT': 'pwat',    // Precipitable water (entire atmosphere) -> pwatclm
+    'CWAT': 'cwat',    // Cloud water (entire atmosphere) -> cwatclm
+    
+    // Cloud cover
+    'TCDC': 'tcdc',
+    
+    // Ocean (if available)
+    'UOGRD': 'uogrd',  // Ocean U-component
+    'VOGRD': 'vogrd',  // Ocean V-component
+    
+    // Waves (if available)
+    'DIRPW': 'dirpw',  // Primary wave direction
+    'PERPW': 'perpw',  // Primary wave period
 };
 
 // Pressure level mapping: mb -> OpenDAP index
@@ -79,6 +98,11 @@ export class OpenDAPAsciiService {
             const levelIdx = PRESSURE_LEVEL_MAP[pressureMb] || 0;
             varName = `${opendapParam}prs`;
             constraint = `${varName}[0][${levelIdx}][0:720][0:1439]`;
+        } else if (level.includes('entire_atmosphere')) {
+            // Entire atmosphere (column-integrated): variable[time][lat][lon]
+            // OpenDAP uses 'clm' suffix, not 'eatm'
+            varName = `${opendapParam}clm`;
+            constraint = `${varName}[0][0:720][0:1439]`;
         } else if (level.includes('2_m')) {
             // 2m above ground: variable[time][lat][lon]
             varName = `${opendapParam}2m`;

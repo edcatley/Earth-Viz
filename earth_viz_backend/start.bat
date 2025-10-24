@@ -46,7 +46,7 @@ if errorlevel 1 (
 
 echo.
 echo Checking installations...
-python -c "import fastapi, httpx, uvicorn, pydantic, numpy; print('✓ Core dependencies available')" 2>nul
+python -c "import fastapi, httpx, uvicorn, pydantic; print('✓ Core dependencies available')" 2>nul
 if errorlevel 1 (
     echo ERROR: Core dependencies missing after installation
     pause
@@ -64,8 +64,8 @@ echo.
 echo Press Ctrl+C to stop the server
 echo.
 
-REM Run the FastAPI server using venv Python
-venv\Scripts\python.exe standalone_server.py
+REM Run the FastAPI server using console script
+venv\Scripts\earth-viz-server.exe
 
 REM If we get here, the server stopped
 echo.

@@ -10,12 +10,15 @@
 
 import { Globe, ViewportSize } from '../core/Globes';
 import { WebGLRenderer } from '../services/WebGLRenderer';
+import { DayNightBlender } from '../services/DayNightBlender';
 
 // --- Constants ---
+// Available planet types (day versions)
+// Night variants are automatically loaded when useDayNight=true by appending '-night'
+// e.g., 'earth' + '-night' = 'earth-night'
 export const AVAILABLE_PLANETS = [
-    'earth',
-    'earth-clouds',
-    'earth-live',
+    'earth',           // Plain earth, no clouds
+    'earth-clouds',    // Earth with clouds
     'mercury',
     'venus',
     'moon',
@@ -57,6 +60,9 @@ export class PlanetSystem {
 
     // Planet image cache
     private imageCache: { [key: string]: HTMLImageElement } = {};
+
+    // Day/night blender (lazy initialized)
+    private dayNightBlender: DayNightBlender | null = null;
 
     constructor() {
         // Create canvases
@@ -127,10 +133,13 @@ export class PlanetSystem {
             }
 
             // Load planet image and setup WebGL
-            const planetImage = this.imageCache[planetType];
+            // Use same cache key logic as loadPlanetImage
+            const useDayNight = config?.useDayNight || false;
+            const cacheKey = useDayNight ? `${planetType}_daynight` : planetType;
+            const planetImage = this.imageCache[cacheKey];
+            debugLog('PLANET', `Looking for cached image with key: ${cacheKey}, found: ${!!planetImage}, type: ${planetImage instanceof HTMLCanvasElement ? 'Canvas' : 'Image'}`);
             if (planetImage) {
-                const planetId = `planet_${planetType}`;
-                const setupSuccess = this.webglRenderer.setup('planet', planetImage, planetId, globe);
+                const setupSuccess = this.webglRenderer.setup('planet', planetImage, globe);
 
                 if (!setupSuccess) {
                     debugLog('PLANET', 'WebGL planet setup failed');
@@ -183,11 +192,11 @@ export class PlanetSystem {
 
         // Skip if not in planet mode
         if (!config || config.mode !== 'planet') {
-            debugLog('PLANET', `Skipping frame generation - not in planet mode: ${config?.mode}`);
+            debugLog('PLANET', `Skipping test generation - not in planet mode: ${config?.mode}`);
             return null;
         }
 
-        debugLog('PLANET', `Generating frame using ${this.useWebGL ? 'WebGL' : '2D'}`);
+        debugLog('PLANET', `Generating using ${this.useWebGL ? 'WebGL' : '2D'}`);
 
         if (this.useWebGL) {
             return this.renderWebGL() ? this.webglCanvas : null;
@@ -234,10 +243,8 @@ export class PlanetSystem {
         }
 
         try {
-            const config = this.stateProvider?.getConfig();
             const globe = this.stateProvider?.getGlobe();
             const view = this.stateProvider?.getView();
-            const planetType = config?.planetType || 'earth';
 
             if (!globe || !view) {
                 debugLog('PLANET', 'WebGL render failed - missing state');
@@ -251,9 +258,7 @@ export class PlanetSystem {
             }
 
             // Render the planet 
-            const planetId = `planet_${planetType}`;
-
-            const renderSuccess = this.webglRenderer.render(planetId, globe, view);
+            const renderSuccess = this.webglRenderer.render(globe, view);
 
             if (renderSuccess) {
                 debugLog('PLANET', 'WebGL render successful');
@@ -464,8 +469,9 @@ export class PlanetSystem {
         // Load planet image first, then initialize
         const config = this.stateProvider?.getConfig();
         const planetType = config?.planetType || 'earth';
+        const useDayNight = config?.useDayNight || false;
 
-        this.loadPlanetImage(planetType).then(() => {
+        this.loadPlanetImage(planetType, useDayNight).then(() => {
             this.initialize();
             this.regeneratePlanet();
         }).catch(error => {
@@ -493,55 +499,108 @@ export class PlanetSystem {
 
     /**
      * Load planet image from URL
+     * @param planetType The planet to load (e.g., 'earth', 'mars')
+     * @param useDayNight If true, loads both day and night versions and blends them
+     * @returns HTMLImageElement with planet texture
      */
-    private async loadPlanetImage(planetType: string): Promise<HTMLImageElement> {
+    private async loadPlanetImage(planetType: string, useDayNight: boolean = false): Promise<HTMLImageElement> {
+        // Generate cache key based on day/night mode
+        const cacheKey = useDayNight ? `${planetType}_daynight` : planetType;
+        
         // Check cache first
-        if (this.imageCache[planetType]) {
-            return this.imageCache[planetType];
+        if (this.imageCache[cacheKey]) {
+            return this.imageCache[cacheKey];
         }
 
         if (!AVAILABLE_PLANETS.includes(planetType)) {
             throw new Error(`Unknown planet type: ${planetType}`);
         }
 
-        const url = `${PLANETS_API_ENDPOINT}/${planetType}`;
+        // Load image(s)
+        let image: HTMLImageElement;
+        console.log("using day/night blending: ", useDayNight);
+        if (useDayNight) {
+            // Load both day and night images and blend them
+            image = await this.loadAndBlendDayNight(planetType);
+        } else {
+            // Standard single image load
+            const url = `${PLANETS_API_ENDPOINT}/${planetType}`;
+            image = await this.loadSingleImage(url, planetType);
+        }
 
+        // Cache the result
+        this.imageCache[cacheKey] = image;
+
+        // Setup WebGL for this planet if WebGL is available
+        if (this.useWebGL && this.webglRenderer) {
+            const globe = this.stateProvider?.getGlobe();
+            if (globe) {
+                const setupSuccess = this.webglRenderer.setup('planet', image, globe);
+                if (setupSuccess) {
+                    debugLog('PLANET', `WebGL setup completed for ${planetType}${useDayNight ? ' (day/night)' : ''}`);
+                } else {
+                    debugLog('PLANET', `WebGL setup failed for ${planetType}${useDayNight ? ' (day/night)' : ''}`);
+                }
+            }
+        }
+
+        return image;
+    }
+
+    /**
+     * Load day and night versions of a planet and blend them with real-time terminator
+     * Returns the blended image - caller handles caching and WebGL setup
+     */
+    private async loadAndBlendDayNight(planetType: string): Promise<HTMLImageElement> {
+        debugLog('PLANET', `Loading day/night blend for ${planetType}`);
+
+        // Load both day and night images in parallel
+        const dayUrl = `${PLANETS_API_ENDPOINT}/${planetType}`;
+        const nightUrl = `${PLANETS_API_ENDPOINT}/${planetType}-night`;
+
+        const [dayImg, nightImg] = await Promise.all([
+            this.loadSingleImage(dayUrl, `${planetType} (day)`),
+            this.loadSingleImage(nightUrl, `${planetType} (night)`)
+        ]);
+
+        // Initialize blender if needed
+        if (!this.dayNightBlender) {
+            const width = dayImg.naturalWidth;
+            const height = dayImg.naturalHeight;
+            this.dayNightBlender = new DayNightBlender(width, height);
+            debugLog('PLANET', `Initialized DayNightBlender at ${width}x${height}`);
+        }
+
+        // Blend the images and return
+        const blendedImage = await this.dayNightBlender.blend(dayImg, nightImg);
+        debugLog('PLANET', `Day/night blend complete for ${planetType}`);
+
+        return blendedImage;
+    }
+
+    /**
+     * Helper to load a single image
+     */
+    private async loadSingleImage(url: string, description: string): Promise<HTMLImageElement> {
         return new Promise((resolve, reject) => {
             const img = new Image();
-            img.crossOrigin = 'anonymous'; // Handle CORS if needed
+            img.crossOrigin = 'anonymous';
 
             img.onload = () => {
-                debugLog('PLANET', `Planet image loaded: ${planetType}`, {
+                debugLog('PLANET', `Image loaded: ${description}`, {
                     url,
                     width: img.naturalWidth,
-                    height: img.naturalHeight,
-                    complete: img.complete
+                    height: img.naturalHeight
                 });
-                this.imageCache[planetType] = img;
-
-                // Setup WebGL for this planet if WebGL is available
-                if (this.useWebGL && this.webglRenderer) {
-                    const globe = this.stateProvider?.getGlobe();
-                    if (globe) {
-                        const planetId = `planet_${planetType}`;
-                        const setupSuccess = this.webglRenderer.setup('planet', img, planetId, globe);
-                        if (setupSuccess) {
-                            debugLog('PLANET', `WebGL setup completed for ${planetType}`);
-                        } else {
-                            debugLog('PLANET', `WebGL setup failed for ${planetType}`);
-                        }
-                    }
-                }
-
                 resolve(img);
             };
 
             img.onerror = () => {
-                debugLog('PLANET', `Failed to load planet image: ${url}`);
-                reject(new Error(`Failed to load planet image: ${url}`));
+                const error = `Failed to load image: ${description} from ${url}`;
+                debugLog('PLANET', error);
+                reject(new Error(error));
             };
 
-            debugLog('PLANET', `Loading planet image: ${planetType} from ${url}`);
             img.src = url;
         });
     }
@@ -573,8 +632,9 @@ export class PlanetSystem {
     /**
      * Check if a planet image is loaded
      */
-    isPlanetLoaded(planetType: string): boolean {
-        return !!this.imageCache[planetType];
+    isPlanetLoaded(planetType: string, useDayNight: boolean = false): boolean {
+        const cacheKey = useDayNight ? `${planetType}_daynight` : planetType;
+        return !!this.imageCache[cacheKey];
     }
 
     /**

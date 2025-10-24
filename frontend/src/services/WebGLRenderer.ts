@@ -270,8 +270,8 @@ export class WebGLRenderer {
     private canvas: HTMLCanvasElement | null = null;
     private isInitialized = false;
     
-    // Cached render items
-    private items: Map<string, RenderItem> = new Map();
+    // Current render item (only one at a time)
+    private currentItem: RenderItem | null = null;
     
     // Vertex buffer for screen quad
     private vertexBuffer: WebGLBuffer | null = null;
@@ -313,10 +313,10 @@ export class WebGLRenderer {
     /**
      * Setup a render item (heavy operation - done once)
      */
-    public setup(type: 'planet' | 'overlay', data: any, id: string, globe?: any, useInterpolatedLookup = false): boolean {
+    public setup(type: 'planet' | 'overlay', data: any, globe?: any, useInterpolatedLookup = false): boolean {
         // Determine projection type from globe
         const projectionType = globe ? this.getProjectionType(globe) : 'orthographic';
-        console.log(`[WebGLRenderer] Setup called: type=${type}, id=${id}, projectionType=${projectionType}`);
+        console.log(`[WebGLRenderer] Setup called: type=${type}, projectionType=${projectionType}`);
         
         if (!this.gl || !this.isInitialized) {
             console.log(`[WebGLRenderer] Setup failed: gl=${!!this.gl}, initialized=${this.isInitialized}`);
@@ -330,28 +330,28 @@ export class WebGLRenderer {
 
             if (type === 'planet') {
                 // Planet: upload image texture
-                console.log(`[WebGLRenderer] Creating planet texture for ${id}`);
+                console.log(`[WebGLRenderer] Creating planet texture`);
                 const texture = this.createImageTexture(data as HTMLImageElement);
                 if (!texture) {
-                    console.log(`[WebGLRenderer] Failed to create planet texture for ${id}`);
+                    console.log(`[WebGLRenderer] Failed to create planet texture`);
                     return false;
                 }
                 textures.set('u_Texture', texture);
-                console.log(`[WebGLRenderer] Planet texture created successfully for ${id}`);
+                console.log(`[WebGLRenderer] Planet texture created successfully`);
             } else {
                 // Overlay: upload weather data + gradient textures
-                console.log(`[WebGLRenderer] Creating overlay textures for ${id}`);
+                console.log(`[WebGLRenderer] Creating overlay textures`);
                 weatherTextureResult = this.createWeatherTexture(data);
                 const gradientTexture = this.createGradientTexture(data.scale);
                 if (!weatherTextureResult || !gradientTexture) {
-                    console.log(`[WebGLRenderer] Failed to create overlay textures for ${id}`);
+                    console.log(`[WebGLRenderer] Failed to create overlay textures`);
                     return false;
                 }
                 
                 textures.set('u_Data', weatherTextureResult.texture);
                 textures.set('u_Palette', gradientTexture);
                 scaleBounds = data.scale.bounds;
-                console.log(`[WebGLRenderer] Overlay textures created successfully for ${id}`);
+                console.log(`[WebGLRenderer] Overlay textures created successfully`);
             }
 
             // Compile shader
@@ -379,12 +379,20 @@ export class WebGLRenderer {
                 }
             }
             
-            this.items.set(id, renderItem);
+            // Clean up old item if it exists
+            if (this.currentItem) {
+                this.gl.deleteProgram(this.currentItem.shader);
+                for (const texture of this.currentItem.textures.values()) {
+                    this.gl.deleteTexture(texture);
+                }
+            }
+            
+            this.currentItem = renderItem;
 
-            console.log(`[WebGLRenderer] Setup completed successfully for ${id}. Total items: ${this.items.size}`);
+            console.log(`[WebGLRenderer] Setup completed successfully`);
             return true;
         } catch (error) {
-            console.log(`[WebGLRenderer] Setup failed with error for ${id}:`, error);
+            console.log(`[WebGLRenderer] Setup failed with error:`, error);
             return false;
         }
     }
@@ -392,21 +400,21 @@ export class WebGLRenderer {
     /**
      * Render a setup item (lightweight operation - done every frame)
      */
-    public render(id: string, globe: any, view: any): boolean {
-        console.log(`[WebGLRenderer] Render called for id: ${id}`);
+    public render(globe: any, view: any): boolean {
+        console.log(`[WebGLRenderer] Render called`);
         
         if (!this.gl || !this.isInitialized) {
             console.log(`[WebGLRenderer] Render failed: gl=${!!this.gl}, initialized=${this.isInitialized}`);
             return false;
         }
 
-        const item = this.items.get(id);
-        if (!item) {
-            console.log(`[WebGLRenderer] Render failed: item '${id}' not found. Available items:`, Array.from(this.items.keys()));
+        if (!this.currentItem) {
+            console.log(`[WebGLRenderer] Render failed: no item setup`);
             return false;
         }
 
-        console.log(`[WebGLRenderer] Found item for ${id}, type: ${item.type}`);
+        const item = this.currentItem;
+        console.log(`[WebGLRenderer] Rendering ${item.type}`);
 
         try {
             // Setup viewport and clear
@@ -466,11 +474,11 @@ export class WebGLRenderer {
                 return false;
             }
             
-            console.log(`[WebGLRenderer] Render completed successfully for ${id}`);
+            console.log(`[WebGLRenderer] Render completed successfully`);
             return true;
 
         } catch (error) {
-            console.log(`[WebGLRenderer] Render failed with error for ${id}:`, error);
+            console.log(`[WebGLRenderer] Render failed with error:`, error);
             return false;
         }
     }
@@ -825,14 +833,14 @@ export class WebGLRenderer {
     public dispose(): void {
         if (!this.gl) return;
 
-        // Clean up render items
-        for (const item of this.items.values()) {
-            this.gl.deleteProgram(item.shader);
-            for (const texture of item.textures.values()) {
+        // Clean up current item
+        if (this.currentItem) {
+            this.gl.deleteProgram(this.currentItem.shader);
+            for (const texture of this.currentItem.textures.values()) {
                 this.gl.deleteTexture(texture);
             }
+            this.currentItem = null;
         }
-        this.items.clear();
 
         if (this.vertexBuffer) {
             this.gl.deleteBuffer(this.vertexBuffer);

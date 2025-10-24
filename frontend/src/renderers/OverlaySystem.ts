@@ -116,7 +116,7 @@ export class OverlaySystem {
             // Setup overlay with current data
             const overlayId = `overlay_${overlayType}`;
             const useInterpolatedLookup = true;
-            const setupSuccess = this.webglRenderer.setup('overlay', overlayProduct, overlayId, globe, useInterpolatedLookup);
+            const setupSuccess = this.webglRenderer.setup('overlay', overlayProduct, globe, useInterpolatedLookup);
             
             if (!setupSuccess) {
                 debugLog('OVERLAY', 'WebGL overlay setup failed');
@@ -223,8 +223,7 @@ export class OverlaySystem {
             }
             
             // Render
-            const overlayId = `overlay_${overlayType}`;
-            const renderSuccess = this.webglRenderer.render(overlayId, globe, view);
+            const renderSuccess = this.webglRenderer.render(globe, view);
             
             if (renderSuccess) {
                 debugLog('OVERLAY', 'WebGL render successful');

@@ -8,6 +8,7 @@ export interface EarthConfig {
     projection: string;
     overlayType: string;
     planetType?: string;
+    useDayNight?: boolean;  // Enable real-time day/night blending for planets
     level: string;
     showGridPoints: boolean;
     windUnits: string;
