@@ -3,7 +3,7 @@
  */
 
 import { Utils } from '../utils/Utils';
-import { weatherDataService } from '../services/WeatherDataService';
+import { openDAPAsciiService } from '../services/OpenDAPAsciiService';
 
 // Core interfaces (kept for compatibility)
 export interface GridHeader {
@@ -279,15 +279,15 @@ class WeatherDataManager {
     // Fetch a single parameter
     private async fetchParameter(param: ParameterConfig, date: Date, userLevel: string): Promise<GridBuilder> {
         const level = this.resolveLevel(param, userLevel);
-        const scalarData = await weatherDataService.fetchScalarData(param.name, level, date);
-        return weatherDataService.createScalarGridBuilder(scalarData);
+        const scalarData = await openDAPAsciiService.fetchScalarData(param.name, level, date);
+        return openDAPAsciiService.createScalarGridBuilder(scalarData);
     }
 
     // Fetch wind vector data (special case)
     private async fetchWindVector(uParam: ParameterConfig, vParam: ParameterConfig, date: Date, userLevel: string): Promise<GridBuilder> {
         const level = this.resolveLevel(uParam, userLevel);
-        const vectorData = await weatherDataService.fetchVectorData(uParam.name, vParam.name, level, date);
-        return weatherDataService.createVectorGridBuilder(vectorData);
+        const vectorData = await openDAPAsciiService.fetchVectorData(uParam.name, vParam.name, level, date);
+        return openDAPAsciiService.createVectorGridBuilder(vectorData);
     }
 
     // Build particle grid

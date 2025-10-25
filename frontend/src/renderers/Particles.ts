@@ -268,13 +268,14 @@ export class ParticleSystem {
         debugLog('PARTICLES', `Velocity scale: ${velocityScale}`);
 
 
-        // Pre-compute wind vectors for all visible pixels
+        // Pre-compute wind vectors for visible pixels
+        // Sampling every 4 pixels instead of 2 to reduce memory (75% reduction)
         const columns: any[] = [];
         const validPositions: Array<[number, number]> = [];
-        for (let x = bounds.x; x <= bounds.xMax; x += 2) {
+        for (let x = bounds.x; x <= bounds.xMax; x += 4) {
             const column: any[] = [];
 
-            for (let y = bounds.y; y <= bounds.yMax; y += 2) {
+            for (let y = bounds.y; y <= bounds.yMax; y += 4) {
                 let wind: Vector = [NaN, NaN, null];
 
                 if (mask.isVisible(x, y)) {
@@ -297,9 +298,11 @@ export class ParticleSystem {
                         }
                     }
                 }
-                column[y + 1] = column[y] = wind;
+                // Duplicate for fast O(1) lookup (fill 4 pixels with same value)
+                column[y + 3] = column[y + 2] = column[y + 1] = column[y] = wind;
             }
-            columns[x + 1] = columns[x] = column;
+            // Duplicate columns for fast O(1) lookup
+            columns[x + 3] = columns[x + 2] = columns[x + 1] = columns[x] = column;
         }
 
 
@@ -583,11 +586,11 @@ export class ParticleSystem {
      */
     public handleDataChange(): void {
         debugLog('PARTICLES', 'Handling data change - reinitializing system');
-        
+
         this.clearCanvas();
         this.initialize();
         this.regenerateParticles(); // Generate initial frame
-        
+
     }
 
 
@@ -679,7 +682,7 @@ export class ParticleSystem {
             this.animationId = null;
             debugLog('PARTICLES', 'Particle animation stopped');
         }
-        
+
         // Clear the particle canvas when stopping animation
         this.clearCanvas();
     }
