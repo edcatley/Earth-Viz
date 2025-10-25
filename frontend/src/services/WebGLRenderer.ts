@@ -269,18 +269,18 @@ export class WebGLRenderer {
     private context: WebGLContext | null = null;
     private canvas: HTMLCanvasElement | null = null;
     private isInitialized = false;
-    
+
     // Current render item (only one at a time)
     private currentItem: RenderItem | null = null;
-    
+
     // Vertex buffer for screen quad
     private vertexBuffer: WebGLBuffer | null = null;
 
-    constructor() {}
+    constructor() { }
 
     public initialize(canvas: HTMLCanvasElement): boolean {
         this.canvas = canvas;
-        
+
         try {
             this.gl = canvas.getContext('webgl2') || canvas.getContext('webgl');
             if (!this.gl) return false;
@@ -293,12 +293,12 @@ export class WebGLRenderer {
 
             // Create screen quad vertex buffer
             const vertices = new Float32Array([
-                -1, -1,  0, 0,  // bottom-left
-                 1, -1,  1, 0,  // bottom-right
-                -1,  1,  0, 1,  // top-left
-                 1,  1,  1, 1   // top-right
+                -1, -1, 0, 0,  // bottom-left
+                1, -1, 1, 0,  // bottom-right
+                -1, 1, 0, 1,  // top-left
+                1, 1, 1, 1   // top-right
             ]);
-            
+
             this.vertexBuffer = this.gl.createBuffer();
             this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.vertexBuffer);
             this.gl.bufferData(this.gl.ARRAY_BUFFER, vertices, this.gl.STATIC_DRAW);
@@ -317,7 +317,7 @@ export class WebGLRenderer {
         // Determine projection type from globe
         const projectionType = globe ? this.getProjectionType(globe) : 'orthographic';
         console.log(`[WebGLRenderer] Setup called: type=${type}, projectionType=${projectionType}`);
-        
+
         if (!this.gl || !this.isInitialized) {
             console.log(`[WebGLRenderer] Setup failed: gl=${!!this.gl}, initialized=${this.isInitialized}`);
             return false;
@@ -347,7 +347,7 @@ export class WebGLRenderer {
                     console.log(`[WebGLRenderer] Failed to create overlay textures`);
                     return false;
                 }
-                
+
                 textures.set('u_Data', weatherTextureResult.texture);
                 textures.set('u_Palette', gradientTexture);
                 scaleBounds = data.scale.bounds;
@@ -370,7 +370,7 @@ export class WebGLRenderer {
                 textures,
                 scaleBounds
             };
-            
+
             // Add interpolation info for overlays
             if (type === 'overlay') {
                 renderItem.useInterpolatedLookup = useInterpolatedLookup;
@@ -378,7 +378,7 @@ export class WebGLRenderer {
                     renderItem.textureSize = [weatherTextureResult.width, weatherTextureResult.height];
                 }
             }
-            
+
             // Clean up old item if it exists
             if (this.currentItem) {
                 this.gl.deleteProgram(this.currentItem.shader);
@@ -386,7 +386,7 @@ export class WebGLRenderer {
                     this.gl.deleteTexture(texture);
                 }
             }
-            
+
             this.currentItem = renderItem;
 
             console.log(`[WebGLRenderer] Setup completed successfully`);
@@ -402,7 +402,7 @@ export class WebGLRenderer {
      */
     public render(globe: any, view: any): boolean {
         console.log(`[WebGLRenderer] Render called`);
-        
+
         if (!this.gl || !this.isInitialized) {
             console.log(`[WebGLRenderer] Render failed: gl=${!!this.gl}, initialized=${this.isInitialized}`);
             return false;
@@ -427,13 +427,13 @@ export class WebGLRenderer {
 
             // Setup vertex attributes
             this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.vertexBuffer);
-            
+
             const posLoc = this.gl.getAttribLocation(item.shader, 'a_position');
             if (posLoc >= 0) {
                 this.gl.enableVertexAttribArray(posLoc);
                 this.gl.vertexAttribPointer(posLoc, 2, this.gl.FLOAT, false, 16, 0);
             }
-            
+
             const texLoc = this.gl.getAttribLocation(item.shader, 'a_texCoord');
             if (texLoc >= 0) {
                 this.gl.enableVertexAttribArray(texLoc);
@@ -456,7 +456,7 @@ export class WebGLRenderer {
             for (const [name, texture] of item.textures) {
                 this.gl.activeTexture(this.gl.TEXTURE0 + textureUnit);
                 this.gl.bindTexture(this.gl.TEXTURE_2D, texture);
-                
+
                 const loc = this.gl.getUniformLocation(item.shader, name);
                 if (loc) {
                     this.gl.uniform1i(loc, textureUnit);
@@ -466,14 +466,14 @@ export class WebGLRenderer {
 
             // Draw screen quad
             this.gl.drawArrays(this.gl.TRIANGLE_STRIP, 0, 4);
-            
+
             // Check for WebGL errors
             const error = this.gl.getError();
             if (error !== this.gl.NO_ERROR) {
                 console.log(`[WebGLRenderer] WebGL error during render: ${error}`);
                 return false;
             }
-            
+
             console.log(`[WebGLRenderer] Render completed successfully`);
             return true;
 
@@ -500,7 +500,7 @@ export class WebGLRenderer {
 
         // Build fragment shader based on type
         let fragmentShader = SHADER_CONSTANTS + projectionShader + GRID_TRANSFORM;
-        
+
         if (type === 'planet') {
             fragmentShader += TEXTURE_SAMPLER + PLANET_MAIN;
         } else {
@@ -517,7 +517,7 @@ export class WebGLRenderer {
 
         const vertexShader = this.createShader(vertexSource, this.gl.VERTEX_SHADER);
         const fragmentShader = this.createShader(fragmentSource, this.gl.FRAGMENT_SHADER);
-        
+
         if (!vertexShader || !fragmentShader) return null;
 
         const program = this.gl.createProgram();
@@ -623,14 +623,14 @@ export class WebGLRenderer {
         if (!texture) return null;
 
         this.gl.bindTexture(this.gl.TEXTURE_2D, texture);
-        
-        console.log(`[WebGL] Float textures not supported, using RGBA encoding. Sample values:`, 
-                   gridData.slice(0, 5), '...', gridData.slice(-5));
-        
+
+        console.log(`[WebGL] Float textures not supported, using RGBA encoding. Sample values:`,
+            gridData.slice(0, 5), '...', gridData.slice(-5));
+
         // Fallback to RGBA encoding since float textures aren't supported
         const rgbaData = this.packFloatToRGBA(gridData);
         this.gl.texImage2D(this.gl.TEXTURE_2D, 0, this.gl.RGBA, width, height, 0, this.gl.RGBA, this.gl.UNSIGNED_BYTE, rgbaData);
-        
+
         this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_WRAP_S, this.gl.CLAMP_TO_EDGE);
         this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_WRAP_T, this.gl.CLAMP_TO_EDGE);
         this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_MIN_FILTER, this.gl.LINEAR);
@@ -645,7 +645,7 @@ export class WebGLRenderer {
         for (let i = 0; i < gridData.length; i++) {
             const value = gridData[i];
             const baseIndex = i * 4;
-            
+
             if (value === -999999) {
                 // NIL encoding
                 rgbaData[baseIndex] = 255;
@@ -656,11 +656,11 @@ export class WebGLRenderer {
                 // Improved float encoding - handle larger ranges properly
                 const absValue = Math.abs(value);
                 const sign = value < 0 ? 0 : 255;
-                
+
                 // Scale to use full 24-bit range (16777215 = 2^24 - 1)
                 // This allows values up to ~16777 with reasonable precision
                 const scaled = Math.min(Math.floor(absValue * 1000), 16777215);
-                
+
                 rgbaData[baseIndex] = (scaled >> 16) & 255;
                 rgbaData[baseIndex + 1] = (scaled >> 8) & 255;
                 rgbaData[baseIndex + 2] = scaled & 255;
@@ -681,7 +681,7 @@ export class WebGLRenderer {
             const t = i / (width - 1);
             const value = scale.bounds[0] + t * (scale.bounds[1] - scale.bounds[0]);
             const color = scale.gradient(value, 255);
-            
+
             const idx = i * 4;
             data[idx] = color[0] || 0;
             data[idx + 1] = color[1] || 0;
@@ -744,20 +744,20 @@ export class WebGLRenderer {
             // Orthographic projection with pole-crossing logic
             let λ0 = rotate[0];
             let φ0 = rotate[1];
-            
+
             let i = this.qe(φ0 + 90, 360);
             let flip = 180 < i ? -1 : 1;
-            
+
             if (flip < 0) {
                 φ0 = 270 - i;
                 λ0 += 180;
             } else {
                 φ0 = i - 90;
             }
-            
+
             φ0 *= Math.PI / 180;
             λ0 = (this.qe(λ0 + 180, 360) - 180) * Math.PI / 180;
-            
+
             const sinlat0 = Math.sin(-φ0);
             const coslat0 = Math.cos(-φ0);
 
@@ -773,7 +773,7 @@ export class WebGLRenderer {
             const λ0 = rotate[0] * Math.PI / 180;  // longitude rotation
             const φ0 = rotate[1] * Math.PI / 180;  // latitude rotation
             const γ0 = rotate[2] * Math.PI / 180;  // gamma rotation
-            
+
             this.setUniform(program, 'u_R', scale);
             this.setUniform(program, 'u_lon0', λ0);  // Try positive for equirectangular
             this.setUniform(program, 'u_sinlat0', Math.sin(φ0));
@@ -804,7 +804,7 @@ export class WebGLRenderer {
 
         this.setUniform(program, 'u_Range', [scaleBounds[0], scaleBounds[1] - scaleBounds[0]]);
         this.setUniform(program, 'u_Alpha', 0.6);
-        
+
         // Set texture size for interpolated lookup
         if (textureSize) {
             this.setUniform(program, 'u_TextureSize', textureSize);

@@ -32,7 +32,7 @@ export interface Particle {
 
 export interface Field {
     (x: number, y: number): Vector;
-    randomize(): { x: number; y: number; age: number };
+    randomize(particle: Particle): void;
     isDefined(x: number, y: number): boolean;
 }
 
@@ -53,6 +53,10 @@ export class ParticleSystem {
     private particles: Particle[] = [];
     private colorStyles: any = null;
     private buckets: Particle[][] = [];
+
+    // Wind field storage (flat typed array for efficiency)
+    private windData: Float32Array | null = null;
+    private windBounds: { x: number; y: number; width: number; height: number; spacing: number } | null = null;
 
 
     // External state references
@@ -269,20 +273,36 @@ export class ParticleSystem {
 
 
         // Pre-compute wind vectors for visible pixels
-        // Sampling every 4 pixels instead of 2 to reduce memory (75% reduction)
-        const columns: any[] = [];
-        const validPositions: Array<[number, number]> = [];
-        for (let x = bounds.x; x <= bounds.xMax; x += 4) {
-            const column: any[] = [];
+        // Sampling every 4 pixels to reduce memory
+        const spacing = 4;
+        const samplesX = Math.ceil((bounds.xMax - bounds.x + 1) / spacing);
+        const samplesY = Math.ceil((bounds.yMax - bounds.y + 1) / spacing);
 
-            for (let y = bounds.y; y <= bounds.yMax; y += 4) {
-                let wind: Vector = [NaN, NaN, null];
+        // Allocate flat typed array: [u, v, magnitude, u, v, magnitude, ...]
+        // 3 values per sample point
+        this.windData = new Float32Array(samplesX * samplesY * 3);
+        this.windBounds = {
+            x: bounds.x,
+            y: bounds.y,
+            width: samplesX,
+            height: samplesY,
+            spacing: spacing
+        };
+
+        const validPositions: Array<[number, number]> = [];
+        let dataIndex = 0;
+
+        for (let sx = 0; sx < samplesX; sx++) {
+            for (let sy = 0; sy < samplesY; sy++) {
+                const x = bounds.x + sx * spacing;
+                const y = bounds.y + sy * spacing;
+
+                let u = NaN, v = NaN, magnitude = NaN;
 
                 if (mask.isVisible(x, y)) {
                     const coord = globe.projection?.invert?.([x, y]);
                     if (coord != null) {
                         const λ = coord[0], φ = coord[1];
-
 
                         if (isFinite(λ) && isFinite(φ)) {
                             const rawWind = windProduct.interpolate(λ, φ);
@@ -290,7 +310,9 @@ export class ParticleSystem {
                                 if (globe.projection) {
                                     const distortedWind = this.distort(globe.projection, λ, φ, x, y, velocityScale, rawWind);
                                     if (distortedWind != null && distortedWind[2] != null) {
-                                        wind = distortedWind;
+                                        u = distortedWind[0];
+                                        v = distortedWind[1];
+                                        magnitude = distortedWind[2];
                                         validPositions.push([x, y]);
                                     }
                                 }
@@ -298,16 +320,16 @@ export class ParticleSystem {
                         }
                     }
                 }
-                // Duplicate for fast O(1) lookup (fill 4 pixels with same value)
-                column[y + 3] = column[y + 2] = column[y + 1] = column[y] = wind;
+
+                // Store in flat array
+                this.windData[dataIndex++] = u;
+                this.windData[dataIndex++] = v;
+                this.windData[dataIndex++] = magnitude;
             }
-            // Duplicate columns for fast O(1) lookup
-            columns[x + 3] = columns[x + 2] = columns[x + 1] = columns[x] = column;
         }
 
-
         // Create field function
-        this.field = this.createField(columns, bounds, validPositions);
+        this.field = this.createField(validPositions);
 
         // Setup color system
         this.colorStyles = windProduct.particles ?
@@ -317,7 +339,8 @@ export class ParticleSystem {
         // Initialize particles
         this.initializeParticles(bounds);
 
-        debugLog('PARTICLES', `Created ${this.particles.length} particles`);
+        const memoryMB = (this.windData.byteLength / 1048576).toFixed(2);
+        debugLog('PARTICLES', `Created ${this.particles.length} particles with ${samplesX}x${samplesY} wind field (${memoryMB} MB)`);
     }
 
     /**
@@ -357,26 +380,47 @@ export class ParticleSystem {
     }
 
     /**
-     * Create the particle field function
+     * Create the particle field function using typed array
      */
-    private createField(columns: any[][], bounds: Bounds, validPositions: Array<[number, number]>): Field {
+    private createField(validPositions: Array<[number, number]>): Field {
         const NULL_WIND_VECTOR: Vector = [NaN, NaN, null];
+        const windData = this.windData!;
+        const wb = this.windBounds!;
 
         function field(x: number, y: number): Vector {
-            const column = columns[Math.round(x)];
-            return column && column[Math.round(y)] || NULL_WIND_VECTOR;
+            // Convert pixel coordinates to sample indices
+            const sx = Math.round((x - wb.x) / wb.spacing);
+            const sy = Math.round((y - wb.y) / wb.spacing);
+
+            // Bounds check
+            if (sx < 0 || sx >= wb.width || sy < 0 || sy >= wb.height) {
+                return NULL_WIND_VECTOR;
+            }
+
+            // Calculate flat array index: (sx * height + sy) * 3
+            const idx = (sx * wb.height + sy) * 3;
+            const u = windData[idx];
+            const v = windData[idx + 1];
+            const magnitude = windData[idx + 2];
+
+            // Return null for magnitude if NaN (invalid wind)
+            return [u, v, isNaN(magnitude) ? null : magnitude];
         }
 
-        field.randomize = (): { x: number; y: number; age: number } => {
+        field.randomize = (particle: Particle): void => {
             if (validPositions.length === 0) {
-                //debugLog('PARTICLES', 'ERROR: No valid positions available for particle spawning!');
-                return { x: bounds.x, y: bounds.y, age: Math.random() * MAX_PARTICLE_AGE };
+                particle.x = wb.x;
+                particle.y = wb.y;
+                particle.age = Math.random() * MAX_PARTICLE_AGE;
+                return;
             }
 
             const randomIndex = Math.floor(Math.random() * validPositions.length);
             const [x, y] = validPositions[randomIndex];
 
-            return { x, y, age: Math.random() * MAX_PARTICLE_AGE };
+            particle.x = x;
+            particle.y = y;
+            particle.age = Math.random() * MAX_PARTICLE_AGE;
         };
 
         field.isDefined = function (x: number, y: number): boolean {
@@ -397,12 +441,9 @@ export class ParticleSystem {
 
         this.particles = [];
         for (let i = 0; i < particleCount; i++) {
-            const particle = this.field!.randomize();
-            this.particles.push({
-                age: particle.age,
-                x: particle.x,
-                y: particle.y
-            });
+            const particle: Particle = { age: 0, x: 0, y: 0 };
+            this.field!.randomize(particle);
+            this.particles.push(particle);
         }
     }
 
@@ -420,10 +461,7 @@ export class ParticleSystem {
 
         this.particles.forEach(particle => {
             if (particle.age > MAX_PARTICLE_AGE) {
-                const newParticle = this.field!.randomize();
-                particle.x = newParticle.x;
-                particle.y = newParticle.y;
-                particle.age = newParticle.age;
+                this.field!.randomize(particle);
             } else {
                 const x = particle.x;
                 const y = particle.y;
@@ -550,6 +588,8 @@ export class ParticleSystem {
         this.particles = [];
         this.colorStyles = null;
         this.buckets = [];
+        this.windData = null;
+        this.windBounds = null;
 
         // Reset state
         this.useWebGL = false;

@@ -421,7 +421,7 @@ export class Utils {
      * Creates a mask for determining which pixels are visible on the globe
      * @param globe The globe object with defineMask method
      * @param view The viewport size
-     * @returns Object with imageData and isVisible method, or null if creation fails
+     * @returns Object with compact bit array and isVisible method, or null if creation fails
      */
     static createMask(globe: any, view: ViewportSize): any {
         if (!globe) return null;
@@ -440,20 +440,12 @@ export class Utils {
         context.fillStyle = "rgba(255, 0, 0, 0.5)";
         context.fill();
 
-        // Add inward stroke to shrink the effective mask area
-        // context.lineWidth = 1; // 4 pixel stroke = 2 pixel inward border
-        // context.strokeStyle = "rgba(0, 0, 0, 1)"; // Black stroke to "eat into" the filled area
-        // context.globalCompositeOperation = "source-atop"; // Only stroke the filled area
-        // context.stroke();
-        // context.globalCompositeOperation = "source-over"; // Reset to normal
-
+        // Get ImageData from D3's rendered shape
         const imageData = context.getImageData(0, 0, view.width, view.height);
         const data = imageData.data;
 
         // Debug: Find the center of the mask
         const maskCenter = Utils.findMaskCenter(data, view.width, view.height);
-
-        // Debug: Find the center of the globe projection
         const globeCenter = globe.projection ? globe.projection([0, 0]) : null;
 
         console.log("MASK vs GLOBE CENTER DEBUG:", {
@@ -465,36 +457,72 @@ export class Utils {
             } : null
         });
 
-        const BORDER_PIXELS = 2; // Add 2-pixel safety border
+        // Convert to compact bit array (1 bit per pixel instead of 4 bytes)
+        const BORDER_PIXELS = 2;
+        const totalPixels = view.width * view.height;
+        const bitArraySize = Math.ceil(totalPixels / 8);
+        const bitArray = new Uint8Array(bitArraySize);
 
-        return {
-            imageData: imageData,
-            isVisible: (x: number, y: number): boolean => {
-                if (x < 0 || x >= view.width || y < 0 || y >= view.height) return false;
-                const i = (Math.floor(y) * view.width + Math.floor(x)) * 4;
+        // Pre-compute visibility with border check and store in bit array
+        for (let y = 0; y < view.height; y++) {
+            for (let x = 0; x < view.width; x++) {
+                const pixelIndex = y * view.width + x;
+                const i = pixelIndex * 4;
 
-                // First check if the pixel itself is visible
-                if (data[i + 3] === 0) return false;
+                // Check if pixel is visible
+                let isVisible = data[i + 3] !== 0;
 
-                // Then check if we're too close to an invisible pixel (border check)
-                for (let dy = -BORDER_PIXELS; dy <= BORDER_PIXELS; dy++) {
-                    for (let dx = -BORDER_PIXELS; dx <= BORDER_PIXELS; dx++) {
-                        const checkX = x + dx;
-                        const checkY = y + dy;
+                // Apply border check if pixel is visible
+                if (isVisible) {
+                    for (let dy = -BORDER_PIXELS; dy <= BORDER_PIXELS && isVisible; dy++) {
+                        for (let dx = -BORDER_PIXELS; dx <= BORDER_PIXELS && isVisible; dx++) {
+                            const checkX = x + dx;
+                            const checkY = y + dy;
 
-                        // Skip if checking outside canvas bounds
-                        if (checkX < 0 || checkX >= view.width || checkY < 0 || checkY >= view.height) {
-                            return false; // Treat edge of canvas as invisible
-                        }
-
-                        const checkI = (checkY * view.width + checkX) * 4;
-                        if (data[checkI + 3] === 0) {
-                            return false; // Too close to invisible pixel
+                            if (checkX < 0 || checkX >= view.width || checkY < 0 || checkY >= view.height) {
+                                isVisible = false;
+                            } else {
+                                const checkI = (checkY * view.width + checkX) * 4;
+                                if (data[checkI + 3] === 0) {
+                                    isVisible = false;
+                                }
+                            }
                         }
                     }
                 }
 
-                return true;
+                // Store in bit array
+                if (isVisible) {
+                    const byteIndex = Math.floor(pixelIndex / 8);
+                    const bitIndex = pixelIndex % 8;
+                    bitArray[byteIndex] |= (1 << bitIndex);
+                }
+            }
+        }
+
+        // Log memory savings
+        const oldSize = (totalPixels * 4 / 1048576).toFixed(2);
+        const newSize = (bitArraySize / 1048576).toFixed(2);
+        console.log(`[MASK] Memory: ${oldSize}MB (ImageData) -> ${newSize}MB (BitArray) [${(bitArraySize / (totalPixels * 4) * 100).toFixed(1)}% of original]`);
+
+        // Return compact mask with fast bit array lookup
+        return {
+            bitArray: bitArray,
+            width: view.width,
+            height: view.height,
+            isVisible: (x: number, y: number): boolean => {
+                if (x < 0 || x >= view.width || y < 0 || y >= view.height) return false;
+
+                const pixelIndex = Math.floor(y) * view.width + Math.floor(x);
+                const byteIndex = Math.floor(pixelIndex / 8);
+                const bitIndex = pixelIndex % 8;
+
+                return (bitArray[byteIndex] & (1 << bitIndex)) !== 0;
+            },
+            dispose: function () {
+                // Explicit cleanup method
+                this.bitArray = null;
+                this.isVisible = null;
             }
         };
     }

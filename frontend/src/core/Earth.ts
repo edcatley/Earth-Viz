@@ -128,11 +128,9 @@ class EarthModernApp {
         
         console.log('[EARTH] Setting up SVG map structure');
         
-        // Clear and setup SVG elements
-        const mapNode = d3.select("#map").node();
-        const foregroundNode = d3.select("#foreground").node();
-        if (mapNode) (mapNode as Element).replaceChildren();
-        if (foregroundNode) (foregroundNode as Element).replaceChildren();
+        // Clear SVG elements - use D3's remove() to properly clean up selections
+        d3.select("#map").selectAll("*").remove();
+        d3.select("#foreground").selectAll("*").remove();
 
         const mapSvg = d3.select("#map");
         const foregroundSvg = d3.select("#foreground");
@@ -293,13 +291,17 @@ class EarthModernApp {
         });
         
         this.on('particlesChanged', () => {
-            console.log('[EARTH-MODERN] Particles changed, triggering render');
+            //console.log('[EARTH-MODERN] Particles changed, triggering render');
             this.performRender();
         });
 
         // Only regenerate mask on zoom end (scale changes)
         this.on('zoomEnd', () => {
             if (this.globe) {
+                // Dispose old mask before creating new one
+                if (this.mask && this.mask.dispose) {
+                    this.mask.dispose();
+                }
                 this.mask = Utils.createMask(this.globe, this.view);
                 // Trigger centralized state change updates after mask is updated
                 this.updateSystemsOnDataChange();
@@ -525,10 +527,32 @@ class EarthModernApp {
     }
 
     /**
+     * Dispose of the current globe and clean up resources
+     */
+    private disposeGlobe(): void {
+        if (this.globe) {
+            // Clear projection reference to allow GC
+            this.globe.projection = null;
+            this.globe = null;
+        }
+        
+        // Dispose mask
+        if (this.mask && this.mask.dispose) {
+            this.mask.dispose();
+        }
+        this.mask = null;
+        
+        console.log('[EARTH-MODERN] Globe disposed');
+    }
+
+    /**
      * Create globe - single responsibility
      */
     private createGlobe(): void {
         console.log('[EARTH-MODERN] Creating globe');
+
+        // Clean up old globe first
+        this.disposeGlobe();
 
         const config = this.configManager.getConfig();
         const globeBuilder = Globes.get(config.projection);
