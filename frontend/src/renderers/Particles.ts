@@ -313,7 +313,7 @@ export class ParticleSystem {
                                         u = distortedWind[0];
                                         v = distortedWind[1];
                                         magnitude = distortedWind[2];
-                                        validPositions.push([x, y]);
+                                        validPositions.push([x, y]); //this is causing the weird grid effect
                                     }
                                 }
                             }
@@ -418,8 +418,9 @@ export class ParticleSystem {
             const randomIndex = Math.floor(Math.random() * validPositions.length);
             const [x, y] = validPositions[randomIndex];
 
-            particle.x = x;
-            particle.y = y;
+            // Add random sub-pixel offset within the spacing block to avoid grid artifacts
+            particle.x = x + Math.floor(Math.random() * wb.spacing);
+            particle.y = y + Math.floor(Math.random() * wb.spacing);
             particle.age = Math.random() * MAX_PARTICLE_AGE;
         };
 
