@@ -50,9 +50,10 @@ export class ParticleSystem {
 
     // Particle system data
     private field: Field | null = null;
-    private particles: Particle[] = [];
+    private particleData: Float32Array | null = null; // [x, y, age, unused, x, y, age, unused, ...]
+    private particleCount = 0;
     private colorStyles: any = null;
-    private buckets: Particle[][] = [];
+    private buckets: number[][] = []; // Now stores particle indices instead of objects
 
     // Wind field storage (flat typed array for efficiency)
     private windData: Float32Array | null = null;
@@ -340,7 +341,7 @@ export class ParticleSystem {
         this.initializeParticles(bounds);
 
         const memoryMB = (this.windData.byteLength / 1048576).toFixed(2);
-        debugLog('PARTICLES', `Created ${this.particles.length} particles with ${samplesX}x${samplesY} wind field (${memoryMB} MB)`);
+        debugLog('PARTICLES', `Created ${this.particleCount} particles with ${samplesX}x${samplesY} wind field (${memoryMB} MB)`);
     }
 
     /**
@@ -435,16 +436,23 @@ export class ParticleSystem {
      * Initialize particles array
      */
     private initializeParticles(bounds: Bounds): void {
-        let particleCount = Math.round(bounds.width * PARTICLE_MULTIPLIER);
+        this.particleCount = Math.round(bounds.width * PARTICLE_MULTIPLIER);
         if (Utils.isMobile()) {
-            particleCount *= PARTICLE_REDUCTION;
+            this.particleCount *= PARTICLE_REDUCTION;
         }
 
-        this.particles = [];
-        for (let i = 0; i < particleCount; i++) {
-            const particle: Particle = { age: 0, x: 0, y: 0 };
-            this.field!.randomize(particle);
-            this.particles.push(particle);
+        // Allocate flat array: 4 values per particle (x, y, age, unused)
+        this.particleData = new Float32Array(this.particleCount * 4);
+
+        // Initialize with random positions
+        const tempParticle: Particle = { age: 0, x: 0, y: 0 };
+        for (let i = 0; i < this.particleCount; i++) {
+            this.field!.randomize(tempParticle);
+            const idx = i * 4;
+            this.particleData[idx] = tempParticle.x;
+            this.particleData[idx + 1] = tempParticle.y;
+            this.particleData[idx + 2] = tempParticle.age;
+            this.particleData[idx + 3] = 0; // unused
         }
     }
 
@@ -452,7 +460,7 @@ export class ParticleSystem {
      * Evolve particles for one frame
      */
     private evolveParticles(): void {
-        if (!this.field || !this.colorStyles) {
+        if (!this.field || !this.colorStyles || !this.particleData) {
             debugLog('PARTICLES', 'Cannot evolve particles - missing field or colorStyles');
             return;
         }
@@ -460,33 +468,48 @@ export class ParticleSystem {
         // Clear buckets
         this.buckets.forEach(bucket => { bucket.length = 0; });
 
-        this.particles.forEach(particle => {
-            if (particle.age > MAX_PARTICLE_AGE) {
-                this.field!.randomize(particle);
+        const tempParticle: Particle = { age: 0, x: 0, y: 0 };
+
+        for (let i = 0; i < this.particleCount; i++) {
+            const idx = i * 4;
+            const x = this.particleData[idx];
+            const y = this.particleData[idx + 1];
+            let age = this.particleData[idx + 2];
+
+            if (age > MAX_PARTICLE_AGE) {
+                // Randomize
+                tempParticle.x = x;
+                tempParticle.y = y;
+                tempParticle.age = age;
+                this.field!.randomize(tempParticle);
+                this.particleData[idx] = tempParticle.x;
+                this.particleData[idx + 1] = tempParticle.y;
+                this.particleData[idx + 2] = tempParticle.age;
             } else {
-                const x = particle.x;
-                const y = particle.y;
                 const v = this.field!(x, y);
                 const m = v[2];
 
                 if (m === null) {
-                    particle.age = MAX_PARTICLE_AGE;
+                    this.particleData[idx + 2] = MAX_PARTICLE_AGE;
                 } else {
                     const xt = x + v[0];
                     const yt = y + v[1];
 
                     if (this.field!.isDefined(xt, yt)) {
-                        particle.xt = xt;
-                        particle.yt = yt;
-                        this.buckets[this.colorStyles!.indexFor(m)].push(particle);
+                        // Valid move - store new position temporarily in unused slot
+                        this.particleData[idx + 3] = 1; // Mark as having valid move
+                        // Add to bucket for drawing
+                        this.buckets[this.colorStyles!.indexFor(m)].push(i);
                     } else {
-                        particle.x = xt;
-                        particle.y = yt;
+                        // Invalid move - just update position
+                        this.particleData[idx] = xt;
+                        this.particleData[idx + 1] = yt;
                     }
                 }
             }
-            particle.age += 1;
-        });
+            // Increment age
+            this.particleData[idx + 2] += 1;
+        }
     }
 
 
@@ -496,15 +519,13 @@ export class ParticleSystem {
      * Uses normal blending - RenderSystem will handle inter-layer blending
      */
     private drawParticles(): void {
-        if (!this.ctx2D || !this.colorStyles) {
+        if (!this.ctx2D || !this.colorStyles || !this.particleData) {
             return;
         }
 
         // Draw each bucket with its color using normal blending
         this.ctx2D.lineWidth = 1.0;
         this.ctx2D.globalAlpha = 0.9;
-        // Use default globalCompositeOperation ("source-over")
-        // RenderSystem will handle how this canvas blends with others
 
         this.buckets.forEach((bucket, i) => {
             if (bucket.length > 0) {
@@ -512,14 +533,29 @@ export class ParticleSystem {
                 this.ctx2D!.strokeStyle = color;
 
                 this.ctx2D!.beginPath();
-                bucket.forEach(particle => {
-                    if (particle.xt !== undefined && particle.yt !== undefined) {
-                        this.ctx2D!.moveTo(particle.x, particle.y);
-                        this.ctx2D!.lineTo(particle.xt, particle.yt);
-                        particle.x = particle.xt;
-                        particle.y = particle.yt;
-                        delete particle.xt;
-                        delete particle.yt;
+                bucket.forEach(particleIndex => {
+                    const idx = particleIndex * 4;
+                    const hasValidMove = this.particleData![idx + 3] === 1;
+
+                    if (hasValidMove) {
+                        const x = this.particleData![idx];
+                        const y = this.particleData![idx + 1];
+
+                        // Calculate new position
+                        const v = this.field!(x, y);
+                        const xt = x + v[0];
+                        const yt = y + v[1];
+
+                        // Draw line
+                        this.ctx2D!.moveTo(x, y);
+                        this.ctx2D!.lineTo(xt, yt);
+
+                        // Update position
+                        this.particleData![idx] = xt;
+                        this.particleData![idx + 1] = yt;
+
+                        // Clear flag
+                        this.particleData![idx + 3] = 0;
                     }
                 });
                 this.ctx2D!.stroke();
@@ -528,9 +564,6 @@ export class ParticleSystem {
 
         // Reset alpha
         this.ctx2D.globalAlpha = 1.0;
-
-        // Draw debug points for large magnitude vectors
-
     }
 
     // ===== UTILITY METHODS =====
@@ -586,7 +619,8 @@ export class ParticleSystem {
 
         // Clear particle data
         this.field = null;
-        this.particles = [];
+        this.particleData = null;
+        this.particleCount = 0;
         this.colorStyles = null;
         this.buckets = [];
         this.windData = null;
@@ -688,7 +722,7 @@ export class ParticleSystem {
      * Get current particle count
      */
     getParticleCount(): number {
-        return this.particles.length;
+        return this.particleCount;
     }
 
     /**
