@@ -564,8 +564,9 @@ export class ParticleSystem {
             const xt = this.particleData[idx + 3];
             const yt = this.particleData[idx + 4];
 
-            // Skip aged-out particles
-            if (age > MAX_PARTICLE_AGE) {
+            // Skip particles that are about to respawn (age >= 29)
+            // This prevents drawing long lines from death position to random new position
+            if (age >= MAX_PARTICLE_AGE - 1) {
                 continue;
             }
 

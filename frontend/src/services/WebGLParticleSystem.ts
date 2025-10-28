@@ -10,10 +10,25 @@ import { Particle } from '../renderers/Particles';
 const MAX_PARTICLE_AGE = 30;
 
 // Vertex shader - evolves particle positions
+// Vertex shader - simple passthrough for fullscreen quad
 const VERTEX_SHADER = `
 precision highp float;
 
 attribute vec2 a_position; // Quad vertex position
+varying vec2 v_uv; // Pass UV to fragment shader
+
+void main() {
+    // Convert quad position to texture coordinates
+    v_uv = a_position * 0.5 + 0.5; // [-1,1] -> [0,1]
+    
+    // Output position for rasterization (renders fullscreen quad)
+    gl_Position = vec4(a_position, 0.0, 1.0);
+}
+`;
+
+// Fragment shader - does all the particle evolution work (runs once per particle)
+const FRAGMENT_SHADER = `
+precision highp float;
 
 uniform sampler2D u_particleState; // Current particle state texture
 uniform sampler2D u_windField;
@@ -22,7 +37,7 @@ uniform vec2 u_windSize;      // [width, height] in samples
 uniform float u_windSpacing;
 uniform float u_randomSeed;
 
-varying vec4 v_particle; // Output: [new_x, new_y, new_age, unused]
+varying vec2 v_uv; // UV coordinates from vertex shader
 
 // Simple pseudo-random function
 float random(vec2 co) {
@@ -48,11 +63,8 @@ vec3 lookupWind(float x, float y) {
 }
 
 void main() {
-    // Convert quad position to texture coordinates
-    vec2 uv = a_position * 0.5 + 0.5; // [-1,1] -> [0,1]
-    
     // Read current particle state from texture
-    vec4 particle = texture2D(u_particleState, uv);
+    vec4 particle = texture2D(u_particleState, v_uv);
     float x = particle.x;
     float y = particle.y;
     float age = particle.z;
@@ -60,19 +72,18 @@ void main() {
     // Check if particle needs randomization
     if (age > float(${MAX_PARTICLE_AGE})) {
         // Randomize: pick random position in wind field bounds
-        // Use UV coordinates as seed for better randomness
-        float rx = u_windBounds.x + random(uv) * u_windSize.x * u_windSpacing;
-        float ry = u_windBounds.y + random(uv.yx) * u_windSize.y * u_windSpacing;
-        float newAge = random(uv * 1.234) * float(${MAX_PARTICLE_AGE});
+        float rx = u_windBounds.x + random(v_uv) * u_windSize.x * u_windSpacing;
+        float ry = u_windBounds.y + random(v_uv.yx) * u_windSize.y * u_windSpacing;
+        float newAge = random(v_uv * 1.234) * float(${MAX_PARTICLE_AGE});
         
-        v_particle = vec4(rx, ry, newAge, 0.0);
+        gl_FragColor = vec4(rx, ry, newAge, 0.0);
     } else {
         // Evolve: lookup wind and move
         vec3 wind = lookupWind(x, y);
         
         if (wind.z < 0.0) {
             // Invalid position, age out
-            v_particle = vec4(x, y, float(${MAX_PARTICLE_AGE}) + 1.0, 0.0);
+            gl_FragColor = vec4(x, y, float(${MAX_PARTICLE_AGE}) + 1.0, 0.0);
         } else {
             // Valid move
             float xt = x + wind.x;
@@ -83,28 +94,13 @@ void main() {
             
             if (windAtNew.z < 0.0) {
                 // New position invalid
-                v_particle = vec4(xt, yt, age + 1.0, 0.0);
+                gl_FragColor = vec4(xt, yt, age + 1.0, 0.0);
             } else {
                 // Valid move
-                v_particle = vec4(xt, yt, age + 1.0, 0.0);
+                gl_FragColor = vec4(xt, yt, age + 1.0, 0.0);
             }
         }
     }
-    
-    // Output position for rasterization (renders fullscreen quad)
-    gl_Position = vec4(a_position, 0.0, 1.0);
-}
-`;
-
-// Fragment shader - outputs particle state to framebuffer
-const FRAGMENT_SHADER = `
-precision mediump float;
-
-varying vec4 v_particle;
-
-void main() {
-    // Output particle state as RGBA color (written to framebuffer texture)
-    gl_FragColor = v_particle;
 }
 `;
 
@@ -584,13 +580,17 @@ export class WebGLParticleSystem {
         // Merge previous frame (old positions) with current frame (new positions)
         const merged = this.mergeFrameData(this.previousFrameData, newData);
 
-        // Debug: Log first few particles to see distribution
-        if (this.particleCount >= 10) {
-            console.log('[WebGLParticleSystem] First 10 particle positions:');
-            for (let i = 0; i < 10; i++) {
-                const idx = i * 6;
-                console.log(`  [${i}] x=${merged[idx].toFixed(2)}, y=${merged[idx + 1].toFixed(2)}, xt=${merged[idx + 3].toFixed(2)}, yt=${merged[idx + 4].toFixed(2)}`);
-            }
+        // Debug: Log every 100th particle
+        for (let i = 0; i < Math.min(3, this.particleCount); i += 100) {
+            const idx = i * 6;
+            console.log(`[WebGLParticleSystem] Particle ${i}:`, {
+                x: merged[idx],
+                y: merged[idx + 1],
+                age: merged[idx + 2],
+                xt: merged[idx + 3],
+                yt: merged[idx + 4],
+                magnitude: merged[idx + 5]
+            });
         }
 
         // Save current frame for next iteration
@@ -644,7 +644,7 @@ export class WebGLParticleSystem {
 
             merged[mergedIdx + 0] = oldData[oldIdx + 0]; // x (old position)
             merged[mergedIdx + 1] = oldData[oldIdx + 1]; // y (old position)
-            merged[mergedIdx + 2] = newData[newIdx + 2]; // age (current)
+            merged[mergedIdx + 2] = oldData[oldIdx + 2]; // age (OLD - for draw filtering)
             merged[mergedIdx + 3] = newData[newIdx + 0]; // xt (new position)
             merged[mergedIdx + 4] = newData[newIdx + 1]; // yt (new position)
             merged[mergedIdx + 5] = newData[newIdx + 3]; // magnitude (current)
