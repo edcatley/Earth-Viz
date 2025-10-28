@@ -60,9 +60,10 @@ void main() {
     // Check if particle needs randomization
     if (age > float(${MAX_PARTICLE_AGE})) {
         // Randomize: pick random position in wind field bounds
-        float rx = u_windBounds.x + random(vec2(x, y)) * u_windSize.x * u_windSpacing;
-        float ry = u_windBounds.y + random(vec2(y, x)) * u_windSize.y * u_windSpacing;
-        float newAge = random(vec2(x + y, y - x)) * float(${MAX_PARTICLE_AGE});
+        // Use UV coordinates as seed for better randomness
+        float rx = u_windBounds.x + random(uv) * u_windSize.x * u_windSpacing;
+        float ry = u_windBounds.y + random(uv.yx) * u_windSize.y * u_windSpacing;
+        float newAge = random(uv * 1.234) * float(${MAX_PARTICLE_AGE});
         
         v_particle = vec4(rx, ry, newAge, 0.0);
     } else {
@@ -134,6 +135,9 @@ export class WebGLParticleSystem {
 
     // Fullscreen quad for rendering
     private quadBuffer: WebGLBuffer | null = null;
+
+    // Previous frame data for merging old + new positions
+    private previousFrameData: Float32Array | null = null;
 
     // Shader locations
     private locations: {
@@ -558,7 +562,8 @@ export class WebGLParticleSystem {
 
     /**
      * Get current particle data (reads back from GPU)
-     * Returns Float32Array that can be used directly by drawing code
+     * Returns Float32Array with stride 6: [x, y, age, xt, yt, magnitude]
+     * Merges previous frame (old position) with current frame (new position)
      */
     public getParticleData(): Float32Array {
         if (!this.gl || !this.isInitialized) {
@@ -566,10 +571,45 @@ export class WebGLParticleSystem {
             return new Float32Array(0);
         }
 
+        // Read current frame from GPU (stride 4: [xt, yt, age, magnitude])
+        const newData = this.readPixelsFromGPU();
+
+        // First frame: no previous data to merge
+        if (!this.previousFrameData) {
+            this.previousFrameData = newData.slice();
+            // Return with duplicated positions (can't draw lines on first frame)
+            return this.mergeFrameData(newData, newData);
+        }
+
+        // Merge previous frame (old positions) with current frame (new positions)
+        const merged = this.mergeFrameData(this.previousFrameData, newData);
+
+        // Debug: Log first few particles to see distribution
+        if (this.particleCount >= 10) {
+            console.log('[WebGLParticleSystem] First 10 particle positions:');
+            for (let i = 0; i < 10; i++) {
+                const idx = i * 6;
+                console.log(`  [${i}] x=${merged[idx].toFixed(2)}, y=${merged[idx + 1].toFixed(2)}, xt=${merged[idx + 3].toFixed(2)}, yt=${merged[idx + 4].toFixed(2)}`);
+            }
+        }
+
+        // Save current frame for next iteration
+        this.previousFrameData = newData;
+
+        return merged;
+    }
+
+    /**
+     * Read pixels from GPU framebuffer
+     * Returns Float32Array with stride 4: [x, y, age, magnitude]
+     */
+    private readPixelsFromGPU(): Float32Array {
+        if (!this.gl) return new Float32Array(0);
+
         // Bind the current particle state framebuffer
         this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, this.framebuffers[this.currentTextureIndex]);
 
-        // Allocate buffer for readback
+        // Allocate buffer for readback (stride 4: RGBA)
         const pixels = new Float32Array(this.particleTexSize * this.particleTexSize * 4);
 
         // Read pixels from framebuffer
@@ -587,6 +627,30 @@ export class WebGLParticleSystem {
         this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, null);
 
         return pixels;
+    }
+
+    /**
+     * Merge old and new frame data into stride 6 format
+     * Input: stride 4 [x, y, age, magnitude]
+     * Output: stride 6 [old_x, old_y, age, new_x, new_y, magnitude]
+     */
+    private mergeFrameData(oldData: Float32Array, newData: Float32Array): Float32Array {
+        const merged = new Float32Array(this.particleCount * 6);
+
+        for (let i = 0; i < this.particleCount; i++) {
+            const oldIdx = i * 4;
+            const newIdx = i * 4;
+            const mergedIdx = i * 6;
+
+            merged[mergedIdx + 0] = oldData[oldIdx + 0]; // x (old position)
+            merged[mergedIdx + 1] = oldData[oldIdx + 1]; // y (old position)
+            merged[mergedIdx + 2] = newData[newIdx + 2]; // age (current)
+            merged[mergedIdx + 3] = newData[newIdx + 0]; // xt (new position)
+            merged[mergedIdx + 4] = newData[newIdx + 1]; // yt (new position)
+            merged[mergedIdx + 5] = newData[newIdx + 3]; // magnitude (current)
+        }
+
+        return merged;
     }
 
     /**
@@ -635,6 +699,9 @@ export class WebGLParticleSystem {
             this.gl.deleteProgram(this.program);
             this.program = null;
         }
+
+        // Clear previous frame data
+        this.previousFrameData = null;
 
         this.isInitialized = false;
     }
