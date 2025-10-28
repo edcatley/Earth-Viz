@@ -352,6 +352,30 @@ export class Utils {
     }
 
     /**
+     * Distort wind vector based on projection and scale
+     */
+    static distortWind(projection: any, λ: number, φ: number, x: number, y: number, scale: number, wind: [number, number, number | null]): [number, number, number | null] | null {
+        const u = wind[0] * scale;
+        const v = wind[1] * scale;
+        const d = Utils.distortion(projection, λ, φ, x, y);
+
+        if (!d || d.length < 4) {
+            return null;
+        }
+
+        // Scale distortion vectors by u and v, then add
+        const distortedX = d[0] * u + d[2] * v;
+        const distortedY = d[1] * u + d[3] * v;
+        const magnitude = Math.sqrt(distortedX * distortedX + distortedY * distortedY);
+
+        wind[0] = distortedX;
+        wind[1] = distortedY;
+        wind[2] = magnitude;
+
+        return wind;
+    }
+
+    /**
      * Parses a URL hash fragment:
      *
      * example: "2013/11/14/0900Z/wind/isobaric/1000hPa/orthographic=26.50,-153.00,1430/overlay=off"

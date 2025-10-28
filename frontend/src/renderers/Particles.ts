@@ -299,7 +299,7 @@ export class ParticleSystem {
                             const rawWind = windProduct.interpolate(λ, φ);
                             if (rawWind && rawWind[0] != null && rawWind[1] != null) {
                                 if (globe.projection) {
-                                    const distortedWind = this.distort(globe.projection, λ, φ, x, y, velocityScale, rawWind);
+                                    const distortedWind = Utils.distortWind(globe.projection, λ, φ, x, y, velocityScale, rawWind);
                                     if (distortedWind != null && distortedWind[2] != null) {
                                         u = distortedWind[0];
                                         v = distortedWind[1];
@@ -326,41 +326,7 @@ export class ParticleSystem {
         return validPositions;
     }
 
-    /**
-     * Distort wind vector based on projection
-     */
-    private distort(projection: any, λ: number, φ: number, x: number, y: number, scale: number, wind: Vector): Vector | null {
-        const u = wind[0] * scale;
-        const v = wind[1] * scale;
-        const d = Utils.distortion(projection, λ, φ, x, y);
 
-        if (!d || d.length < 4) {
-            return null;
-        }
-
-        // Scale distortion vectors by u and v, then add.
-        const distortedX = d[0] * u + d[2] * v;
-        const distortedY = d[1] * u + d[3] * v;
-
-        // Debug extreme distortion values
-        const magnitude = Math.sqrt(distortedX * distortedX + distortedY * distortedY);
-        if (magnitude > 200) {
-            console.log("DISTORT DEBUG:", {
-                lambda: λ, phi: φ, x, y,
-                rawWind: [wind[0], wind[1]],
-                scale,
-                scaledWind: [u, v],
-                distortionMatrix: d,
-                distortedWind: [distortedX, distortedY],
-                magnitude
-            });
-        }
-
-        wind[0] = distortedX;
-        wind[1] = distortedY;
-
-        return wind;
-    }
 
 
 
