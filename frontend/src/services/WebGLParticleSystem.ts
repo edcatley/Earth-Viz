@@ -260,7 +260,6 @@ export class WebGLParticleSystem {
         particleCount: number,
         windData: Float32Array,
         windBounds: WindBounds,
-        validPositions: Array<[number, number]>
     ): boolean {
         if (!this.gl || !this.isInitialized) {
             console.error('[WebGLParticleSystem] Not initialized');
@@ -293,7 +292,6 @@ export class WebGLParticleSystem {
         console.log('[WebGLParticleSystem] Setup complete', {
             particles: particleCount,
             windSamples: windBounds.width * windBounds.height,
-            validPositions: validPositions.length
         });
 
         return true;
