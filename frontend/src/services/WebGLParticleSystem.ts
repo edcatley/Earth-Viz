@@ -13,15 +13,16 @@ const MAX_PARTICLE_AGE = 30;
 const VERTEX_SHADER = `
 precision highp float;
 
-attribute vec3 a_particle; // [x, y, age]
+attribute vec2 a_position; // Quad vertex position
 
+uniform sampler2D u_particleState; // Current particle state texture
 uniform sampler2D u_windField;
 uniform vec2 u_windBounds;    // [x, y] offset
 uniform vec2 u_windSize;      // [width, height] in samples  
 uniform float u_windSpacing;
 uniform float u_randomSeed;
 
-varying vec3 v_particle; // Output: [new_x, new_y, new_age]
+varying vec4 v_particle; // Output: [new_x, new_y, new_age, unused]
 
 // Simple pseudo-random function
 float random(vec2 co) {
@@ -47,9 +48,14 @@ vec3 lookupWind(float x, float y) {
 }
 
 void main() {
-    float x = a_particle.x;
-    float y = a_particle.y;
-    float age = a_particle.z;
+    // Convert quad position to texture coordinates
+    vec2 uv = a_position * 0.5 + 0.5; // [-1,1] -> [0,1]
+    
+    // Read current particle state from texture
+    vec4 particle = texture2D(u_particleState, uv);
+    float x = particle.x;
+    float y = particle.y;
+    float age = particle.z;
     
     // Check if particle needs randomization
     if (age > float(${MAX_PARTICLE_AGE})) {
@@ -58,14 +64,14 @@ void main() {
         float ry = u_windBounds.y + random(vec2(y, x)) * u_windSize.y * u_windSpacing;
         float newAge = random(vec2(x + y, y - x)) * float(${MAX_PARTICLE_AGE});
         
-        v_particle = vec3(rx, ry, newAge);
+        v_particle = vec4(rx, ry, newAge, 0.0);
     } else {
         // Evolve: lookup wind and move
         vec3 wind = lookupWind(x, y);
         
         if (wind.z < 0.0) {
             // Invalid position, age out
-            v_particle = vec3(x, y, float(${MAX_PARTICLE_AGE}) + 1.0);
+            v_particle = vec4(x, y, float(${MAX_PARTICLE_AGE}) + 1.0, 0.0);
         } else {
             // Valid move
             float xt = x + wind.x;
@@ -76,29 +82,28 @@ void main() {
             
             if (windAtNew.z < 0.0) {
                 // New position invalid
-                v_particle = vec3(xt, yt, age + 1.0);
+                v_particle = vec4(xt, yt, age + 1.0, 0.0);
             } else {
                 // Valid move
-                v_particle = vec3(xt, yt, age + 1.0);
+                v_particle = vec4(xt, yt, age + 1.0, 0.0);
             }
         }
     }
     
-    // Output (not used for actual rendering, just for transform feedback)
-    gl_Position = vec4(v_particle, 1.0);
-    gl_PointSize = 1.0;
+    // Output position for rasterization (renders fullscreen quad)
+    gl_Position = vec4(a_position, 0.0, 1.0);
 }
 `;
 
-// Fragment shader - minimal, just passes through
+// Fragment shader - outputs particle state to framebuffer
 const FRAGMENT_SHADER = `
 precision mediump float;
 
-varying vec3 v_particle;
+varying vec4 v_particle;
 
 void main() {
-    // Output particle state as color
-    gl_FragColor = vec4(v_particle, 1.0);
+    // Output particle state as RGBA color (written to framebuffer texture)
+    gl_FragColor = v_particle;
 }
 `;
 
@@ -119,15 +124,24 @@ export class WebGLParticleSystem {
     // Textures and buffers
     private windTexture: WebGLTexture | null = null;
     private windBounds: WindBounds | null = null;
-    private particleBuffer: WebGLBuffer | null = null;
     private particleCount = 0;
+
+    // Ping-pong textures for particle state
+    private particleTextures: [WebGLTexture | null, WebGLTexture | null] = [null, null];
+    private framebuffers: [WebGLFramebuffer | null, WebGLFramebuffer | null] = [null, null];
+    private currentTextureIndex = 0;
+    private particleTexSize = 0; // Square texture size to fit all particles
+
+    // Fullscreen quad for rendering
+    private quadBuffer: WebGLBuffer | null = null;
 
     // Shader locations
     private locations: {
         attributes: {
-            particle: number;
+            position: number;
         };
         uniforms: {
+            particleState: WebGLUniformLocation | null;
             windField: WebGLUniformLocation | null;
             windBounds: WebGLUniformLocation | null;
             windSize: WebGLUniformLocation | null;
@@ -226,9 +240,10 @@ export class WebGLParticleSystem {
 
         this.locations = {
             attributes: {
-                particle: this.gl.getAttribLocation(this.program, 'a_particle')
+                position: this.gl.getAttribLocation(this.program, 'a_position')
             },
             uniforms: {
+                particleState: this.gl.getUniformLocation(this.program, 'u_particleState'),
                 windField: this.gl.getUniformLocation(this.program, 'u_windField'),
                 windBounds: this.gl.getUniformLocation(this.program, 'u_windBounds'),
                 windSize: this.gl.getUniformLocation(this.program, 'u_windSize'),
@@ -260,8 +275,18 @@ export class WebGLParticleSystem {
             return false;
         }
 
-        // Create particle buffer
-        if (!this.createParticleBuffer(particleCount)) {
+        // Create ping-pong textures and framebuffers
+        if (!this.createParticlePingPongTextures(particleCount)) {
+            return false;
+        }
+
+        // Create fullscreen quad
+        if (!this.createQuadBuffer()) {
+            return false;
+        }
+
+        // Initialize particle data on GPU
+        if (!this.initializeParticleTexture(particleCount)) {
             return false;
         }
 
@@ -326,34 +351,147 @@ export class WebGLParticleSystem {
     }
 
     /**
-     * Create particle buffer with initial random positions
+     * Create ping-pong textures and framebuffers for particle state
      */
-    private createParticleBuffer(particleCount: number): boolean {
+    private createParticlePingPongTextures(particleCount: number): boolean {
         if (!this.gl) return false;
 
-        // Initialize all particles with age > MAX to force randomization on first frame
-        const data = new Float32Array(particleCount * 3);
-        for (let i = 0; i < particleCount; i++) {
-            data[i * 3] = 0;     // x (will be randomized)
-            data[i * 3 + 1] = 0; // y (will be randomized)
-            data[i * 3 + 2] = MAX_PARTICLE_AGE + 1; // age (force randomization)
-        }
+        // Calculate square texture size to fit all particles
+        this.particleTexSize = Math.ceil(Math.sqrt(particleCount));
 
-        this.particleBuffer = this.gl.createBuffer();
-        if (!this.particleBuffer) {
-            console.error('[WebGLParticleSystem] Failed to create particle buffer');
+        console.log('[WebGLParticleSystem] Creating', this.particleTexSize, 'x', this.particleTexSize, 'particle textures');
+
+        // Check for float texture support
+        const floatExt = this.gl.getExtension('OES_texture_float');
+        if (!floatExt) {
+            console.error('[WebGLParticleSystem] Float textures not supported');
             return false;
         }
 
-        this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.particleBuffer);
-        this.gl.bufferData(this.gl.ARRAY_BUFFER, data, this.gl.DYNAMIC_DRAW);
+        // Create two textures and framebuffers for ping-pong
+        for (let i = 0; i < 2; i++) {
+            // Create texture
+            const texture = this.gl.createTexture();
+            if (!texture) {
+                console.error('[WebGLParticleSystem] Failed to create particle texture', i);
+                return false;
+            }
 
-        console.log('[WebGLParticleSystem] Created particle buffer:', particleCount, 'particles');
+            this.gl.bindTexture(this.gl.TEXTURE_2D, texture);
+            this.gl.texImage2D(
+                this.gl.TEXTURE_2D,
+                0,
+                this.gl.RGBA,
+                this.particleTexSize,
+                this.particleTexSize,
+                0,
+                this.gl.RGBA,
+                this.gl.FLOAT,
+                null
+            );
+
+            this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_MIN_FILTER, this.gl.NEAREST);
+            this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_MAG_FILTER, this.gl.NEAREST);
+            this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_WRAP_S, this.gl.CLAMP_TO_EDGE);
+            this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_WRAP_T, this.gl.CLAMP_TO_EDGE);
+
+            this.particleTextures[i] = texture;
+
+            // Create framebuffer
+            const framebuffer = this.gl.createFramebuffer();
+            if (!framebuffer) {
+                console.error('[WebGLParticleSystem] Failed to create framebuffer', i);
+                return false;
+            }
+
+            this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, framebuffer);
+            this.gl.framebufferTexture2D(
+                this.gl.FRAMEBUFFER,
+                this.gl.COLOR_ATTACHMENT0,
+                this.gl.TEXTURE_2D,
+                texture,
+                0
+            );
+
+            // Check framebuffer status
+            const status = this.gl.checkFramebufferStatus(this.gl.FRAMEBUFFER);
+            if (status !== this.gl.FRAMEBUFFER_COMPLETE) {
+                console.error('[WebGLParticleSystem] Framebuffer incomplete:', status);
+                return false;
+            }
+
+            this.framebuffers[i] = framebuffer;
+        }
+
+        // Unbind
+        this.gl.bindTexture(this.gl.TEXTURE_2D, null);
+        this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, null);
+
+        return true;
+    }
+
+    /**
+     * Create fullscreen quad buffer for rendering
+     */
+    private createQuadBuffer(): boolean {
+        if (!this.gl) return false;
+
+        // Fullscreen quad: two triangles covering [-1, 1] in NDC
+        const vertices = new Float32Array([
+            -1, -1,  // bottom-left
+            1, -1,  // bottom-right
+            -1, 1,  // top-left
+            1, 1   // top-right
+        ]);
+
+        this.quadBuffer = this.gl.createBuffer();
+        if (!this.quadBuffer) {
+            console.error('[WebGLParticleSystem] Failed to create quad buffer');
+            return false;
+        }
+
+        this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.quadBuffer);
+        this.gl.bufferData(this.gl.ARRAY_BUFFER, vertices, this.gl.STATIC_DRAW);
+
+        return true;
+    }
+
+    /**
+     * Initialize particle texture with random positions
+     */
+    private initializeParticleTexture(particleCount: number): boolean {
+        if (!this.gl || !this.windBounds) return false;
+
+        // Create initial particle data: all particles aged out to force randomization
+        const data = new Float32Array(this.particleTexSize * this.particleTexSize * 4);
+        for (let i = 0; i < particleCount; i++) {
+            data[i * 4] = 0;     // x
+            data[i * 4 + 1] = 0; // y
+            data[i * 4 + 2] = MAX_PARTICLE_AGE + 1; // age (force randomization)
+            data[i * 4 + 3] = 0; // unused
+        }
+
+        // Upload to first texture
+        this.gl.bindTexture(this.gl.TEXTURE_2D, this.particleTextures[0]);
+        this.gl.texImage2D(
+            this.gl.TEXTURE_2D,
+            0,
+            this.gl.RGBA,
+            this.particleTexSize,
+            this.particleTexSize,
+            0,
+            this.gl.RGBA,
+            this.gl.FLOAT,
+            data
+        );
+
+        console.log('[WebGLParticleSystem] Initialized', particleCount, 'particles on GPU');
         return true;
     }
 
     /**
      * Evolve particles for one frame (GPU-accelerated)
+     * Uses ping-pong rendering: read from one texture, write to the other
      */
     public evolve(): void {
         if (!this.gl || !this.program || !this.locations || !this.windBounds) {
@@ -361,25 +499,38 @@ export class WebGLParticleSystem {
             return;
         }
 
+        // Determine read and write textures
+        const readIndex = this.currentTextureIndex;
+        const writeIndex = 1 - this.currentTextureIndex;
+
+        // Bind framebuffer to write to
+        this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, this.framebuffers[writeIndex]);
+        this.gl.viewport(0, 0, this.particleTexSize, this.particleTexSize);
+
         // Use shader program
         this.gl.useProgram(this.program);
 
-        // Bind particle buffer
-        this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.particleBuffer);
-        this.gl.enableVertexAttribArray(this.locations.attributes.particle);
+        // Bind quad buffer
+        this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.quadBuffer);
+        this.gl.enableVertexAttribArray(this.locations.attributes.position);
         this.gl.vertexAttribPointer(
-            this.locations.attributes.particle,
-            3, // 3 components: x, y, age
+            this.locations.attributes.position,
+            2, // 2 components: x, y
             this.gl.FLOAT,
             false,
             0,
             0
         );
 
-        // Bind wind texture
+        // Bind particle state texture (read from)
         this.gl.activeTexture(this.gl.TEXTURE0);
+        this.gl.bindTexture(this.gl.TEXTURE_2D, this.particleTextures[readIndex]);
+        this.gl.uniform1i(this.locations.uniforms.particleState, 0);
+
+        // Bind wind field texture
+        this.gl.activeTexture(this.gl.TEXTURE1);
         this.gl.bindTexture(this.gl.TEXTURE_2D, this.windTexture);
-        this.gl.uniform1i(this.locations.uniforms.windField, 0);
+        this.gl.uniform1i(this.locations.uniforms.windField, 1);
 
         // Set uniforms
         this.gl.uniform2f(this.locations.uniforms.windBounds, this.windBounds.x, this.windBounds.y);
@@ -387,21 +538,62 @@ export class WebGLParticleSystem {
         this.gl.uniform1f(this.locations.uniforms.windSpacing, this.windBounds.spacing);
         this.gl.uniform1f(this.locations.uniforms.randomSeed, Math.random());
 
-        // Draw particles (this runs the vertex shader for each particle)
-        this.gl.drawArrays(this.gl.POINTS, 0, this.particleCount);
+        // Draw fullscreen quad (renders to framebuffer texture)
+        this.gl.drawArrays(this.gl.TRIANGLE_STRIP, 0, 4);
+
+        // Check for GL errors
+        const error = this.gl.getError();
+        if (error !== this.gl.NO_ERROR) {
+            console.error('[WebGLParticleSystem] GL error during evolve:', error);
+        }
+
+        // Unbind framebuffer
+        this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, null);
+
+        // Swap textures for next frame
+        this.currentTextureIndex = writeIndex;
+
+        console.log('[WebGLParticleSystem] Evolved particles, swapped to texture', writeIndex);
     }
 
     /**
-     * Get current particle positions (reads back from GPU)
+     * Get current particle data (reads back from GPU)
+     * Returns Float32Array that can be used directly by drawing code
      */
-    public getParticles(): Particle[] {
+    public getParticleData(): Float32Array {
         if (!this.gl || !this.isInitialized) {
             console.error('[WebGLParticleSystem] Not ready to read particles');
-            return [];
+            return new Float32Array(0);
         }
 
-        // TODO: Implement
-        return [];
+        // Bind the current particle state framebuffer
+        this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, this.framebuffers[this.currentTextureIndex]);
+
+        // Allocate buffer for readback
+        const pixels = new Float32Array(this.particleTexSize * this.particleTexSize * 4);
+
+        // Read pixels from framebuffer
+        this.gl.readPixels(
+            0,
+            0,
+            this.particleTexSize,
+            this.particleTexSize,
+            this.gl.RGBA,
+            this.gl.FLOAT,
+            pixels
+        );
+
+        // Unbind framebuffer
+        this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, null);
+
+        return pixels;
+    }
+
+    /**
+     * Get particle count
+     */
+    public getParticleCount(): number {
+        return this.particleCount;
     }
 
     /**
@@ -417,9 +609,21 @@ export class WebGLParticleSystem {
     public dispose(): void {
         if (!this.gl) return;
 
-        if (this.particleBuffer) {
-            this.gl.deleteBuffer(this.particleBuffer);
-            this.particleBuffer = null;
+        if (this.quadBuffer) {
+            this.gl.deleteBuffer(this.quadBuffer);
+            this.quadBuffer = null;
+        }
+
+        // Clean up ping-pong textures and framebuffers
+        for (let i = 0; i < 2; i++) {
+            if (this.particleTextures[i]) {
+                this.gl.deleteTexture(this.particleTextures[i]!);
+                this.particleTextures[i] = null;
+            }
+            if (this.framebuffers[i]) {
+                this.gl.deleteFramebuffer(this.framebuffers[i]!);
+                this.framebuffers[i] = null;
+            }
         }
 
         if (this.windTexture) {

@@ -10,6 +10,7 @@
 
 import { Utils } from '../utils/Utils';
 import { ViewportSize, Vector, Bounds, Globe } from '../core/Globes';
+import { WebGLParticleSystem } from '../services/WebGLParticleSystem';
 
 // Debug logging
 function debugLog(category: string, message: string, data?: any): void {
@@ -48,9 +49,12 @@ export class ParticleSystem {
     private ctx2D: CanvasRenderingContext2D | null = null;
     private useWebGL: boolean = false;
 
+    // WebGL particle system
+    private webglParticleSystem: WebGLParticleSystem | null = null;
+
     // Particle system data
     private field: Field | null = null;
-    private particleData: Float32Array | null = null; // [x, y, age, unused, x, y, age, unused, ...]
+    private particleData: Float32Array | null = null; // [x, y, age, xt, yt, magnitude, x, y, age, xt, yt, magnitude, ...]
     private particleCount = 0;
     private colorStyles: any = null;
     private buckets: number[][] = []; // Now stores particle indices instead of objects
@@ -98,7 +102,7 @@ export class ParticleSystem {
         if (this.shouldUseWebGL()) {
             debugLog('PARTICLES', 'Attempting WebGL initialization');
             if (this.initializeWebGL()) {
-                this.useWebGL = true;
+                this.useWebGL = false;
                 debugLog('PARTICLES', 'WebGL initialization successful');
                 return;
             }
@@ -116,11 +120,56 @@ export class ParticleSystem {
 
     /**
      * Attempt WebGL initialization - returns true if successful
-     * For now, this is a placeholder for future WebGL particle rendering
      */
     private initializeWebGL(): boolean {
-        debugLog('PARTICLES', 'WebGL particle rendering not yet implemented');
-        return false;
+        debugLog('PARTICLES', 'Attempting WebGL particle system initialization');
+
+        const view = this.stateProvider?.getView();
+        const globe = this.stateProvider?.getGlobe();
+        const mask = this.stateProvider?.getMask();
+        const config = this.stateProvider?.getConfig();
+        const particleProduct = this.stateProvider?.getParticleProduct();
+
+        if (!globe || !mask || !view || !config || !particleProduct) {
+            debugLog('PARTICLES', 'WebGL init skipped - missing required data');
+            return false;
+        }
+
+        // Skip if particles are disabled
+        if (!config.particleType || config.particleType === 'off') {
+            debugLog('PARTICLES', 'WebGL init skipped - particles disabled');
+            return false;
+        }
+
+        // Create WebGL particle system
+        this.webglParticleSystem = new WebGLParticleSystem();
+
+        // Initialize WebGL context
+        if (!this.webglParticleSystem.initialize(this.webglCanvas)) {
+            debugLog('PARTICLES', 'WebGL context initialization failed');
+            this.webglParticleSystem = null;
+            return false;
+        }
+
+        // Initialize particle field (same as 2D)
+        this.initializeParticleField(particleProduct, globe, mask, view);
+
+        // Setup WebGL particle system with data
+        if (!this.windData || !this.windBounds) {
+            debugLog('PARTICLES', 'WebGL setup failed - no wind data');
+            this.webglParticleSystem = null;
+            return false;
+        }
+
+        const validPositions: Array<[number, number]> = []; // Not used by WebGL version
+        if (!this.webglParticleSystem.setup(this.particleCount, this.windData, this.windBounds, validPositions)) {
+            debugLog('PARTICLES', 'WebGL setup failed');
+            this.webglParticleSystem = null;
+            return false;
+        }
+
+        debugLog('PARTICLES', 'WebGL particle system initialized successfully');
+        return true;
     }
 
     /**
@@ -186,18 +235,94 @@ export class ParticleSystem {
      * Determine if WebGL should be used based on projection and data availability
      */
     private shouldUseWebGL(): boolean {
-        // For now, always use 2D until WebGL particle rendering is implemented
-        return false;
+        const config = this.stateProvider?.getConfig();
+        const globe = this.stateProvider?.getGlobe();
+
+        // Must be in particle mode
+        if (!config || !config.particleType || config.particleType === 'off') {
+            return false;
+        }
+
+        // Must have globe
+        if (!globe) {
+            return false;
+        }
+
+        // Try WebGL for all projections
+        return true;
     }
 
     // ===== RENDERING IMPLEMENTATIONS =====
 
     /**
-     * Render using WebGL system (placeholder)
+     * Render using WebGL system
      */
     private renderWebGL(): boolean {
-        debugLog('PARTICLES', 'WebGL particle rendering not yet implemented');
-        return false;
+        if (!this.webglParticleSystem || !this.ctx2D) {
+            debugLog('PARTICLES', 'WebGL render failed - no system or context');
+            return false;
+        }
+
+        try {
+            const globe = this.stateProvider?.getGlobe();
+            const view = this.stateProvider?.getView();
+
+            if (!globe || !view) {
+                debugLog('PARTICLES', 'WebGL render failed - missing state');
+                return false;
+            }
+
+            // Ensure canvas is properly sized
+            if (this.canvas2D.width !== view.width || this.canvas2D.height !== view.height) {
+                this.canvas2D.width = view.width;
+                this.canvas2D.height = view.height;
+            }
+
+            // Fade existing particle trails
+            const bounds = globe.bounds(view);
+            if (bounds) {
+                const prev = this.ctx2D.globalCompositeOperation;
+                this.ctx2D.globalCompositeOperation = "destination-in";
+                this.ctx2D.fillStyle = "rgba(0, 0, 0, 0.95)";
+                this.ctx2D.fillRect(bounds.x, bounds.y, bounds.width, bounds.height);
+                this.ctx2D.globalCompositeOperation = prev;
+            }
+
+            // Evolve particles on GPU
+            this.webglParticleSystem.evolve();
+
+            // Read back particle data from GPU
+            this.particleData = this.webglParticleSystem.getParticleData();
+            this.particleCount = this.webglParticleSystem.getParticleCount();
+
+            // Debug: Check first few particles
+            debugLog('PARTICLES', 'GPU readback:', {
+                particleCount: this.particleCount,
+                dataLength: this.particleData.length,
+                firstParticle: [this.particleData[0], this.particleData[1], this.particleData[2], this.particleData[3]],
+                secondParticle: [this.particleData[4], this.particleData[5], this.particleData[6], this.particleData[7]]
+            });
+
+            // Evolve particles on CPU (to populate buckets for drawing)
+            this.evolveParticles();
+
+            // Debug: Check buckets
+            const totalInBuckets = this.buckets.reduce((sum, bucket) => sum + bucket.length, 0);
+            debugLog('PARTICLES', 'Buckets populated:', {
+                bucketCount: this.buckets.length,
+                totalParticles: totalInBuckets,
+                firstBucketSize: this.buckets[0]?.length || 0
+            });
+
+            // Draw particles to canvas
+            this.drawParticles();
+
+            return true;
+
+        } catch (error) {
+            debugLog('PARTICLES', 'WebGL render error:', error);
+            return false;
+        }
     }
 
     /**
@@ -441,18 +566,20 @@ export class ParticleSystem {
             this.particleCount *= PARTICLE_REDUCTION;
         }
 
-        // Allocate flat array: 4 values per particle (x, y, age, unused)
-        this.particleData = new Float32Array(this.particleCount * 4);
+        // Allocate flat array: 6 values per particle (x, y, age, xt, yt, magnitude)
+        this.particleData = new Float32Array(this.particleCount * 6);
 
         // Initialize with random positions
         const tempParticle: Particle = { age: 0, x: 0, y: 0 };
         for (let i = 0; i < this.particleCount; i++) {
             this.field!.randomize(tempParticle);
-            const idx = i * 4;
+            const idx = i * 6;
             this.particleData[idx] = tempParticle.x;
             this.particleData[idx + 1] = tempParticle.y;
             this.particleData[idx + 2] = tempParticle.age;
-            this.particleData[idx + 3] = 0; // unused
+            this.particleData[idx + 3] = 0; // xt (will be calculated)
+            this.particleData[idx + 4] = 0; // yt (will be calculated)
+            this.particleData[idx + 5] = 0; // magnitude (will be calculated)
         }
     }
 
@@ -471,7 +598,7 @@ export class ParticleSystem {
         const tempParticle: Particle = { age: 0, x: 0, y: 0 };
 
         for (let i = 0; i < this.particleCount; i++) {
-            const idx = i * 4;
+            const idx = i * 6;
             const x = this.particleData[idx];
             const y = this.particleData[idx + 1];
             let age = this.particleData[idx + 2];
@@ -485,6 +612,9 @@ export class ParticleSystem {
                 this.particleData[idx] = tempParticle.x;
                 this.particleData[idx + 1] = tempParticle.y;
                 this.particleData[idx + 2] = tempParticle.age;
+                this.particleData[idx + 3] = 0; // xt
+                this.particleData[idx + 4] = 0; // yt
+                this.particleData[idx + 5] = 0; // magnitude
             } else {
                 const v = this.field!(x, y);
                 const m = v[2];
@@ -496,8 +626,10 @@ export class ParticleSystem {
                     const yt = y + v[1];
 
                     if (this.field!.isDefined(xt, yt)) {
-                        // Valid move - store new position temporarily in unused slot
-                        this.particleData[idx + 3] = 1; // Mark as having valid move
+                        // Valid move - store next position and magnitude
+                        this.particleData[idx + 3] = xt;
+                        this.particleData[idx + 4] = yt;
+                        this.particleData[idx + 5] = m;
                         // Add to bucket for drawing
                         this.buckets[this.colorStyles!.indexFor(m)].push(i);
                     } else {
@@ -534,29 +666,19 @@ export class ParticleSystem {
 
                 this.ctx2D!.beginPath();
                 bucket.forEach(particleIndex => {
-                    const idx = particleIndex * 4;
-                    const hasValidMove = this.particleData![idx + 3] === 1;
+                    const idx = particleIndex * 6;
+                    const x = this.particleData![idx];
+                    const y = this.particleData![idx + 1];
+                    const xt = this.particleData![idx + 3];
+                    const yt = this.particleData![idx + 4];
 
-                    if (hasValidMove) {
-                        const x = this.particleData![idx];
-                        const y = this.particleData![idx + 1];
+                    // Draw line from current to next position (pre-calculated in evolveParticles)
+                    this.ctx2D!.moveTo(x, y);
+                    this.ctx2D!.lineTo(xt, yt);
 
-                        // Calculate new position
-                        const v = this.field!(x, y);
-                        const xt = x + v[0];
-                        const yt = y + v[1];
-
-                        // Draw line
-                        this.ctx2D!.moveTo(x, y);
-                        this.ctx2D!.lineTo(xt, yt);
-
-                        // Update position
-                        this.particleData![idx] = xt;
-                        this.particleData![idx + 1] = yt;
-
-                        // Clear flag
-                        this.particleData![idx + 3] = 0;
-                    }
+                    // Update position for next frame
+                    this.particleData![idx] = xt;
+                    this.particleData![idx + 1] = yt;
                 });
                 this.ctx2D!.stroke();
             }
@@ -615,6 +737,12 @@ export class ParticleSystem {
         // Clear 2D canvas
         if (this.ctx2D) {
             this.ctx2D.clearRect(0, 0, this.canvas2D.width, this.canvas2D.height);
+        }
+
+        // Dispose WebGL resources
+        if (this.webglParticleSystem) {
+            this.webglParticleSystem.dispose();
+            this.webglParticleSystem = null;
         }
 
         // Clear particle data
@@ -803,6 +931,12 @@ export class ParticleSystem {
      */
     dispose(): void {
         this.stopAnimation();
+
+        if (this.webglParticleSystem) {
+            this.webglParticleSystem.dispose();
+            this.webglParticleSystem = null;
+        }
+
         this.reset();
         this.eventHandlers = {};
         this.stateProvider = null;
