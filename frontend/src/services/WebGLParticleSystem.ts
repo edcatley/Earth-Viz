@@ -36,8 +36,41 @@ uniform vec2 u_windBounds;    // [x, y] offset
 uniform vec2 u_windSize;      // [width, height] in samples  
 uniform float u_windSpacing;
 uniform float u_randomSeed;
+uniform float u_textureSize;  // Particle texture size (for 2-pixel indexing)
 
 varying vec2 v_uv; // UV coordinates from vertex shader
+
+// Pack/unpack functions for 2-pixel particle state
+// Pixel 0: x (16-bit), y (16-bit)
+// Pixel 1: age (8-bit), unused, unused, unused
+
+vec4 packPosition(float x, float y) {
+    float xInt = floor(x);
+    float yInt = floor(y);
+    float xHigh = floor(xInt / 256.0);
+    float xLow = mod(xInt, 256.0);
+    float yHigh = floor(yInt / 256.0);
+    float yLow = mod(yInt, 256.0);
+    return vec4(xHigh / 255.0, xLow / 255.0, yHigh / 255.0, yLow / 255.0);
+}
+
+vec4 packAge(float age) {
+    return vec4(age / 255.0, 0.0, 0.0, 1.0);
+}
+
+vec2 unpackPosition(vec4 rgba) {
+    float xHigh = rgba.r * 255.0;
+    float xLow = rgba.g * 255.0;
+    float yHigh = rgba.b * 255.0;
+    float yLow = rgba.a * 255.0;
+    float x = xHigh * 256.0 + xLow;
+    float y = yHigh * 256.0 + yLow;
+    return vec2(x, y);
+}
+
+float unpackAge(vec4 rgba) {
+    return rgba.r * 255.0;
+}
 
 // Simple pseudo-random function
 float random(vec2 co) {
@@ -55,51 +88,72 @@ vec3 lookupWind(float x, float y) {
         return vec3(0.0, 0.0, -1.0); // Invalid
     }
     
-    // Sample wind field texture
+    // Sample wind field texture (RGBA byte encoded)
     vec2 uv = vec2(sx / u_windSize.x, sy / u_windSize.y);
-    vec3 wind = texture2D(u_windField, uv).rgb; // [u, v, magnitude]
+    vec4 rgba = texture2D(u_windField, uv);
     
-    return wind;
+    // Check validity (alpha channel)
+    if (rgba.a < 0.5) {
+        return vec3(0.0, 0.0, -1.0); // Invalid
+    }
+    
+    // Decode wind components (signed bytes centered at 128)
+    float u = (rgba.r * 255.0) - 128.0;
+    float v = (rgba.g * 255.0) - 128.0;
+    float mag = rgba.b * 255.0;
+    
+    return vec3(u, v, mag);
 }
 
 void main() {
-    // Read current particle state from texture
-    vec4 particle = texture2D(u_particleState, v_uv);
-    float x = particle.x;
-    float y = particle.y;
-    float age = particle.z;
+    // Each particle uses 2 pixels: determine which one we're rendering
+    float pixelX = v_uv.x * u_textureSize;
+    float particlePixelIndex = mod(pixelX, 2.0);
+    float particleIndex = floor(pixelX / 2.0);
     
-    // Check if particle needs randomization
+    // Calculate UV for pixel 0 and pixel 1 of this particle
+    vec2 pixel0UV = vec2((particleIndex * 2.0 + 0.5) / u_textureSize, v_uv.y);
+    vec2 pixel1UV = vec2((particleIndex * 2.0 + 1.5) / u_textureSize, v_uv.y);
+    
+    // Read both pixels
+    vec4 pixel0 = texture2D(u_particleState, pixel0UV);
+    vec4 pixel1 = texture2D(u_particleState, pixel1UV);
+    
+    // Unpack state
+    vec2 pos = unpackPosition(pixel0);
+    float x = pos.x;
+    float y = pos.y;
+    float age = unpackAge(pixel1);
+    
+    // Update particle
+    float newX, newY, newAge;
+    
     if (age > float(${MAX_PARTICLE_AGE})) {
-        // Randomize: pick random position in wind field bounds
-        float rx = u_windBounds.x + random(v_uv) * u_windSize.x * u_windSpacing;
-        float ry = u_windBounds.y + random(v_uv.yx) * u_windSize.y * u_windSpacing;
-        float newAge = random(v_uv * 1.234) * float(${MAX_PARTICLE_AGE});
-        
-        gl_FragColor = vec4(rx, ry, newAge, 0.0);
+        // Randomize
+        newX = u_windBounds.x + random(pixel0UV) * u_windSize.x * u_windSpacing;
+        newY = u_windBounds.y + random(pixel0UV.yx) * u_windSize.y * u_windSpacing;
+        newAge = random(pixel0UV * 1.234) * float(${MAX_PARTICLE_AGE});
     } else {
-        // Evolve: lookup wind and move
+        // Evolve
         vec3 wind = lookupWind(x, y);
         
         if (wind.z < 0.0) {
-            // Invalid position, age out
-            gl_FragColor = vec4(x, y, float(${MAX_PARTICLE_AGE}) + 1.0, 0.0);
+            newX = x;
+            newY = y;
+            newAge = float(${MAX_PARTICLE_AGE}) + 1.0;
         } else {
-            // Valid move
-            float xt = x + wind.x;
-            float yt = y + wind.y;
-            
-            // Check if new position is valid
-            vec3 windAtNew = lookupWind(xt, yt);
-            
-            if (windAtNew.z < 0.0) {
-                // New position invalid
-                gl_FragColor = vec4(xt, yt, age + 1.0, 0.0);
-            } else {
-                // Valid move
-                gl_FragColor = vec4(xt, yt, age + 1.0, 0.0);
-            }
+            newX = floor(x + wind.x);
+            newY = floor(y + wind.y);
+            vec3 windAtNew = lookupWind(newX, newY);
+            newAge = (windAtNew.z < 0.0) ? float(${MAX_PARTICLE_AGE}) + 1.0 : age + 1.0;
         }
+    }
+    
+    // Write to appropriate pixel
+    if (particlePixelIndex < 0.5) {
+        gl_FragColor = packPosition(newX, newY);
+    } else {
+        gl_FragColor = packAge(newAge);
     }
 }
 `;
@@ -147,6 +201,7 @@ export class WebGLParticleSystem {
             windSize: WebGLUniformLocation | null;
             windSpacing: WebGLUniformLocation | null;
             randomSeed: WebGLUniformLocation | null;
+            textureSize: WebGLUniformLocation | null;
         };
     } | null = null;
 
@@ -274,7 +329,8 @@ export class WebGLParticleSystem {
                 windBounds: this.gl.getUniformLocation(this.program, 'u_windBounds'),
                 windSize: this.gl.getUniformLocation(this.program, 'u_windSize'),
                 windSpacing: this.gl.getUniformLocation(this.program, 'u_windSpacing'),
-                randomSeed: this.gl.getUniformLocation(this.program, 'u_randomSeed')
+                randomSeed: this.gl.getUniformLocation(this.program, 'u_randomSeed'),
+                textureSize: this.gl.getUniformLocation(this.program, 'u_textureSize')
             }
         };
     }
@@ -332,17 +388,21 @@ export class WebGLParticleSystem {
         const width = windBounds.width;
         const height = windBounds.height;
 
-        // Convert NaN to -999.0 for GPU
-        const textureData = new Float32Array(windData.length);
-        for (let i = 0; i < windData.length; i++) {
-            textureData[i] = isNaN(windData[i]) ? -999.0 : windData[i];
-        }
-
-        // Check for float texture support
-        const ext = this.gl.getExtension('OES_texture_float');
-        if (!ext) {
-            console.error('[WebGLParticleSystem] Float textures not supported');
-            return false;
+        // Encode wind data as RGBA bytes (signed bytes centered at 128)
+        const rgbaData = new Uint8Array(width * height * 4);
+        
+        for (let i = 0; i < width * height; i++) {
+            const u = windData[i * 3];
+            const v = windData[i * 3 + 1];
+            const mag = windData[i * 3 + 2];
+            
+            const baseIdx = i * 4;
+            
+            // Pack u, v as signed bytes (center at 128)
+            rgbaData[baseIdx] = isNaN(u) ? 128 : Math.max(0, Math.min(255, Math.floor(u + 128)));
+            rgbaData[baseIdx + 1] = isNaN(v) ? 128 : Math.max(0, Math.min(255, Math.floor(v + 128)));
+            rgbaData[baseIdx + 2] = isNaN(mag) ? 0 : Math.max(0, Math.min(255, Math.floor(mag)));
+            rgbaData[baseIdx + 3] = (isNaN(u) || isNaN(v)) ? 0 : 255; // validity flag
         }
 
         this.windTexture = this.gl.createTexture();
@@ -355,13 +415,13 @@ export class WebGLParticleSystem {
         this.gl.texImage2D(
             this.gl.TEXTURE_2D,
             0,
-            this.gl.RGB,
+            this.gl.RGBA,
             width,
             height,
             0,
-            this.gl.RGB,
-            this.gl.FLOAT,
-            textureData
+            this.gl.RGBA,
+            this.gl.UNSIGNED_BYTE,
+            rgbaData
         );
 
         // Set texture parameters
@@ -376,23 +436,17 @@ export class WebGLParticleSystem {
 
     /**
      * Create ping-pong textures and framebuffers for particle state
+     * Each particle uses 2 pixels (position + age)
      */
     private createParticlePingPongTextures(particleCount: number): boolean {
         if (!this.gl) return false;
 
-        // Calculate square texture size to fit all particles
-        this.particleTexSize = Math.ceil(Math.sqrt(particleCount));
+        // Calculate square texture size to fit all particles (2 pixels each)
+        this.particleTexSize = Math.ceil(Math.sqrt(particleCount * 2));
 
-        console.log('[WebGLParticleSystem] Creating', this.particleTexSize, 'x', this.particleTexSize, 'particle textures');
+        console.log('[WebGLParticleSystem] Creating', this.particleTexSize, 'x', this.particleTexSize, 'particle textures (2 pixels per particle, RGBA bytes)');
 
-        // Check for float texture support
-        const floatExt = this.gl.getExtension('OES_texture_float');
-        if (!floatExt) {
-            console.error('[WebGLParticleSystem] Float textures not supported');
-            return false;
-        }
-
-        // Create two textures and framebuffers for ping-pong
+        // Create two textures and framebuffers for ping-pong (RGBA bytes, no float needed)
         for (let i = 0; i < 2; i++) {
             // Create texture
             const texture = this.gl.createTexture();
@@ -410,7 +464,7 @@ export class WebGLParticleSystem {
                 this.particleTexSize,
                 0,
                 this.gl.RGBA,
-                this.gl.FLOAT,
+                this.gl.UNSIGNED_BYTE,
                 null
             );
 
@@ -494,13 +548,23 @@ export class WebGLParticleSystem {
     private initializeParticleTexture(particleCount: number): boolean {
         if (!this.gl || !this.windBounds) return false;
 
-        // Create initial particle data: all particles aged out to force randomization
-        const data = new Float32Array(this.particleTexSize * this.particleTexSize * 4);
+        // Create initial particle data: 2 pixels per particle, all aged out
+        const data = new Uint8Array(this.particleTexSize * this.particleTexSize * 4);
+        
         for (let i = 0; i < particleCount; i++) {
-            data[i * 4] = 0;     // x
-            data[i * 4 + 1] = 0; // y
-            data[i * 4 + 2] = MAX_PARTICLE_AGE + 1; // age (force randomization)
-            data[i * 4 + 3] = 0; // unused
+            const pixelIndex = i * 2;
+            
+            // Pixel 0: position (0, 0) encoded as 16-bit
+            data[pixelIndex * 4] = 0;     // x high
+            data[pixelIndex * 4 + 1] = 0; // x low
+            data[pixelIndex * 4 + 2] = 0; // y high
+            data[pixelIndex * 4 + 3] = 0; // y low
+            
+            // Pixel 1: age (MAX+1 to force randomization)
+            data[(pixelIndex + 1) * 4] = MAX_PARTICLE_AGE + 1;
+            data[(pixelIndex + 1) * 4 + 1] = 0;
+            data[(pixelIndex + 1) * 4 + 2] = 0;
+            data[(pixelIndex + 1) * 4 + 3] = 255;
         }
 
         // Upload to first texture
@@ -513,11 +577,11 @@ export class WebGLParticleSystem {
             this.particleTexSize,
             0,
             this.gl.RGBA,
-            this.gl.FLOAT,
+            this.gl.UNSIGNED_BYTE,
             data
         );
 
-        console.log('[WebGLParticleSystem] Initialized', particleCount, 'particles on GPU');
+        console.log('[WebGLParticleSystem] Initialized', particleCount, 'particles on GPU (2 pixels each, RGBA bytes)');
         return true;
     }
 
@@ -569,6 +633,7 @@ export class WebGLParticleSystem {
         this.gl.uniform2f(this.locations.uniforms.windSize, this.windBounds.width, this.windBounds.height);
         this.gl.uniform1f(this.locations.uniforms.windSpacing, this.windBounds.spacing);
         this.gl.uniform1f(this.locations.uniforms.randomSeed, Math.random());
+        this.gl.uniform1f(this.locations.uniforms.textureSize, this.particleTexSize);
 
         // Draw fullscreen quad (renders to framebuffer texture)
         this.gl.drawArrays(this.gl.TRIANGLE_STRIP, 0, 4);
@@ -634,6 +699,7 @@ export class WebGLParticleSystem {
     /**
      * Read pixels from GPU framebuffer
      * Returns Float32Array with stride 4: [x, y, age, magnitude]
+     * Decodes 2-pixel particle state back to floats
      */
     private readPixelsFromGPU(): Float32Array {
         if (!this.gl) return new Float32Array(0);
@@ -641,8 +707,8 @@ export class WebGLParticleSystem {
         // Bind the current particle state framebuffer
         this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, this.framebuffers[this.currentTextureIndex]);
 
-        // Allocate buffer for readback (stride 4: RGBA)
-        const pixels = new Float32Array(this.particleTexSize * this.particleTexSize * 4);
+        // Allocate buffer for readback (RGBA bytes)
+        const pixels = new Uint8Array(this.particleTexSize * this.particleTexSize * 4);
 
         // Read pixels from framebuffer
         this.gl.readPixels(
@@ -651,14 +717,38 @@ export class WebGLParticleSystem {
             this.particleTexSize,
             this.particleTexSize,
             this.gl.RGBA,
-            this.gl.FLOAT,
+            this.gl.UNSIGNED_BYTE,
             pixels
         );
 
         // Unbind framebuffer
         this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, null);
 
-        return pixels;
+        // Decode 2-pixel particle state back to floats
+        const decoded = new Float32Array(this.particleCount * 4);
+        
+        for (let i = 0; i < this.particleCount; i++) {
+            const pixelIndex = i * 2;
+            
+            // Decode pixel 0: position
+            const xHigh = pixels[pixelIndex * 4];
+            const xLow = pixels[pixelIndex * 4 + 1];
+            const yHigh = pixels[pixelIndex * 4 + 2];
+            const yLow = pixels[pixelIndex * 4 + 3];
+            
+            const x = xHigh * 256 + xLow;
+            const y = yHigh * 256 + yLow;
+            
+            // Decode pixel 1: age
+            const age = pixels[(pixelIndex + 1) * 4];
+            
+            decoded[i * 4] = x;
+            decoded[i * 4 + 1] = y;
+            decoded[i * 4 + 2] = age;
+            decoded[i * 4 + 3] = 0; // magnitude (unused)
+        }
+
+        return decoded;
     }
 
     /**
