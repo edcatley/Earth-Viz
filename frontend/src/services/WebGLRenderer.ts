@@ -291,6 +291,13 @@ export class WebGLRenderer {
                 maxTextureSize: this.gl.getParameter(this.gl.MAX_TEXTURE_SIZE)
             };
 
+            // Diagnostic logging
+            console.log('[WebGLRenderer] WebGL Diagnostics:');
+            console.log('  - Context:', this.context.isWebGL2 ? 'WebGL2' : 'WebGL1');
+            console.log('  - Renderer:', this.gl.getParameter(this.gl.RENDERER));
+            console.log('  - Vendor:', this.gl.getParameter(this.gl.VENDOR));
+            console.log('  - Max Texture Size:', this.context.maxTextureSize);
+
             // Create screen quad vertex buffer
             const vertices = new Float32Array([
                 -1, -1, 0, 0,  // bottom-left

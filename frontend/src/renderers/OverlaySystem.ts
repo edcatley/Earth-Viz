@@ -109,7 +109,7 @@ export class OverlaySystem {
             const webglInitialized = this.webglRenderer.initialize(this.webglCanvas);
 
             if (!webglInitialized) {
-                debugLog('OVERLAY', 'WebGL renderer initialization failed');
+                debugLog('OVERLAY', 'WebGL renderer initialization failed - check console for WebGL diagnostics');
                 return false;
             }
 

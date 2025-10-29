@@ -166,6 +166,32 @@ export class WebGLParticleSystem {
             return false;
         }
 
+        // Diagnostic: Check WebGL capabilities
+        console.log('[WebGLParticleSystem] WebGL Diagnostics:');
+        console.log('  - Renderer:', this.gl.getParameter(this.gl.RENDERER));
+        console.log('  - Vendor:', this.gl.getParameter(this.gl.VENDOR));
+        console.log('  - Version:', this.gl.getParameter(this.gl.VERSION));
+        console.log('  - Max Texture Size:', this.gl.getParameter(this.gl.MAX_TEXTURE_SIZE));
+
+        // Check extensions
+        const floatExt = this.gl.getExtension('OES_texture_float');
+        const floatLinearExt = this.gl.getExtension('OES_texture_float_linear');
+        const colorBufferFloat = this.gl.getExtension('WEBGL_color_buffer_float');
+        const halfFloatExt = this.gl.getExtension('OES_texture_half_float');
+        const halfFloatLinearExt = this.gl.getExtension('OES_texture_half_float_linear');
+
+        console.log('  - OES_texture_float:', !!floatExt);
+        console.log('  - OES_texture_float_linear:', !!floatLinearExt);
+        console.log('  - WEBGL_color_buffer_float:', !!colorBufferFloat);
+        console.log('  - OES_texture_half_float:', !!halfFloatExt);
+        console.log('  - OES_texture_half_float_linear:', !!halfFloatLinearExt);
+
+        // Check shader precision
+        const vertexPrecision = this.gl.getShaderPrecisionFormat(this.gl.VERTEX_SHADER, this.gl.HIGH_FLOAT);
+        const fragmentPrecision = this.gl.getShaderPrecisionFormat(this.gl.FRAGMENT_SHADER, this.gl.HIGH_FLOAT);
+        console.log('  - Vertex highp:', vertexPrecision ? `${vertexPrecision.precision} bits` : 'not supported');
+        console.log('  - Fragment highp:', fragmentPrecision ? `${fragmentPrecision.precision} bits` : 'not supported');
+
         // Create shader program
         if (!this.createShaderProgram()) {
             console.error('[WebGLParticleSystem] Failed to create shader program');
@@ -414,7 +440,15 @@ export class WebGLParticleSystem {
             // Check framebuffer status
             const status = this.gl.checkFramebufferStatus(this.gl.FRAMEBUFFER);
             if (status !== this.gl.FRAMEBUFFER_COMPLETE) {
-                console.error('[WebGLParticleSystem] Framebuffer incomplete:', status);
+                const statusNames: { [key: number]: string } = {
+                    [this.gl.FRAMEBUFFER_COMPLETE]: 'COMPLETE',
+                    [this.gl.FRAMEBUFFER_INCOMPLETE_ATTACHMENT]: 'INCOMPLETE_ATTACHMENT',
+                    [this.gl.FRAMEBUFFER_INCOMPLETE_MISSING_ATTACHMENT]: 'INCOMPLETE_MISSING_ATTACHMENT',
+                    [this.gl.FRAMEBUFFER_INCOMPLETE_DIMENSIONS]: 'INCOMPLETE_DIMENSIONS',
+                    [this.gl.FRAMEBUFFER_UNSUPPORTED]: 'UNSUPPORTED'
+                };
+                console.error('[WebGLParticleSystem] Framebuffer incomplete:', statusNames[status] || status);
+                console.error('[WebGLParticleSystem] This means float texture rendering to framebuffer is not supported');
                 return false;
             }
 

@@ -18,7 +18,7 @@ function debugLog(category: string, message: string, data?: any): void {
 }
 
 // Constants
-const MAX_PARTICLE_AGE = 30;
+const MAX_PARTICLE_AGE = 50;
 const PARTICLE_MULTIPLIER = 7;
 const PARTICLE_REDUCTION = 0.75;
 const INTENSITY_SCALE_STEP = 10;
@@ -127,12 +127,12 @@ export class ParticleSystem {
         debugLog('PARTICLES', `Calculated particle count: ${this.particleCount} for viewport width ${bounds.width}`);
 
         // Attempt WebGL initialization
-        // debugLog('PARTICLES', 'Attempting WebGL initialization');
-        // if (this.initializeWebGL()) {
-        //     this.useWebGL = true;
-        //     debugLog('PARTICLES', 'WebGL initialization successful');
-        //     return;
-        // }
+        debugLog('PARTICLES', 'Attempting WebGL initialization');
+        if (this.initializeWebGL()) {
+            this.useWebGL = true;
+            debugLog('PARTICLES', 'WebGL initialization successful');
+            return;
+        }
         debugLog('PARTICLES', 'WebGL initialization failed, falling back to 2D');
 
         // Fallback to 2D
