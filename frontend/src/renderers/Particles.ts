@@ -127,12 +127,12 @@ export class ParticleSystem {
         debugLog('PARTICLES', `Calculated particle count: ${this.particleCount} for viewport width ${bounds.width}`);
 
         // Attempt WebGL initialization
-        debugLog('PARTICLES', 'Attempting WebGL initialization');
-        if (this.initializeWebGL()) {
-            this.useWebGL = true;
-            debugLog('PARTICLES', 'WebGL initialization successful');
-            return;
-        }
+        // debugLog('PARTICLES', 'Attempting WebGL initialization');
+        // if (this.initializeWebGL()) {
+        //     this.useWebGL = true;
+        //     debugLog('PARTICLES', 'WebGL initialization successful');
+        //     return;
+        // }
         debugLog('PARTICLES', 'WebGL initialization failed, falling back to 2D');
 
         // Fallback to 2D
@@ -372,7 +372,7 @@ export class ParticleSystem {
             // Add random sub-pixel offset within the spacing block to avoid grid artifacts
             particle.x = x + Math.floor(Math.random() * wb.spacing);
             particle.y = y + Math.floor(Math.random() * wb.spacing);
-            particle.age = Math.random() * MAX_PARTICLE_AGE;
+            particle.age = 0;
         };
 
         field.isDefined = function (x: number, y: number): boolean {
@@ -390,14 +390,14 @@ export class ParticleSystem {
         // Allocate flat array: 6 values per particle (x, y, age, xt, yt, magnitude)
         this.particleData = new Float32Array(this.particleCount * 6);
 
-        // Initialize with random positions
+        // Initialize with random positions and staggered ages
         const tempParticle: Particle = { age: 0, x: 0, y: 0 };
         for (let i = 0; i < this.particleCount; i++) {
             this.field!.randomize(tempParticle);
             const idx = i * 6;
             this.particleData[idx] = tempParticle.x;
             this.particleData[idx + 1] = tempParticle.y;
-            this.particleData[idx + 2] = tempParticle.age;
+            this.particleData[idx + 2] = Math.random() * MAX_PARTICLE_AGE; // Random initial age
             this.particleData[idx + 3] = 0; // xt (will be calculated)
             this.particleData[idx + 4] = 0; // yt (will be calculated)
             this.particleData[idx + 5] = 0; // magnitude (will be calculated)
@@ -432,8 +432,9 @@ export class ParticleSystem {
                 this.particleData[idx] = tempParticle.x;
                 this.particleData[idx + 1] = tempParticle.y;
                 this.particleData[idx + 2] = tempParticle.age;
-                this.particleData[idx + 3] = 0; // xt
-                this.particleData[idx + 4] = 0; // yt
+                // Set xt, yt to same as x, y so no line is drawn on first frame after respawn
+                this.particleData[idx + 3] = tempParticle.x;
+                this.particleData[idx + 4] = tempParticle.y;
                 this.particleData[idx + 5] = 0; // magnitude
             } else {
                 const v = this.field!(x, y);
