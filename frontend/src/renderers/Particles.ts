@@ -715,7 +715,7 @@ export class ParticleSystem {
             // Schedule next frame
             this.animationId = setTimeout(() => {
                 if (this.animationId) this.animate();
-            }, 100) as any;
+            }, 40) as any;
 
         } catch (error) {
             debugLog('PARTICLES', 'Animation error:', error);

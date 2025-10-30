@@ -503,7 +503,9 @@ export class WebGLParticleSystem {
         if (!this.gl) return false;
 
         // Calculate square texture size to fit all particles (2 pixels each)
-        this.particleTexSize = Math.ceil(Math.sqrt(particleCount * 2));
+        // MUST be even since each particle uses 2 pixels (position + age)
+        const minSize = Math.ceil(Math.sqrt(particleCount * 2));
+        this.particleTexSize = minSize % 2 === 0 ? minSize : minSize + 1;
 
         console.log('[WebGLParticleSystem] Creating', this.particleTexSize, 'x', this.particleTexSize, 'particle textures (2 pixels per particle, RGBA bytes)');
 
@@ -739,17 +741,17 @@ export class WebGLParticleSystem {
         const merged = this.mergeFrameData(this.previousFrameData, newData);
 
         // Debug: Log every 100th particle
-        for (let i = 0; i < this.particleCount; i += 100) {
-            const idx = i * 6;
-            console.log(`[WebGLParticleSystem] Particle ${i}:`, {
-                x: merged[idx],
-                y: merged[idx + 1],
-                age: merged[idx + 2],
-                xt: merged[idx + 3],
-                yt: merged[idx + 4],
-                magnitude: merged[idx + 5]
-            });
-        }
+        // for (let i = 0; i < this.particleCount; i += 100) {
+        //     const idx = i * 6;
+        //     console.log(`[WebGLParticleSystem] Particle ${i}:`, {
+        //         x: merged[idx],
+        //         y: merged[idx + 1],
+        //         age: merged[idx + 2],
+        //         xt: merged[idx + 3],
+        //         yt: merged[idx + 4],
+        //         magnitude: merged[idx + 5]
+        //     });
+        // }
 
         // Save current frame for next iteration
         this.previousFrameData = newData;
