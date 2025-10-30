@@ -168,11 +168,16 @@ void main() {
     // Update particle
     float newX, newY, newAge;
     
-    if (age > float(${MAX_PARTICLE_AGE})) {
-        // Randomize
+    if (age > 126.0) {
+        // Initialize or out-of-bounds: randomize position AND age
         // random provides 0.0-1.0 using random seed.
         // multiply that by field size and spacing to cover full field
         // offset by bounds left and top position
+        newX = u_windBounds.x + random(positionPixelUV) * u_windSize.x * u_windSpacing;
+        newY = u_windBounds.y + random(agePixelUV.yx) * u_windSize.y * u_windSpacing;
+        newAge = floor(random(positionPixelUV.yx) * 51.0); // Random age 0-50
+    } else if (age > float(${MAX_PARTICLE_AGE})) {
+        // Aged out naturally: respawn at age 0 (maintains flow coherence)
         newX = u_windBounds.x + random(positionPixelUV) * u_windSize.x * u_windSpacing;
         newY = u_windBounds.y + random(agePixelUV.yx) * u_windSize.y * u_windSpacing;
         newAge = 0.0;
@@ -181,14 +186,16 @@ void main() {
         vec3 wind = lookupWind(x, y);
         
         if (wind.z < 0.0) {
+            // Current position invalid: mark for re-initialization
             newX = x;
             newY = y;
-            newAge = float(${MAX_PARTICLE_AGE}) + 1.0;
+            newAge = 127.0;
         } else {
             newX = x + wind.x;
             newY = y + wind.y;
             vec3 windAtNew = lookupWind(newX, newY);
-            newAge = (windAtNew.z < 0.0) ? float(${MAX_PARTICLE_AGE}) + 1.0 : age + 1.0;
+            // If new position invalid, mark for re-initialization (not just aged out)
+            newAge = (windAtNew.z < 0.0) ? 127.0 : age + 1.0;
         }
     }
     
@@ -623,8 +630,9 @@ export class WebGLParticleSystem {
             data[pixelIndex * 4 + 2] = 0; // y high
             data[pixelIndex * 4 + 3] = 0; // y low
 
-            // Pixel 1: age (MAX+1 to force randomization)
-            data[(pixelIndex + 1) * 4] = MAX_PARTICLE_AGE + 1;
+            // Pixel 1: age (127 = uninitialized sentinel value)
+            // First evolve() will initialize with random positions and ages
+            data[(pixelIndex + 1) * 4] = 127;
             data[(pixelIndex + 1) * 4 + 1] = 0;
             data[(pixelIndex + 1) * 4 + 2] = 0;
             data[(pixelIndex + 1) * 4 + 3] = 255;
