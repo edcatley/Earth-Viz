@@ -7,7 +7,7 @@
 
 import { Particle } from '../renderers/Particles';
 
-const MAX_PARTICLE_AGE = 30;
+const MAX_PARTICLE_AGE = 50;
 
 // Vertex shader - evolves particle positions
 // Vertex shader - simple passthrough for fullscreen quad
@@ -45,12 +45,17 @@ varying vec2 v_uv; // UV coordinates from vertex shader
 // Pixel 1: age (8-bit), unused, unused, unused
 
 vec4 packPosition(float x, float y) {
-    float xInt = floor(x);
-    float yInt = floor(y);
-    float xHigh = floor(xInt / 256.0);
-    float xLow = mod(xInt, 256.0);
-    float yHigh = floor(yInt / 256.0);
-    float yLow = mod(yInt, 256.0);
+    // Convert to 12.4 fixed point (multiply by 16)
+    // Range: 0 to 4095.9375 pixels
+    float xFixed = floor(x * 16.0);
+    float yFixed = floor(y * 16.0);
+    
+    // Split into high and low bytes
+    float xHigh = floor(xFixed / 256.0);
+    float xLow = mod(xFixed, 256.0);
+    float yHigh = floor(yFixed / 256.0);
+    float yLow = mod(yFixed, 256.0);
+    
     return vec4(xHigh / 255.0, xLow / 255.0, yHigh / 255.0, yLow / 255.0);
 }
 
@@ -63,13 +68,49 @@ vec2 unpackPosition(vec4 rgba) {
     float xLow = rgba.g * 255.0;
     float yHigh = rgba.b * 255.0;
     float yLow = rgba.a * 255.0;
-    float x = xHigh * 256.0 + xLow;
-    float y = yHigh * 256.0 + yLow;
+    
+    // Reconstruct 16-bit fixed point values
+    float xFixed = xHigh * 256.0 + xLow;
+    float yFixed = yHigh * 256.0 + yLow;
+    
+    // Convert back to float (divide by 16)
+    float x = xFixed / 16.0;
+    float y = yFixed / 16.0;
+    
     return vec2(x, y);
 }
 
 float unpackAge(vec4 rgba) {
     return rgba.r * 255.0;
+}
+
+// Pack/unpack functions for wind vectors (8.4 fixed point)
+// Encodes two velocities (u, v) into RGBA with validity flag
+vec3 unpackWind(vec4 rgba) {
+    // Check validity first
+    if (rgba.a < 0.5) {
+        return vec3(0.0, 0.0, -1.0); // Invalid
+    }
+    
+    // Decode from 8.4 fixed point
+    // R: u[11:4], G: u[3:0] << 4 | v[11:8], B: v[7:0]
+    float uHigh = rgba.r * 255.0;                    // u[11:4]
+    float uLow = floor(rgba.g * 255.0 / 16.0);       // u[3:0]
+    float vHigh = mod(rgba.g * 255.0, 16.0);         // v[11:8]
+    float vLow = rgba.b * 255.0;                     // v[7:0]
+    
+    // Reconstruct 12-bit fixed point values
+    float uFixed = uHigh * 16.0 + uLow;  // 0-4095
+    float vFixed = vHigh * 256.0 + vLow; // 0-4095
+    
+    // Convert back to float: divide by 16, subtract 128 offset
+    float u = (uFixed / 16.0) - 128.0;
+    float v = (vFixed / 16.0) - 128.0;
+    
+    // Calculate magnitude
+    float mag = sqrt(u * u + v * v);
+    
+    return vec3(u, v, mag);
 }
 
 // Simple pseudo-random function
@@ -80,59 +121,61 @@ float random(vec2 co) {
 // Look up wind at pixel position (x, y)
 vec3 lookupWind(float x, float y) {
     // Convert pixel coordinates to sample indices
-    float sx = (x - u_windBounds.x) / u_windSpacing;
-    float sy = (y - u_windBounds.y) / u_windSpacing;
+    //offset the bounds top left position to get
+    float sample_x = (x - u_windBounds.x) / u_windSpacing;
+    float sample_y = (y - u_windBounds.y) / u_windSpacing;
     
     // Bounds check
-    if (sx < 0.0 || sx >= u_windSize.x || sy < 0.0 || sy >= u_windSize.y) {
+    if (sample_x < 0.0 || sample_x >= u_windSize.x || sample_y < 0.0 || sample_y >= u_windSize.y) {
         return vec3(0.0, 0.0, -1.0); // Invalid
     }
     
     // Sample wind field texture (RGBA byte encoded)
-    vec2 uv = vec2(sx / u_windSize.x, sy / u_windSize.y);
+    // normalise down to 0 - 1
+    vec2 uv = vec2(sample_x / u_windSize.x, sample_y / u_windSize.y);
+
+    // look up windfield at sample position and unpack
     vec4 rgba = texture2D(u_windField, uv);
-    
-    // Check validity (alpha channel)
-    if (rgba.a < 0.5) {
-        return vec3(0.0, 0.0, -1.0); // Invalid
-    }
-    
-    // Decode wind components (signed bytes centered at 128)
-    float u = (rgba.r * 255.0) - 128.0;
-    float v = (rgba.g * 255.0) - 128.0;
-    float mag = rgba.b * 255.0;
-    
-    return vec3(u, v, mag);
+    return unpackWind(rgba);
 }
 
 void main() {
-    // Each particle uses 2 pixels: determine which one we're rendering
-    float pixelX = v_uv.x * u_textureSize;
-    float particlePixelIndex = mod(pixelX, 2.0);
-    float particleIndex = floor(pixelX / 2.0);
+    // Each particle uses 2 pixels: determine which one we're rendering. Pixel 0 holds X, Y values, pixel 1 holds age and magnitude.
+
+    // v_uv - varying UV value, our "current" shader value pixel, ranges 0 to 1
+    // pixelX - the x pixel value normalised to our texture width
+    // isParticleAge  - 0 for XY, 1 for age
+    // particlePairIndex - the particle pair index. 
+    float pixelX = floor(v_uv.x * u_textureSize);  //e.g. 5.0, the age component of the 3rd pixel
+    float isParticleAge  = mod(pixelX, 2.0); //e.g. 1.0
+    float particlePairIndex = floor(pixelX / 2.0); //e.g. 2.0
     
     // Calculate UV for pixel 0 and pixel 1 of this particle
-    vec2 pixel0UV = vec2((particleIndex * 2.0 + 0.5) / u_textureSize, v_uv.y);
-    vec2 pixel1UV = vec2((particleIndex * 2.0 + 1.5) / u_textureSize, v_uv.y);
+    //turn the particle pair into a texture lookup value e.g 4.5 and 5.5 respectively (using centres, not sure why) then divided by the texture size. And straight up v_uv.y
+    vec2 positionPixelUV  = vec2((particlePairIndex * 2.0 + 0.5) / u_textureSize, v_uv.y); 
+    vec2 agePixelUV  = vec2((particlePairIndex * 2.0 + 1.5) / u_textureSize, v_uv.y);
     
     // Read both pixels
-    vec4 pixel0 = texture2D(u_particleState, pixel0UV);
-    vec4 pixel1 = texture2D(u_particleState, pixel1UV);
+    vec4 positionPixel = texture2D(u_particleState, positionPixelUV);
+    vec4 agePixel = texture2D(u_particleState, agePixelUV );
     
     // Unpack state
-    vec2 pos = unpackPosition(pixel0);
+    vec2 pos = unpackPosition(positionPixel);
     float x = pos.x;
     float y = pos.y;
-    float age = unpackAge(pixel1);
+    float age = unpackAge(agePixel);
     
     // Update particle
     float newX, newY, newAge;
     
     if (age > float(${MAX_PARTICLE_AGE})) {
         // Randomize
-        newX = u_windBounds.x + random(pixel0UV) * u_windSize.x * u_windSpacing;
-        newY = u_windBounds.y + random(pixel0UV.yx) * u_windSize.y * u_windSpacing;
-        newAge = random(pixel0UV * 1.234) * float(${MAX_PARTICLE_AGE});
+        // random provides 0.0-1.0 using random seed.
+        // multiply that by field size and spacing to cover full field
+        // offset by bounds left and top position
+        newX = u_windBounds.x + random(positionPixelUV) * u_windSize.x * u_windSpacing;
+        newY = u_windBounds.y + random(agePixelUV.yx) * u_windSize.y * u_windSpacing;
+        newAge = 0.0;
     } else {
         // Evolve
         vec3 wind = lookupWind(x, y);
@@ -150,7 +193,7 @@ void main() {
     }
     
     // Write to appropriate pixel
-    if (particlePixelIndex < 0.5) {
+    if (isParticleAge  < 0.5) {
         gl_FragColor = packPosition(newX, newY);
     } else {
         gl_FragColor = packAge(newAge);
@@ -388,21 +431,39 @@ export class WebGLParticleSystem {
         const width = windBounds.width;
         const height = windBounds.height;
 
-        // Encode wind data as RGBA bytes (signed bytes centered at 128)
+        // Encode wind data as RGBA bytes using 8.4 fixed point
+        // R: u[11:4], G: u[3:0] << 4 | v[11:8], B: v[7:0], A: validity
         const rgbaData = new Uint8Array(width * height * 4);
-        
+
         for (let i = 0; i < width * height; i++) {
             const u = windData[i * 3];
             const v = windData[i * 3 + 1];
-            const mag = windData[i * 3 + 2];
-            
+
             const baseIdx = i * 4;
-            
-            // Pack u, v as signed bytes (center at 128)
-            rgbaData[baseIdx] = isNaN(u) ? 128 : Math.max(0, Math.min(255, Math.floor(u + 128)));
-            rgbaData[baseIdx + 1] = isNaN(v) ? 128 : Math.max(0, Math.min(255, Math.floor(v + 128)));
-            rgbaData[baseIdx + 2] = isNaN(mag) ? 0 : Math.max(0, Math.min(255, Math.floor(mag)));
-            rgbaData[baseIdx + 3] = (isNaN(u) || isNaN(v)) ? 0 : 255; // validity flag
+
+            if (isNaN(u) || isNaN(v)) {
+                // Invalid wind
+                rgbaData[baseIdx] = 0;
+                rgbaData[baseIdx + 1] = 0;
+                rgbaData[baseIdx + 2] = 0;
+                rgbaData[baseIdx + 3] = 0; // validity flag
+            } else {
+                // Convert to 8.4 fixed point (12 bits total, signed)
+                // Clamp to valid range: -128 to 127.9375
+                const uClamped = Math.max(-128, Math.min(127.9375, u));
+                const vClamped = Math.max(-128, Math.min(127.9375, v));
+
+                // Convert to fixed point: multiply by 16 (shift left 4 bits)
+                // Then add 2048 to make unsigned (12-bit range: 0-4095)
+                const uFixed = Math.floor((uClamped + 128) * 16); // 0-4095
+                const vFixed = Math.floor((vClamped + 128) * 16); // 0-4095
+
+                // Pack into RGBA
+                rgbaData[baseIdx] = (uFixed >> 4) & 0xFF;           // u[11:4]
+                rgbaData[baseIdx + 1] = ((uFixed & 0x0F) << 4) | ((vFixed >> 8) & 0x0F); // u[3:0] | v[11:8]
+                rgbaData[baseIdx + 2] = vFixed & 0xFF;              // v[7:0]
+                rgbaData[baseIdx + 3] = 255; // validity flag
+            }
         }
 
         this.windTexture = this.gl.createTexture();
@@ -550,16 +611,16 @@ export class WebGLParticleSystem {
 
         // Create initial particle data: 2 pixels per particle, all aged out
         const data = new Uint8Array(this.particleTexSize * this.particleTexSize * 4);
-        
+
         for (let i = 0; i < particleCount; i++) {
             const pixelIndex = i * 2;
-            
+
             // Pixel 0: position (0, 0) encoded as 16-bit
             data[pixelIndex * 4] = 0;     // x high
             data[pixelIndex * 4 + 1] = 0; // x low
             data[pixelIndex * 4 + 2] = 0; // y high
             data[pixelIndex * 4 + 3] = 0; // y low
-            
+
             // Pixel 1: age (MAX+1 to force randomization)
             data[(pixelIndex + 1) * 4] = MAX_PARTICLE_AGE + 1;
             data[(pixelIndex + 1) * 4 + 1] = 0;
@@ -678,7 +739,7 @@ export class WebGLParticleSystem {
         const merged = this.mergeFrameData(this.previousFrameData, newData);
 
         // Debug: Log every 100th particle
-        for (let i = 0; i < Math.min(3, this.particleCount); i += 100) {
+        for (let i = 0; i < this.particleCount; i += 100) {
             const idx = i * 6;
             console.log(`[WebGLParticleSystem] Particle ${i}:`, {
                 x: merged[idx],
@@ -726,22 +787,25 @@ export class WebGLParticleSystem {
 
         // Decode 2-pixel particle state back to floats
         const decoded = new Float32Array(this.particleCount * 4);
-        
+
         for (let i = 0; i < this.particleCount; i++) {
             const pixelIndex = i * 2;
-            
-            // Decode pixel 0: position
+
+            // Decode pixel 0: position (12.4 fixed point)
             const xHigh = pixels[pixelIndex * 4];
             const xLow = pixels[pixelIndex * 4 + 1];
             const yHigh = pixels[pixelIndex * 4 + 2];
             const yLow = pixels[pixelIndex * 4 + 3];
-            
-            const x = xHigh * 256 + xLow;
-            const y = yHigh * 256 + yLow;
-            
+
+            // Reconstruct fixed point and convert to float
+            const xFixed = xHigh * 256 + xLow;
+            const yFixed = yHigh * 256 + yLow;
+            const x = xFixed / 16;
+            const y = yFixed / 16;
+
             // Decode pixel 1: age
             const age = pixels[(pixelIndex + 1) * 4];
-            
+
             decoded[i * 4] = x;
             decoded[i * 4 + 1] = y;
             decoded[i * 4 + 2] = age;
