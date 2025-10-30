@@ -60,7 +60,7 @@ vec4 packPosition(float x, float y) {
 }
 
 vec4 packAge(float age) {
-    return vec4(age / 255.0, 0.0, 0.0, 1.0);
+    return vec4(age / 255.0, 0.0, 0.0, 0.5);
 }
 
 vec2 unpackPosition(vec4 rgba) {
@@ -131,8 +131,8 @@ vec3 lookupWind(float x, float y) {
     }
     
     // Sample wind field texture (RGBA byte encoded)
-    // normalise down to 0 - 1
-    vec2 uv = vec2(sample_x / u_windSize.x, sample_y / u_windSize.y);
+    // Data is stored column-major (X-major), so swap UV to compensate
+    vec2 uv = vec2(sample_y / u_windSize.y, sample_x / u_windSize.x);
 
     // look up windfield at sample position and unpack
     vec4 rgba = texture2D(u_windField, uv);
@@ -185,8 +185,8 @@ void main() {
             newY = y;
             newAge = float(${MAX_PARTICLE_AGE}) + 1.0;
         } else {
-            newX = floor(x + wind.x);
-            newY = floor(y + wind.y);
+            newX = x + wind.x;
+            newY = y + wind.y;
             vec3 windAtNew = lookupWind(newX, newY);
             newAge = (windAtNew.z < 0.0) ? float(${MAX_PARTICLE_AGE}) + 1.0 : age + 1.0;
         }
