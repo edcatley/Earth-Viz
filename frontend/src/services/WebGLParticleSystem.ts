@@ -713,7 +713,7 @@ export class WebGLParticleSystem {
         // Swap textures for next frame
         this.currentTextureIndex = writeIndex;
 
-        console.log('[WebGLParticleSystem] Evolved particles, swapped to texture', writeIndex);
+        //console.log('[WebGLParticleSystem] Evolved particles, swapped to texture', writeIndex);
     }
 
     /**
