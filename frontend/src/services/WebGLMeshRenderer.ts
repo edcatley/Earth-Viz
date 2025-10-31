@@ -659,7 +659,6 @@ export class WebGLMeshRenderer {
         const projectionShader = projectionType === 'orthographic' 
             ? ORTHOGRAPHIC_PROJECTION 
             : EQUIRECTANGULAR_PROJECTION;
-        console.log('[WebGLMeshRenderer] Projection shader:', projectionShader);
         // Build complete vertex shader by replacing placeholder
         const vertexShaderSource = BASE_VERTEX_SHADER.replace('@PROJECTION_SHADER@', projectionShader);
 
