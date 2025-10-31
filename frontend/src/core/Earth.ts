@@ -125,9 +125,9 @@ class EarthModernApp {
      */
     private setupMapStructure(): void {
         if (!this.globe) return;
-        
+
         console.log('[EARTH] Setting up SVG map structure');
-        
+
         // Clear SVG elements - use D3's remove() to properly clean up selections
         d3.select("#map").selectAll("*").remove();
         d3.select("#foreground").selectAll("*").remove();
@@ -160,9 +160,9 @@ class EarthModernApp {
 
                 // Recreate globe with new view
                 this.createGlobe();
-                
+
                 // Setup SVG map structure for new view
-                
+
 
                 // Update render system
                 this.renderSystem.updateDisplay({
@@ -273,23 +273,23 @@ class EarthModernApp {
     private setupRenderSubscriptions(): void {
         // Any visual state change triggers a render of current state
         console.log('[EARTH-MODERN] Setting up render subscriptions for all visual systems');
-        
+
         // Listen for all visual system events and render when any system updates
         this.on('overlayChanged', () => {
             console.log('[EARTH-MODERN] Overlay changed, triggering render');
             this.performRender();
         });
-        
+
         this.on('planetChanged', () => {
             console.log('[EARTH-MODERN] Planet changed, triggering render');
             this.performRender();
         });
-        
+
         this.on('meshChanged', () => {
             console.log('[EARTH-MODERN] Mesh changed, triggering render');
             this.performRender();
         });
-        
+
         this.on('particlesChanged', () => {
             //console.log('[EARTH-MODERN] Particles changed, triggering render');
             this.performRender();
@@ -397,7 +397,7 @@ class EarthModernApp {
 
             // Create initial globe
             this.createGlobe();
-            
+
             // Setup initial SVG map structure
             this.setupMapStructure();
 
@@ -440,7 +440,7 @@ class EarthModernApp {
         this.particleSystem.setStateProvider(this);
         this.particleSystem.handleDataChange();
         this.setupMapStructure();
-        
+
 
     }
 
@@ -489,7 +489,7 @@ class EarthModernApp {
                 this.mask = Utils.createMask(this.globe, this.view);
             }
         }
-        
+
         if ('orientation' in changesObj) {
             console.log('[EARTH-MODERN] Orientation changed');
             this.createGlobe();
@@ -535,13 +535,13 @@ class EarthModernApp {
             this.globe.projection = null;
             this.globe = null;
         }
-        
+
         // Dispose mask
         if (this.mask && this.mask.dispose) {
             this.mask.dispose();
         }
         this.mask = null;
-        
+
         console.log('[EARTH-MODERN] Globe disposed');
     }
 
@@ -565,13 +565,13 @@ class EarthModernApp {
         if (this.globe) {
             // Set orientation and apply aesthetic scaling in one sequence
             this.globe.orientation(config.orientation, this.view);
-            
+
             // Apply 100% or 90% scale based on isFullScreen flag
             const orientation = this.globe.orientation(undefined, this.view) as string;
             const [lat, lon, rawScale] = orientation.split(',');
             const scaleFactor = !!config.isFullScreen ? 1.0 : 0.9;
             const finalScale = Math.round(parseFloat(rawScale) * scaleFactor);
-            
+
             // Apply final orientation with adjusted scale
             const finalOrientation = `${lat},${lon},${finalScale}`;
             console.log(`[EARTH-MODERN] Applying ${config.isFullScreen ? 'fullscreen' : 'normal'} scale:`, finalOrientation);
@@ -674,24 +674,167 @@ class EarthModernApp {
         const riversData = typeof rivers10km === 'function' ? rivers10km() : rivers10km;
 
         console.log('[MESH] Loaded mesh data sources:');
-        console.log('  - Coastlines: 10km, type:', coastlinesData?.type, 'features:', coastlinesData?.features?.length || 0);
-        console.log('  - Lakes: 10km, type:', lakesData?.type, 'features:', lakesData?.features?.length || 0);
-        console.log('  - Rivers: 10km, type:', riversData?.type, 'features:', riversData?.features?.length || 0);
+        console.log('  - Coastlines: 10km, type:', coastlinesData?.type, 'geometries:', coastlinesData?.geometries?.length || 0);
+        console.log('  - Lakes: 10km, type:', lakesData?.type, 'geometries:', lakesData?.geometries?.length || 0);
+        console.log('  - Rivers: 10km, type:', riversData?.type, 'geometries:', riversData?.geometries?.length || 0);
+
+        // Simplify geometry to reduce memory and improve performance
+        // Tolerance: higher = more simplification (0.5 is moderate, 1.0 is aggressive)
+        const tolerance = 0.3;
+        const coastlinesSimplified = this.simplifyGeoJSON(coastlinesData, tolerance);
+        const lakesSimplified = this.simplifyGeoJSON(lakesData, tolerance);
+        const riversSimplified = this.simplifyGeoJSON(riversData, tolerance);
+
+        console.log('[MESH] Simplified mesh data (tolerance:', tolerance, ')');
 
         // Create mesh object with consistent data for all scenarios
         this.mesh = {
-            coastLo: coastlinesData,
-            coastHi: coastlinesData,  // Same data for both LOD levels
-            lakesLo: lakesData,
-            lakesHi: lakesData,       // Same data for both LOD levels
-            riversLo: riversData,
-            riversHi: riversData      // Same data for both LOD levels
+            coastLo: coastlinesSimplified,
+            coastHi: coastlinesSimplified,  // Same data for both LOD levels
+            lakesLo: lakesSimplified,
+            lakesHi: lakesSimplified,       // Same data for both LOD levels
+            riversLo: riversSimplified,
+            riversHi: riversSimplified      // Same data for both LOD levels
         };
 
         // Mesh data changed - emit event
         this.emit('meshDataChanged');
 
         console.log('[EARTH-MODERN] Mesh loaded - all features available at all times');
+    }
+
+    /**
+     * Simplify GeoJSON using Douglas-Peucker algorithm
+     * Reduces number of points while preserving shape
+     */
+    private simplifyGeoJSON(geojson: any, tolerance: number): any {
+        if (!geojson) return geojson;
+
+        // Handle GeometryCollection (geo-maps format)
+        if (geojson.type === 'GeometryCollection' && geojson.geometries) {
+            return {
+                ...geojson,
+                geometries: geojson.geometries.map((geometry: any) =>
+                    this.simplifyGeometry(geometry, tolerance)
+                )
+            };
+        }
+
+        // Handle FeatureCollection (standard GeoJSON)
+        if (geojson.features) {
+            return {
+                ...geojson,
+                features: geojson.features.map((feature: any) => ({
+                    ...feature,
+                    geometry: this.simplifyGeometry(feature.geometry, tolerance)
+                }))
+            };
+        }
+
+        return geojson;
+    }
+
+    /**
+     * Simplify a geometry object
+     */
+    private simplifyGeometry(geometry: any, tolerance: number): any {
+        if (!geometry) return geometry;
+
+        if (geometry.type === 'MultiPolygon') {
+            return {
+                ...geometry,
+                coordinates: geometry.coordinates.map((polygon: any) =>
+                    polygon.map((ring: any) => this.simplifyLineString(ring, tolerance))
+                )
+            };
+        } else if (geometry.type === 'Polygon') {
+            return {
+                ...geometry,
+                coordinates: geometry.coordinates.map((ring: any) =>
+                    this.simplifyLineString(ring, tolerance)
+                )
+            };
+        } else if (geometry.type === 'LineString') {
+            return {
+                ...geometry,
+                coordinates: this.simplifyLineString(geometry.coordinates, tolerance)
+            };
+        } else if (geometry.type === 'MultiLineString') {
+            return {
+                ...geometry,
+                coordinates: geometry.coordinates.map((line: any) =>
+                    this.simplifyLineString(line, tolerance)
+                )
+            };
+        }
+
+        return geometry;
+    }
+
+    /**
+     * Douglas-Peucker line simplification
+     */
+    private simplifyLineString(points: number[][], tolerance: number): number[][] {
+        if (points.length <= 2) return points;
+
+        const sqTolerance = tolerance * tolerance;
+
+        // Find point with maximum distance from line segment
+        let maxDist = 0;
+        let maxIndex = 0;
+
+        const first = points[0];
+        const last = points[points.length - 1];
+
+        for (let i = 1; i < points.length - 1; i++) {
+            const dist = this.perpendicularDistanceSq(points[i], first, last);
+            if (dist > maxDist) {
+                maxDist = dist;
+                maxIndex = i;
+            }
+        }
+
+        // If max distance is greater than tolerance, recursively simplify
+        if (maxDist > sqTolerance) {
+            const left = this.simplifyLineString(points.slice(0, maxIndex + 1), tolerance);
+            const right = this.simplifyLineString(points.slice(maxIndex), tolerance);
+            return left.slice(0, -1).concat(right);
+        }
+
+        // Otherwise, just keep endpoints
+        return [first, last];
+    }
+
+    /**
+     * Squared perpendicular distance from point to line segment
+     */
+    private perpendicularDistanceSq(point: number[], lineStart: number[], lineEnd: number[]): number {
+        const [x, y] = point;
+        const [x1, y1] = lineStart;
+        const [x2, y2] = lineEnd;
+
+        const dx = x2 - x1;
+        const dy = y2 - y1;
+
+        if (dx === 0 && dy === 0) {
+            // Line segment is a point
+            return (x - x1) * (x - x1) + (y - y1) * (y - y1);
+        }
+
+        const t = ((x - x1) * dx + (y - y1) * dy) / (dx * dx + dy * dy);
+
+        if (t < 0) {
+            // Beyond start point
+            return (x - x1) * (x - x1) + (y - y1) * (y - y1);
+        } else if (t > 1) {
+            // Beyond end point
+            return (x - x2) * (x - x2) + (y - y2) * (y - y2);
+        }
+
+        // Perpendicular distance
+        const projX = x1 + t * dx;
+        const projY = y1 + t * dy;
+        return (x - projX) * (x - projX) + (y - projY) * (y - projY);
     }
 
     // ===== STATE ACCESS METHODS (for observers) =====
