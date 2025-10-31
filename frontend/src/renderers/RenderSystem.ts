@@ -115,6 +115,8 @@ export class RenderSystem {
             return;
         }
 
+        const t0 = performance.now();
+
         try {
             // 1. Clear everything
             this.clearAnimationCanvas();
@@ -123,6 +125,8 @@ export class RenderSystem {
                 Utils.clearCanvas(this.scaleCanvas);
             }
 
+            const t1 = performance.now();
+
             // SVG map structure is now handled by Earth.ts lifecycle
 
             // 2. Draw planet canvas (if provided)
@@ -130,15 +134,21 @@ export class RenderSystem {
                 this.overlayContext!.drawImage(data.planetCanvas, 0, 0);
             }
 
+            const t2 = performance.now();
+
             // 3. Draw overlay canvas (if provided)
             if (data.overlayCanvas) {
                 this.overlayContext!.drawImage(data.overlayCanvas, 0, 0);
             }
 
+            const t3 = performance.now();
+
             // 4. Draw mesh canvas (if provided)
             if (data.meshCanvas) {
                 this.overlayContext!.drawImage(data.meshCanvas, 0, 0);
             }
+
+            const t4 = performance.now();
 
             // 5. Draw particle canvas (if provided) with special blending
             if (data.particleCanvas) {
@@ -149,10 +159,16 @@ export class RenderSystem {
                 this.overlayContext!.globalCompositeOperation = prevCompositeOperation;
             }
 
+            const t5 = performance.now();
+
             // 6. Draw color scale (if provided)
             if (data.overlayGrid) {
                 this.drawColorScale(data.overlayGrid);
             }
+
+            const t6 = performance.now();
+
+            //console.log(`[RENDER-FRAME] Clear: ${(t1-t0).toFixed(2)}ms, Planet: ${(t2-t1).toFixed(2)}ms, Overlay: ${(t3-t2).toFixed(2)}ms, Mesh: ${(t4-t3).toFixed(2)}ms, Particles: ${(t5-t4).toFixed(2)}ms, Scale: ${(t6-t5).toFixed(2)}ms, Total: ${(t6-t0).toFixed(2)}ms`);
 
         } catch (error) {
             console.error('Frame render failed:', error);

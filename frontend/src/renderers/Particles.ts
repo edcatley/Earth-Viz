@@ -133,7 +133,8 @@ export class ParticleSystem {
             // WebGL successful - we don't need 2D field function or particle data
             // Wind data already freed in initializeWebGL()
             this.field = null;
-            debugLog('PARTICLES', 'WebGL initialization successful - 2D resources freed');
+            this.startAnimation();
+            debugLog('PARTICLES', 'WebGL initialization successful - animation started');
             return;
         }
         debugLog('PARTICLES', 'WebGL initialization failed, falling back to 2D');
@@ -212,34 +213,23 @@ export class ParticleSystem {
      * Generate frame using appropriate rendering system
      */
     public generateFrame(): HTMLCanvasElement | null {
-        const t0 = performance.now();
-
         // Evolve particles (CPU or GPU)
         if (this.useWebGL && this.webglParticleSystem) {
-            const t1 = performance.now();
             this.webglParticleSystem.evolve();
-            const t2 = performance.now();
 
             // Get particle data from GPU for rendering
             // Note: This creates a temporary array for drawing, but we don't keep it
             const gpuParticleData = this.webglParticleSystem.getParticleData();
-            const t3 = performance.now();
 
             this.particleCount = this.webglParticleSystem.getParticleCount();
 
             // Temporarily assign for rendering, will be freed on next frame
             this.particleData = gpuParticleData;
-
-            console.log(`[PERF] Evolve: ${(t2 - t1).toFixed(2)}ms, Readback: ${(t3 - t2).toFixed(2)}ms`);
         } else {
             this.evolveParticles();
         }
 
-        const t4 = performance.now();
         this.render();
-        const t5 = performance.now();
-
-        console.log(`[PERF] Render: ${(t5 - t4).toFixed(2)}ms, Total: ${(t5 - t0).toFixed(2)}ms`);
 
         return this.canvas2D;
     }
@@ -504,15 +494,12 @@ export class ParticleSystem {
             return;
         }
 
-        const t0 = performance.now();
-
         // Draw all particles with single color
         this.ctx2D.lineWidth = 1.0;
         this.ctx2D.globalAlpha = 0.9;
         this.ctx2D.strokeStyle = 'white';
 
         this.ctx2D.beginPath();
-        const t1 = performance.now();
 
         for (let i = 0; i < this.particleCount; i++) {
             const idx = i * 6;
@@ -537,14 +524,10 @@ export class ParticleSystem {
             this.particleData[idx + 1] = yt;
         }
 
-        const t2 = performance.now();
         this.ctx2D.stroke();
-        const t3 = performance.now();
 
         // Reset alpha
         this.ctx2D.globalAlpha = 1.0;
-
-        console.log(`[PERF-DRAW] Setup: ${(t1 - t0).toFixed(2)}ms, Loop: ${(t2 - t1).toFixed(2)}ms, Stroke: ${(t3 - t2).toFixed(2)}ms`);
     }
 
     // ===== UTILITY METHODS =====
@@ -739,8 +722,6 @@ export class ParticleSystem {
      */
     private animate(): void {
         try {
-            const startTime = performance.now();
-
             // Generate new frame (evolve particles and draw to canvas)
             const canvas = this.generateFrame();
 
@@ -754,15 +735,10 @@ export class ParticleSystem {
                 this.emit('particlesChanged', result);
             }
 
-            // Self-throttling: only wait remaining time to hit target frame rate
-            const elapsed = performance.now() - startTime;
-            const targetFrameTime = 40; // 25fps target
-            const delay = Math.max(0, targetFrameTime - elapsed);
-
-            // Schedule next frame
+            // Schedule next frame at fixed 40ms (25fps)
             this.animationId = setTimeout(() => {
                 if (this.animationId) this.animate();
-            }, delay) as any;
+            }, 40) as any;
 
         } catch (error) {
             debugLog('PARTICLES', 'Animation error:', error);

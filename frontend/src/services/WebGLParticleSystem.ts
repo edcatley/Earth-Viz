@@ -735,12 +735,8 @@ export class WebGLParticleSystem {
             return new Float32Array(0);
         }
 
-        const t0 = performance.now();
-
         // Read current frame from GPU (stride 4: [xt, yt, age, magnitude])
         const newData = this.readPixelsFromGPU();
-
-        const t1 = performance.now();
 
         // First frame: no previous data to merge
         if (!this.previousFrameData) {
@@ -752,12 +748,8 @@ export class WebGLParticleSystem {
         // Merge previous frame (old positions) with current frame (new positions)
         const merged = this.mergeFrameData(this.previousFrameData, newData);
 
-        const t2 = performance.now();
-
         // Save current frame for next iteration
         this.previousFrameData = newData;
-
-        console.log(`[PERF-GPU] ReadPixels: ${(t1 - t0).toFixed(2)}ms, Merge: ${(t2 - t1).toFixed(2)}ms`);
 
         return merged;
     }
@@ -770,15 +762,11 @@ export class WebGLParticleSystem {
     private readPixelsFromGPU(): Float32Array {
         if (!this.gl) return new Float32Array(0);
 
-        const t0 = performance.now();
-
         // Bind the current particle state framebuffer
         this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, this.framebuffers[this.currentTextureIndex]);
 
         // Allocate buffer for readback (RGBA bytes)
         const pixels = new Uint8Array(this.particleTexSize * this.particleTexSize * 4);
-
-        const t1 = performance.now();
 
         // Read pixels from framebuffer
         this.gl.readPixels(
@@ -790,8 +778,6 @@ export class WebGLParticleSystem {
             this.gl.UNSIGNED_BYTE,
             pixels
         );
-
-        const t2 = performance.now();
 
         // Unbind framebuffer
         this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, null);
@@ -822,10 +808,6 @@ export class WebGLParticleSystem {
             decoded[i * 4 + 2] = age;
             decoded[i * 4 + 3] = 0; // magnitude (unused)
         }
-
-        const t3 = performance.now();
-
-        console.log(`[PERF-READBACK] Setup: ${(t1 - t0).toFixed(2)}ms, glReadPixels: ${(t2 - t1).toFixed(2)}ms, Decode: ${(t3 - t2).toFixed(2)}ms`);
 
         return decoded;
     }
