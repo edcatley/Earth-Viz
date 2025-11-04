@@ -1039,7 +1039,7 @@ export class WebGLParticleSystem {
         const canvas = this.gl.canvas as HTMLCanvasElement;
         this.gl.viewport(0, 0, canvas.width, canvas.height);
 
-        // Clear canvas
+        // Clear canvas (TODO: implement fade overlay for trails)
         this.gl.clearColor(0.0, 0.0, 0.0, 1.0);
         this.gl.clear(this.gl.COLOR_BUFFER_BIT);
 
