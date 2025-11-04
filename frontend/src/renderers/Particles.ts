@@ -213,33 +213,57 @@ export class ParticleSystem {
      * Generate frame using appropriate rendering system
      */
     public generateFrame(): HTMLCanvasElement | null {
-        // Evolve particles (CPU or GPU)
         if (this.useWebGL && this.webglParticleSystem) {
+            // WebGL path - pure GPU rendering
             this.webglParticleSystem.evolve();
-
-            // Get particle data from GPU for rendering
-            // Note: This creates a temporary array for drawing, but we don't keep it
-            const gpuParticleData = this.webglParticleSystem.getParticleData();
-
-            this.particleCount = this.webglParticleSystem.getParticleCount();
-
-            // Temporarily assign for rendering, will be freed on next frame
-            this.particleData = gpuParticleData;
+            this.renderWebGL();
+            return this.webglCanvas;
         } else {
+            // CPU path - evolve and render on CPU
             this.evolveParticles();
+            this.render2D();
+            return this.canvas2D;
         }
-
-        this.render();
-
-        return this.canvas2D;
     }
 
     // ===== RENDERING IMPLEMENTATIONS =====
 
     /**
-     * Render particles (unified for both CPU and GPU)
+     * Render particles using WebGL (no ReadPixels!)
      */
-    private render(): boolean {
+    private renderWebGL(): boolean {
+        if (!this.webglParticleSystem) {
+            debugLog('PARTICLES', 'WebGL render failed - no system');
+            return false;
+        }
+
+        const view = this.stateProvider.getView();
+
+        // Ensure canvas is properly sized
+        if (this.webglCanvas.width !== view.width || this.webglCanvas.height !== view.height) {
+            this.webglCanvas.width = view.width;
+            this.webglCanvas.height = view.height;
+        }
+
+        // Create projection matrix to convert pixel coords to clip space
+        const projectionMatrix = new Float32Array([
+            2.0 / view.width, 0, 0, 0,
+            0, -2.0 / view.height, 0, 0,
+            0, 0, 1, 0,
+            -1, 1, 0, 1
+        ]);
+
+        // Render particles directly from textures
+        this.webglParticleSystem.render(projectionMatrix, 5.0);
+
+        debugLog('PARTICLES', `WebGL render complete - canvas: ${view.width}x${view.height}`);
+        return true;
+    }
+
+    /**
+     * Render particles using 2D canvas (CPU)
+     */
+    private render2D(): boolean {
         const globe = this.stateProvider.getGlobe();
         const view = this.stateProvider.getView();
 

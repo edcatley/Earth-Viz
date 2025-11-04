@@ -9,6 +9,93 @@ import { Particle } from '../renderers/Particles';
 
 const MAX_PARTICLE_AGE = 50;
 
+// ===== RENDERING SHADERS =====
+
+const RENDER_VERTEX_SHADER = `
+precision highp float;
+
+attribute vec2 a_particleCorner; // x = particle index (0 to N-1), y = corner (0-5)
+
+uniform sampler2D u_prevPos;
+uniform sampler2D u_currPos;
+uniform mat4 u_projection;
+uniform float u_lineWidth;
+uniform float u_textureSize;  // Size of particle texture (e.g., 128)
+
+void main() {
+    float particleIndex = a_particleCorner.x;
+    float corner = a_particleCorner.y;
+    
+    // Each particle uses 2 pixels, so pixel index = particleIndex * 2
+    float posPixelIndex = particleIndex * 2.0;
+    float agePixelIndex = posPixelIndex + 1.0;
+    
+    // Convert linear pixel index to 2D texture coordinates
+    float posX = mod(posPixelIndex, u_textureSize);
+    float posY = floor(posPixelIndex / u_textureSize);
+    vec2 posTexCoord = (vec2(posX, posY) + 0.5) / u_textureSize;
+    
+    float ageX = mod(agePixelIndex, u_textureSize);
+    float ageY = floor(agePixelIndex / u_textureSize);
+    vec2 ageTexCoord = (vec2(ageX, ageY) + 0.5) / u_textureSize;
+    
+    // Read data
+    vec4 prevData = texture2D(u_prevPos, posTexCoord);
+    vec4 currData = texture2D(u_currPos, posTexCoord);
+    vec4 prevAgeData = texture2D(u_prevPos, ageTexCoord);
+    vec4 currAgeData = texture2D(u_currPos, ageTexCoord);
+    
+    // Unpack positions (12.4 fixed point)
+    float prevX = (prevData.r * 255.0 * 256.0 + prevData.g * 255.0) / 16.0;
+    float prevY = (prevData.b * 255.0 * 256.0 + prevData.a * 255.0) / 16.0;
+    float currX = (currData.r * 255.0 * 256.0 + currData.g * 255.0) / 16.0;
+    float currY = (currData.b * 255.0 * 256.0 + currData.a * 255.0) / 16.0;
+    float prevAge = prevAgeData.r * 255.0;
+    float currAge = currAgeData.r * 255.0;
+    
+    // Hide if EITHER position is uninitialized or dead
+    if (prevAge < 1.0 || prevAge > 126.0 || currAge < 1.0 || currAge > 126.0) {
+        gl_Position = vec4(0.0, 0.0, 0.0, 1.0);
+        return;
+    }
+    
+    vec2 posA = vec2(prevX, prevY);
+    vec2 posB = vec2(currX, currY);
+    
+    // Calculate perpendicular for line thickness
+    vec2 dir = posB - posA;
+    float len = length(dir);
+    if (len < 0.1) {
+        gl_Position = vec4(0.0, 0.0, 0.0, 1.0);
+        return;
+    }
+    
+    vec2 dirNorm = dir / len;
+    vec2 perp = vec2(-dirNorm.y, dirNorm.x) * u_lineWidth;
+    
+    // Select corner (6 vertices = 2 triangles)
+    vec2 pos;
+    if (corner < 0.5) pos = posA - perp;
+    else if (corner < 1.5) pos = posA + perp;
+    else if (corner < 2.5) pos = posB + perp;
+    else if (corner < 3.5) pos = posA - perp;
+    else if (corner < 4.5) pos = posB + perp;
+    else pos = posB - perp;
+    
+    gl_Position = u_projection * vec4(pos, 0.0, 1.0);
+}
+`;
+
+const RENDER_FRAGMENT_SHADER = `
+precision highp float;
+
+void main() {
+    gl_FragColor = vec4(1.0, 1.0, 1.0, 0.9);
+}
+`;
+
+// ===== SIMULATION SHADERS =====
+
 // Vertex shader - evolves particle positions
 // Vertex shader - simple passthrough for fullscreen quad
 const VERTEX_SHADER = `
@@ -236,6 +323,11 @@ export class WebGLParticleSystem {
     // Fullscreen quad for rendering
     private quadBuffer: WebGLBuffer | null = null;
 
+    // Rendering system
+    private renderProgram: WebGLProgram | null = null;
+    private renderVertexBuffer: WebGLBuffer | null = null;
+    private renderLocations: any = null;
+
     // Previous frame data for merging old + new positions
     private previousFrameData: Float32Array | null = null;
 
@@ -305,6 +397,15 @@ export class WebGLParticleSystem {
 
         // Get shader locations
         this.getShaderLocations();
+
+        // Create render shader program
+        if (!this.createRenderShaderProgram()) {
+            console.error('[WebGLParticleSystem] Failed to create render shader program');
+            return false;
+        }
+
+        // Get render shader locations
+        this.getRenderShaderLocations();
 
         this.isInitialized = true;
         console.log('[WebGLParticleSystem] Initialized');
@@ -418,6 +519,11 @@ export class WebGLParticleSystem {
 
         // Initialize particle data on GPU
         if (!this.initializeParticleTexture(particleCount)) {
+            return false;
+        }
+
+        // Create render vertex buffer
+        if (!this.createRenderVertexBuffer()) {
             return false;
         }
 
@@ -837,6 +943,146 @@ export class WebGLParticleSystem {
     }
 
     /**
+     * Create render shader program
+     */
+    private createRenderShaderProgram(): boolean {
+        if (!this.gl) return false;
+
+        const vertexShader = this.createShader(this.gl.VERTEX_SHADER, RENDER_VERTEX_SHADER);
+        const fragmentShader = this.createShader(this.gl.FRAGMENT_SHADER, RENDER_FRAGMENT_SHADER);
+
+        if (!vertexShader || !fragmentShader) {
+            return false;
+        }
+
+        this.renderProgram = this.gl.createProgram();
+        if (!this.renderProgram) {
+            console.error('[WebGLParticleSystem] Failed to create render program');
+            return false;
+        }
+
+        this.gl.attachShader(this.renderProgram, vertexShader);
+        this.gl.attachShader(this.renderProgram, fragmentShader);
+        this.gl.linkProgram(this.renderProgram);
+
+        if (!this.gl.getProgramParameter(this.renderProgram, this.gl.LINK_STATUS)) {
+            console.error('[WebGLParticleSystem] Render program link error:', this.gl.getProgramInfoLog(this.renderProgram));
+            return false;
+        }
+
+        return true;
+    }
+
+    /**
+     * Get render shader locations
+     */
+    private getRenderShaderLocations(): void {
+        if (!this.gl || !this.renderProgram) return;
+
+        this.renderLocations = {
+            attributes: {
+                particleCorner: this.gl.getAttribLocation(this.renderProgram, 'a_particleCorner')
+            },
+            uniforms: {
+                prevPos: this.gl.getUniformLocation(this.renderProgram, 'u_prevPos'),
+                currPos: this.gl.getUniformLocation(this.renderProgram, 'u_currPos'),
+                projection: this.gl.getUniformLocation(this.renderProgram, 'u_projection'),
+                lineWidth: this.gl.getUniformLocation(this.renderProgram, 'u_lineWidth'),
+                textureSize: this.gl.getUniformLocation(this.renderProgram, 'u_textureSize')
+            }
+        };
+    }
+
+    /**
+     * Create render vertex buffer
+     */
+    private createRenderVertexBuffer(): boolean {
+        if (!this.gl) return false;
+
+        // 6 vertices per particle (2 triangles = 1 quad)
+        // Each vertex: (particleIndex, corner)
+        const vertexData = new Float32Array(this.particleCount * 6 * 2);
+
+        for (let i = 0; i < this.particleCount; i++) {
+            for (let corner = 0; corner < 6; corner++) {
+                const idx = (i * 6 + corner) * 2;
+                vertexData[idx + 0] = i;        // Particle index
+                vertexData[idx + 1] = corner;   // Corner ID (0-5)
+            }
+        }
+
+        this.renderVertexBuffer = this.gl.createBuffer();
+        if (!this.renderVertexBuffer) {
+            return false;
+        }
+
+        this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.renderVertexBuffer);
+        this.gl.bufferData(this.gl.ARRAY_BUFFER, vertexData, this.gl.STATIC_DRAW);
+
+        console.log('[WebGLParticleSystem] Created render vertex buffer with', this.particleCount * 6, 'vertices');
+        return true;
+    }
+
+    /**
+     * Render particles as lines (no ReadPixels!)
+     */
+    public render(projectionMatrix: Float32Array, lineWidth: number = 5.0): void {
+        if (!this.gl || !this.renderProgram || !this.renderLocations || !this.renderVertexBuffer) {
+            console.error('[WebGLParticleSystem] Not ready to render');
+            return;
+        }
+
+        const prevIndex = 1 - this.currentTextureIndex;
+        const currIndex = this.currentTextureIndex;
+
+        // Set viewport to match canvas
+        const canvas = this.gl.canvas as HTMLCanvasElement;
+        this.gl.viewport(0, 0, canvas.width, canvas.height);
+
+        // Clear canvas
+        this.gl.clearColor(0.0, 0.0, 0.0, 1.0);
+        this.gl.clear(this.gl.COLOR_BUFFER_BIT);
+
+        this.gl.useProgram(this.renderProgram);
+
+        // Bind vertex buffer
+        this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.renderVertexBuffer);
+        this.gl.enableVertexAttribArray(this.renderLocations.attributes.particleCorner);
+        this.gl.vertexAttribPointer(
+            this.renderLocations.attributes.particleCorner,
+            2, // 2 components: particleIndex, corner
+            this.gl.FLOAT,
+            false,
+            0,
+            0
+        );
+
+        // Bind textures
+        this.gl.activeTexture(this.gl.TEXTURE0);
+        this.gl.bindTexture(this.gl.TEXTURE_2D, this.particleTextures[prevIndex]);
+        this.gl.uniform1i(this.renderLocations.uniforms.prevPos, 0);
+
+        this.gl.activeTexture(this.gl.TEXTURE1);
+        this.gl.bindTexture(this.gl.TEXTURE_2D, this.particleTextures[currIndex]);
+        this.gl.uniform1i(this.renderLocations.uniforms.currPos, 1);
+
+        // Set uniforms
+        this.gl.uniformMatrix4fv(this.renderLocations.uniforms.projection, false, projectionMatrix);
+        this.gl.uniform1f(this.renderLocations.uniforms.lineWidth, lineWidth);
+        this.gl.uniform1f(this.renderLocations.uniforms.textureSize, this.particleTexSize);
+
+        // Enable blending
+        this.gl.enable(this.gl.BLEND);
+        this.gl.blendFunc(this.gl.SRC_ALPHA, this.gl.ONE_MINUS_SRC_ALPHA);
+
+        // Draw all particles as triangles
+        this.gl.drawArrays(this.gl.TRIANGLES, 0, this.particleCount * 6);
+
+        // Disable blending
+        this.gl.disable(this.gl.BLEND);
+    }
+
+    /**
      * Get particle count
      */
     public getParticleCount(): number {
@@ -881,6 +1127,16 @@ export class WebGLParticleSystem {
         if (this.program) {
             this.gl.deleteProgram(this.program);
             this.program = null;
+        }
+
+        if (this.renderProgram) {
+            this.gl.deleteProgram(this.renderProgram);
+            this.renderProgram = null;
+        }
+
+        if (this.renderVertexBuffer) {
+            this.gl.deleteBuffer(this.renderVertexBuffer);
+            this.renderVertexBuffer = null;
         }
 
         // Clear previous frame data
