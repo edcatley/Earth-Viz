@@ -87,7 +87,7 @@ export class RenderSystem {
         const menu = d3.select("#menu").node() as HTMLElement;
 
         if (label && menu) {
-            const width = (menu.offsetWidth - label.offsetWidth) * 0.97;
+            const width = (menu.offsetWidth - label.offsetWidth) * 0.6;
             const height = label.offsetHeight / 2;
 
             d3.select("#scale")
