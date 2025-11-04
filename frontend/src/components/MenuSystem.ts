@@ -218,21 +218,60 @@ export class MenuSystem {
     }
 
     private setupPlanetControls(): void {
+        // Planets that support day/night blending
+        const DAY_NIGHT_SUPPORTED = ['earth', 'earth-clouds'];
+
         // Planet selection
         AVAILABLE_PLANETS.forEach(planet => {
             d3.select(`#planet-${planet}`).on("click", () => {
                 console.log(`[MENU] Set planet: ${planet}`);
-                this.triggerConfigChange({ planetType: planet });
+                
+                const config = this.configManager.getConfig();
+                const isSupported = DAY_NIGHT_SUPPORTED.includes(planet);
+                
+                // If switching to unsupported planet and day/night is on, turn it off
+                if (!isSupported && config.useDayNight) {
+                    console.log(`[MENU] Disabling day/night for ${planet} (not supported)`);
+                    this.triggerConfigChange({ planetType: planet, useDayNight: false });
+                } else {
+                    this.triggerConfigChange({ planetType: planet });
+                }
+                
+                // Update day/night toggle visibility
+                this.updateDayNightToggleVisibility(planet, DAY_NIGHT_SUPPORTED);
             });
         });
 
         // Day/Night toggle
         d3.select("#toggle-day-night").on("click", () => {
             const config = this.configManager.getConfig();
+            const planetType = config.planetType || 'earth';
+            
+            // Only allow toggle for supported planets
+            if (!DAY_NIGHT_SUPPORTED.includes(planetType)) {
+                console.log(`[MENU] Day/night not supported for ${planetType}`);
+                return;
+            }
+            
             const newValue = !config.useDayNight;
             console.log(`[MENU] Toggle day/night: ${newValue}`);
             this.triggerConfigChange({ useDayNight: newValue });
         });
+
+        // Initialize day/night toggle visibility
+        const config = this.configManager.getConfig();
+        this.updateDayNightToggleVisibility(config.planetType || 'earth', DAY_NIGHT_SUPPORTED);
+    }
+
+    private updateDayNightToggleVisibility(planetType: string, supportedPlanets: string[]): void {
+        const toggleButton = d3.select("#toggle-day-night");
+        const isSupported = supportedPlanets.includes(planetType);
+        
+        if (isSupported) {
+            toggleButton.classed("disabled", false).style("opacity", "1");
+        } else {
+            toggleButton.classed("disabled", true).style("opacity", "0.3");
+        }
     }
 
     private navigateTime(hours: number): void {

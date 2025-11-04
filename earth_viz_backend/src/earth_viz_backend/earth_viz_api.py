@@ -21,7 +21,7 @@ import tempfile
 # Hardcoded paths
 STATIC_IMAGES_DIR = Path.home() / ".earth_viz" / "static_images"
 OUTPUT_DIR = Path.home() / ".earth_viz" / "images"
-
+RESOLUTION = "2048x1024"
 # Configure logging
 logger = logging.getLogger(__name__)
 
@@ -144,7 +144,7 @@ def create_earth_viz_router(prefix: str = "/earth-viz/api") -> APIRouter:
         """Serves planet images - simple static file serving."""
         try:
             # All planets are just static files now
-            image_path = STATIC_IMAGES_DIR / "planets" / f"{planet_name}.jpg"
+            image_path = STATIC_IMAGES_DIR / "planets" / f"{RESOLUTION}" /f"{planet_name}.jpg"
 
             if not image_path.exists():
                 raise HTTPException(status_code=404, detail=f"Image not found for: {planet_name}")
