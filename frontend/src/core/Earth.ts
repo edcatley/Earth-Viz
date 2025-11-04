@@ -24,16 +24,10 @@ import { OverlaySystem } from '../renderers/OverlaySystem';
 import { PlanetSystem } from '../renderers/PlanetSystem';
 import { MeshSystem } from '../renderers/MeshSystem';
 
-// Import geo-maps data
-import * as coastlines10kmModule from '@geo-maps/earth-coastlines-10km';
-
-import * as lakes10kmModule from '@geo-maps/earth-lakes-10km';
-import * as rivers10kmModule from '@geo-maps/earth-rivers-10km';
-
-// Extract the actual data from modules (they might be wrapped in default exports)
-const coastlines10km = (coastlines10kmModule as any).default || coastlines10kmModule;
-const lakes10km = (lakes10kmModule as any).default || lakes10kmModule;
-const rivers10km = (rivers10kmModule as any).default || rivers10kmModule;
+// Import Natural Earth data
+import coastlines10km from '../data/ne_110m_coastline.json';
+import lakes10km from '../data/ne_110m_lakes.json';
+import rivers10km from '../data/ne_110m_rivers_lake_centerlines.json';
 
 // ===== CLEAN INTERFACES =====
 
@@ -668,33 +662,27 @@ class EarthModernApp {
         console.log('[EARTH-MODERN] Loading mesh from geo-maps packages');
 
         // Load consistent mesh data (no LOD switching)
-        // IMPORTANT: These are functions that need to be called to get the actual GeoJSON data
-        const coastlinesData = typeof coastlines10km === 'function' ? coastlines10km() : coastlines10km;
-        const lakesData = typeof lakes10km === 'function' ? lakes10km() : lakes10km;
-        const riversData = typeof rivers10km === 'function' ? rivers10km() : rivers10km;
+        // Use imported Natural Earth data directly
+        const coastlinesData = coastlines10km;
+        const lakesData = lakes10km;
+        const riversData = rivers10km;
 
         console.log('[MESH] Loaded mesh data sources:');
-        console.log('  - Coastlines: 10km, type:', coastlinesData?.type, 'geometries:', coastlinesData?.geometries?.length || 0);
-        console.log('  - Lakes: 10km, type:', lakesData?.type, 'geometries:', lakesData?.geometries?.length || 0);
-        console.log('  - Rivers: 10km, type:', riversData?.type, 'geometries:', riversData?.geometries?.length || 0);
+        console.log('  - Coastlines: type:', coastlinesData?.type, 'features:', coastlinesData?.features?.length || 0);
+        console.log('  - Lakes: type:', lakesData?.type, 'features:', lakesData?.features?.length || 0);
+        console.log('  - Rivers: type:', riversData?.type, 'features:', riversData?.features?.length || 0);
 
-        // Simplify geometry to reduce memory and improve performance
-        // Tolerance: higher = more simplification (0.5 is moderate, 1.0 is aggressive)
-        const tolerance = 0.3;
-        const coastlinesSimplified = this.simplifyGeoJSON(coastlinesData, tolerance);
-        const lakesSimplified = this.simplifyGeoJSON(lakesData, tolerance);
-        const riversSimplified = this.simplifyGeoJSON(riversData, tolerance);
-
-        console.log('[MESH] Simplified mesh data (tolerance:', tolerance, ')');
+        // Use raw data without simplification to see original quality
+        console.log('[MESH] Using raw Natural Earth data (no simplification)');
 
         // Create mesh object with consistent data for all scenarios
         this.mesh = {
-            coastLo: coastlinesSimplified,
-            coastHi: coastlinesSimplified,  // Same data for both LOD levels
-            lakesLo: lakesSimplified,
-            lakesHi: lakesSimplified,       // Same data for both LOD levels
-            riversLo: riversSimplified,
-            riversHi: riversSimplified      // Same data for both LOD levels
+            coastLo: coastlinesData,
+            coastHi: coastlinesData,  // Same data for both LOD levels
+            lakesLo: lakesData,
+            lakesHi: lakesData,       // Same data for both LOD levels
+            riversLo: riversData,
+            riversHi: riversData      // Same data for both LOD levels
         };
 
         // Mesh data changed - emit event

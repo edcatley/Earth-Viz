@@ -48,14 +48,6 @@
         "prepare": "npm run build:lib"
     },
     "dependencies": {
-        "@geo-maps/earth-coastlines-10km": "^0.6.0",
-        "@geo-maps/earth-coastlines-250m": "^0.6.0",
-        "@geo-maps/earth-coastlines-2km5": "^0.6.0",
-        "@geo-maps/earth-coastlines-5km": "^0.6.0",
-        "@geo-maps/earth-lakes-10km": "^0.6.0",
-        "@geo-maps/earth-lakes-2km5": "^0.6.0",
-        "@geo-maps/earth-rivers-10km": "^0.6.0",
-        "@geo-maps/earth-rivers-2km5": "^0.6.0",
         "d3": "^7.9.0",
         "d3-geo-polygon": "^2.0.1",
         "d3-geo-projection": "^4.0.0",

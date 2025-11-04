@@ -399,7 +399,18 @@ export class WebGLMeshRenderer {
                     vertexIndex = result.newVertexIndex;
                 }
                 processedCount++;
-
+            } else if (geometry.type === 'LineString') {
+                // LineString: single line
+                const result = this.lineToQuadToTriangle(geometry.coordinates, vertices, indices, vertexIndex);
+                vertexIndex = result.newVertexIndex;
+                processedCount++;
+            } else if (geometry.type === 'MultiLineString') {
+                // MultiLineString: array of lines
+                for (const line of geometry.coordinates) {
+                    const result = this.lineToQuadToTriangle(line, vertices, indices, vertexIndex);
+                    vertexIndex = result.newVertexIndex;
+                }
+                processedCount++;
             } else {
                 skippedCount++;
             }
