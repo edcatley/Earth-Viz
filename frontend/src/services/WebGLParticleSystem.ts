@@ -94,6 +94,24 @@ void main() {
 }
 `;
 
+// ===== FADE QUAD SHADERS =====
+
+const FADE_VERTEX_SHADER = `
+attribute vec2 a_position;
+
+void main() {
+    gl_Position = vec4(a_position, 0.0, 1.0);
+}
+`;
+
+const FADE_FRAGMENT_SHADER = `
+precision highp float;
+
+void main() {
+    gl_FragColor = vec4(0.0, 0.0, 0.0, 0.05);
+}
+`;
+
 // ===== SIMULATION SHADERS =====
 
 // Vertex shader - evolves particle positions
@@ -328,6 +346,12 @@ export class WebGLParticleSystem {
     private renderVertexBuffer: WebGLBuffer | null = null;
     private renderLocations: any = null;
 
+    // Fade quad system
+    private fadeProgram: WebGLProgram | null = null;
+    private fadeQuadBuffer: WebGLBuffer | null = null;
+    private fadeLocations: any = null;
+    private isFirstFrame = true;
+
     // Previous frame data for merging old + new positions
     private previousFrameData: Float32Array | null = null;
 
@@ -406,6 +430,21 @@ export class WebGLParticleSystem {
 
         // Get render shader locations
         this.getRenderShaderLocations();
+
+        // Create fade shader program
+        if (!this.createFadeShaderProgram()) {
+            console.error('[WebGLParticleSystem] Failed to create fade shader program');
+            return false;
+        }
+
+        // Get fade shader locations
+        this.getFadeShaderLocations();
+
+        // Create fade quad buffer
+        if (!this.createFadeQuadBuffer()) {
+            console.error('[WebGLParticleSystem] Failed to create fade quad buffer');
+            return false;
+        }
 
         this.isInitialized = true;
         console.log('[WebGLParticleSystem] Initialized');
@@ -501,6 +540,7 @@ export class WebGLParticleSystem {
 
         this.windBounds = windBounds;
         this.particleCount = particleCount;
+        this.isFirstFrame = true;
 
         // Create wind field texture
         if (!this.createWindTexture(windData, windBounds)) {
@@ -994,6 +1034,116 @@ export class WebGLParticleSystem {
     }
 
     /**
+     * Create fade shader program
+     */
+    private createFadeShaderProgram(): boolean {
+        if (!this.gl) return false;
+
+        const vertexShader = this.createShader(this.gl.VERTEX_SHADER, FADE_VERTEX_SHADER);
+        const fragmentShader = this.createShader(this.gl.FRAGMENT_SHADER, FADE_FRAGMENT_SHADER);
+
+        if (!vertexShader || !fragmentShader) {
+            return false;
+        }
+
+        this.fadeProgram = this.gl.createProgram();
+        if (!this.fadeProgram) {
+            console.error('[WebGLParticleSystem] Failed to create fade program');
+            return false;
+        }
+
+        this.gl.attachShader(this.fadeProgram, vertexShader);
+        this.gl.attachShader(this.fadeProgram, fragmentShader);
+        this.gl.linkProgram(this.fadeProgram);
+
+        if (!this.gl.getProgramParameter(this.fadeProgram, this.gl.LINK_STATUS)) {
+            console.error('[WebGLParticleSystem] Fade program link error:', this.gl.getProgramInfoLog(this.fadeProgram));
+            return false;
+        }
+
+        return true;
+    }
+
+    /**
+     * Get fade shader locations
+     */
+    private getFadeShaderLocations(): void {
+        if (!this.gl || !this.fadeProgram) return;
+
+        this.fadeLocations = {
+            attributes: {
+                position: this.gl.getAttribLocation(this.fadeProgram, 'a_position')
+            }
+        };
+    }
+
+    /**
+     * Create fade quad buffer
+     */
+    private createFadeQuadBuffer(): boolean {
+        if (!this.gl) return false;
+
+        const vertices = new Float32Array([
+            -1, -1,
+            1, -1,
+            -1, 1,
+            1, 1
+        ]);
+
+        this.fadeQuadBuffer = this.gl.createBuffer();
+        if (!this.fadeQuadBuffer) {
+            console.error('[WebGLParticleSystem] Failed to create fade quad buffer');
+            return false;
+        }
+
+        this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.fadeQuadBuffer);
+        this.gl.bufferData(this.gl.ARRAY_BUFFER, vertices, this.gl.STATIC_DRAW);
+
+        return true;
+    }
+
+    /**
+     * Render fade quad to create trail effect
+     */
+    private renderFadeQuad(): void {
+        if (!this.gl || !this.fadeProgram || !this.fadeLocations || !this.fadeQuadBuffer) {
+            return;
+        }
+
+        // On first frame, clear with transparent instead of fading
+        if (this.isFirstFrame) {
+            this.gl.clearColor(0.0, 0.0, 0.0, 0.0);
+            this.gl.clear(this.gl.COLOR_BUFFER_BIT);
+            this.isFirstFrame = false;
+            return;
+        }
+
+        this.gl.useProgram(this.fadeProgram);
+
+        // Bind fade quad buffer
+        this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.fadeQuadBuffer);
+        this.gl.enableVertexAttribArray(this.fadeLocations.attributes.position);
+        this.gl.vertexAttribPointer(
+            this.fadeLocations.attributes.position,
+            2,
+            this.gl.FLOAT,
+            false,
+            0,
+            0
+        );
+
+        // Enable blending for fade effect
+        this.gl.enable(this.gl.BLEND);
+        this.gl.blendFunc(this.gl.SRC_ALPHA, this.gl.ONE_MINUS_SRC_ALPHA);
+
+        // Draw fullscreen quad
+        this.gl.drawArrays(this.gl.TRIANGLE_STRIP, 0, 4);
+
+        // Disable blending (will be re-enabled for particle rendering)
+        this.gl.disable(this.gl.BLEND);
+    }
+
+    /**
      * Create render vertex buffer
      */
     private createRenderVertexBuffer(): boolean {
@@ -1039,9 +1189,8 @@ export class WebGLParticleSystem {
         const canvas = this.gl.canvas as HTMLCanvasElement;
         this.gl.viewport(0, 0, canvas.width, canvas.height);
 
-        // Clear canvas (TODO: implement fade overlay for trails)
-        this.gl.clearColor(0.0, 0.0, 0.0, 1.0);
-        this.gl.clear(this.gl.COLOR_BUFFER_BIT);
+        // Render fade quad to create trails
+        this.renderFadeQuad();
 
         this.gl.useProgram(this.renderProgram);
 
@@ -1137,6 +1286,16 @@ export class WebGLParticleSystem {
         if (this.renderVertexBuffer) {
             this.gl.deleteBuffer(this.renderVertexBuffer);
             this.renderVertexBuffer = null;
+        }
+
+        if (this.fadeProgram) {
+            this.gl.deleteProgram(this.fadeProgram);
+            this.fadeProgram = null;
+        }
+
+        if (this.fadeQuadBuffer) {
+            this.gl.deleteBuffer(this.fadeQuadBuffer);
+            this.fadeQuadBuffer = null;
         }
 
         // Clear previous frame data

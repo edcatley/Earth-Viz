@@ -254,7 +254,7 @@ export class ParticleSystem {
         ]);
 
         // Render particles directly from textures
-        this.webglParticleSystem.render(projectionMatrix, 1.0);
+        this.webglParticleSystem.render(projectionMatrix, 0.5);
 
         debugLog('PARTICLES', `WebGL render complete - canvas: ${view.width}x${view.height}`);
         return true;
