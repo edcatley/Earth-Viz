@@ -337,9 +337,10 @@ class WeatherDataManager {
                     return Math.sqrt(vec[0] * vec[0] + vec[1] * vec[1]); // magnitude
                 },
                 interpolate: (x: number, y: number, g00: any, g10: any, g01: any, g11: any) => {
-                    const result = builder.interpolate(x, y, g00, g10, g01, g11);
-                    if (!result || !Array.isArray(result)) return null;
-                    return result[2]; // magnitude from [u, v, magnitude]
+                    // g00, g10, g01, g11 are scalar magnitudes, do bilinear interpolation
+                    const rx = (1 - x);
+                    const ry = (1 - y);
+                    return g00 * rx * ry + g10 * x * ry + g01 * rx * y + g11 * x * y;
                 }
             };
         }
