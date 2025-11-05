@@ -350,6 +350,7 @@ export class Globes {
     // Projection builder methods
     static atlantis(): Globe {
         return Globes.newGlobe({
+            projectionType: 'atlantis',
             newProjection: function () {
                 return d3GeoProjection.geoMollweide().rotate([30, -45, 90] as [number, number, number]).precision(0.1);
             }
@@ -358,6 +359,7 @@ export class Globes {
 
     static azimuthal_equidistant(): Globe {
         return Globes.newGlobe({
+            projectionType: 'azimuthal_equidistant',
             newProjection: function () {
                 return d3.geoAzimuthalEquidistant().precision(0.1).rotate([0, -90] as [number, number]).clipAngle(180 - 0.001);
             }
@@ -366,6 +368,7 @@ export class Globes {
 
     static conic_equidistant(): Globe {
         return Globes.newGlobe({
+            projectionType: 'conic_equidistant',
             newProjection: function () {
                 const pos = Globes.currentPosition();
                 return d3.geoConicEquidistant().rotate([pos[0], pos[1], 0] as [number, number, number]).precision(0.1);
@@ -442,6 +445,7 @@ export class Globes {
 
     static stereographic(): Globe {
         return Globes.newGlobe({
+            projectionType: 'stereographic',
             newProjection: function (view: ViewportSize) {
                 return d3.geoStereographic()
                     .rotate([-43, -20] as [number, number])
@@ -454,6 +458,7 @@ export class Globes {
 
     static waterman(): Globe {
         return Globes.newGlobe({
+            projectionType: 'waterman',
             newProjection: function () {
                 return d3GeoProjection.geoPolyhedralWaterman()
                     .rotate([20, 0] as [number, number])
@@ -505,6 +510,7 @@ export class Globes {
 
     static winkel3(): Globe {
         return Globes.newGlobe({
+            projectionType: 'winkel3',
             newProjection: function () {
                 return d3GeoProjection.geoWinkel3().precision(0.1);
             }
