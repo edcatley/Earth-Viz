@@ -188,17 +188,17 @@ const OVERLAY_CONFIGS: { [key: string]: OverlayConfig } = {
         parameters: [{ name: 'PRMSL', levelType: 'fixed', fixedLevel: 'mean_sea_level' }],
         description: "Mean Sea Level Pressure",
         units: [
-            { label: "hPa", conversion: (x: number) => x / 100, precision: 0 },
-            { label: "mb", conversion: (x: number) => x / 100, precision: 0 },
-            { label: "Pa", conversion: (x: number) => x, precision: 0 }
+            { label: "hPa", conversion: (x: number) => x, precision: 0 },
+            { label: "mb", conversion: (x: number) => x, precision: 0 },
+            { label: "Pa", conversion: (x: number) => x * 100, precision: 0 }
         ],
         scale: {
-            bounds: [95000, 105000] as [number, number],
+            bounds: [950, 1050] as [number, number],
             gradient: Utils.segmentedColorScale([
-                [95000, [3, 4, 94]], [96000, [40, 11, 130]], [97000, [81, 40, 40]],
-                [98000, [192, 37, 149]], [99000, [70, 215, 215]], [100000, [21, 84, 187]],
-                [101000, [24, 132, 14]], [102000, [247, 251, 59]], [103000, [235, 167, 21]],
-                [104000, [230, 71, 39]], [105000, [88, 27, 67]]
+                [950, [3, 4, 94]], [960, [40, 11, 130]], [970, [81, 40, 40]],
+                [980, [192, 37, 149]], [990, [70, 215, 215]], [1000, [21, 84, 187]],
+                [1010, [24, 132, 14]], [1020, [247, 251, 59]], [1030, [235, 167, 21]],
+                [1040, [230, 71, 39]], [1050, [88, 27, 67]]
             ])
         }
     },
@@ -321,7 +321,25 @@ class WeatherDataManager {
 
         if (config.type === 'scalar') {
             const param = config.parameters[0];
-            return await this.fetchParameter(param, date, userLevel);
+            const builder = await this.fetchParameter(param, date, userLevel);
+            
+            // Special case: convert pressure from Pa to hPa
+            if (overlayName === 'mean_sea_level_pressure') {
+                return {
+                    header: builder.header,
+                    data: (index: number) => {
+                        const value = builder.data(index);
+                        return (value != null && typeof value === 'number') ? value / 100 : null;
+                    },
+                    interpolate: (x: number, y: number, g00: any, g10: any, g01: any, g11: any) => {
+                        // g00, g10, g01, g11 are already converted to hPa by data()
+                        // Just do the interpolation, no conversion needed
+                        return builder.interpolate(x, y, g00, g10, g01, g11);
+                    }
+                };
+            }
+            
+            return builder;
         }
 
         if (config.type === 'vector') {
