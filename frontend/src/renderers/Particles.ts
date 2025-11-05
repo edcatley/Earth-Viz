@@ -21,7 +21,8 @@ function debugLog(category: string, message: string, data?: any): void {
 const MAX_PARTICLE_AGE = 50;
 const PARTICLE_MULTIPLIER = 7;
 const PARTICLE_REDUCTION = 0.75;
-const INTENSITY_SCALE_STEP = 10;
+const PARTICLE_LINE_WIDTH = 1.0;
+
 
 export interface Particle {
     age: number;
@@ -33,7 +34,7 @@ export interface Particle {
 
 export interface Field {
     (x: number, y: number): Vector;
-    randomize(particle: Particle): void;
+    randomize(): { x: number; y: number; age: number };
     isDefined(x: number, y: number): boolean;
 }
 
@@ -130,8 +131,6 @@ export class ParticleSystem {
         debugLog('PARTICLES', 'Attempting WebGL initialization');
         if (this.initializeWebGL()) {
             this.useWebGL = true;
-            // WebGL successful - we don't need 2D field function or particle data
-            // Wind data already freed in initializeWebGL()
             this.field = null;
             this.startAnimation();
             debugLog('PARTICLES', 'WebGL initialization successful - animation started');
@@ -203,8 +202,15 @@ export class ParticleSystem {
         // Create field function (2D only)
         this.field = this.createField(validPositions);
 
-        // Initialize particles (2D only)
-        this.initializeParticles();
+        // Initialize particle data with random positions and staggered ages
+        this.particleData = new Float32Array(this.particleCount * 6);
+        for (let i = 0; i < this.particleCount * 6; i += 6) {
+            const { x, y, age } = this.field.randomize();
+            this.particleData[i] = x;
+            this.particleData[i + 1] = y;
+            this.particleData[i + 2] = age;
+            // xt, yt, magnitude default to 0
+        }
 
         debugLog('PARTICLES', `2D system initialized with ${this.particleCount} particles`);
     }
@@ -245,16 +251,8 @@ export class ParticleSystem {
             this.webglCanvas.height = view.height;
         }
 
-        // Create projection matrix to convert pixel coords to clip space
-        const projectionMatrix = new Float32Array([
-            2.0 / view.width, 0, 0, 0,
-            0, -2.0 / view.height, 0, 0,
-            0, 0, 1, 0,
-            -1, 1, 0, 1
-        ]);
-
-        // Render particles directly from textures
-        this.webglParticleSystem.render(projectionMatrix, 0.5);
+        // Render particles (pass half width for quad rendering)
+        this.webglParticleSystem.render(PARTICLE_LINE_WIDTH / 2);
 
         debugLog('PARTICLES', `WebGL render complete - canvas: ${view.width}x${view.height}`);
         return true;
@@ -371,10 +369,6 @@ export class ParticleSystem {
         return validPositions;
     }
 
-
-
-
-
     /**
      * Create the particle field function using typed array
      */
@@ -403,21 +397,16 @@ export class ParticleSystem {
             return [u, v, isNaN(magnitude) ? null : magnitude];
         }
 
-        field.randomize = (particle: Particle): void => {
-            if (validPositions.length === 0) {
-                particle.x = wb.x;
-                particle.y = wb.y;
-                particle.age = Math.random() * MAX_PARTICLE_AGE;
-                return;
-            }
-
+        field.randomize = (): { x: number; y: number; age: number } => {
             const randomIndex = Math.floor(Math.random() * validPositions.length);
             const [x, y] = validPositions[randomIndex];
 
             // Add random sub-pixel offset within the spacing block to avoid grid artifacts
-            particle.x = x + Math.floor(Math.random() * wb.spacing);
-            particle.y = y + Math.floor(Math.random() * wb.spacing);
-            particle.age = 0;
+            return {
+                x: x + Math.floor(Math.random() * wb.spacing),
+                y: y + Math.floor(Math.random() * wb.spacing),
+                age: Math.floor(Math.random() * MAX_PARTICLE_AGE)
+            };
         };
 
         field.isDefined = function (x: number, y: number): boolean {
@@ -425,28 +414,6 @@ export class ParticleSystem {
         };
 
         return field;
-    }
-
-    /**
-     * Initialize particles array (2D only)
-     * Assumes particleCount has already been calculated
-     */
-    private initializeParticles(): void {
-        // Allocate flat array: 6 values per particle (x, y, age, xt, yt, magnitude)
-        this.particleData = new Float32Array(this.particleCount * 6);
-
-        // Initialize with random positions and staggered ages
-        const tempParticle: Particle = { age: 0, x: 0, y: 0 };
-        for (let i = 0; i < this.particleCount; i++) {
-            this.field!.randomize(tempParticle);
-            const idx = i * 6;
-            this.particleData[idx] = tempParticle.x;
-            this.particleData[idx + 1] = tempParticle.y;
-            this.particleData[idx + 2] = Math.random() * MAX_PARTICLE_AGE; // Random initial age
-            this.particleData[idx + 3] = 0; // xt (will be calculated)
-            this.particleData[idx + 4] = 0; // yt (will be calculated)
-            this.particleData[idx + 5] = 0; // magnitude (will be calculated)
-        }
     }
 
 
@@ -460,51 +427,45 @@ export class ParticleSystem {
             return;
         }
 
-        const tempParticle: Particle = { age: 0, x: 0, y: 0 };
-
-        for (let i = 0; i < this.particleCount; i++) {
-            const idx = i * 6;
-            const x = this.particleData[idx];
-            const y = this.particleData[idx + 1];
-            let age = this.particleData[idx + 2];
+        for (let i = 0; i < this.particleCount * 6; i += 6) {
+            const x = this.particleData[i];
+            const y = this.particleData[i + 1];
+            let age = this.particleData[i + 2];
 
             if (age > MAX_PARTICLE_AGE) {
-                // Randomize
-                tempParticle.x = x;
-                tempParticle.y = y;
-                tempParticle.age = age;
-                this.field!.randomize(tempParticle);
-                this.particleData[idx] = tempParticle.x;
-                this.particleData[idx + 1] = tempParticle.y;
-                this.particleData[idx + 2] = tempParticle.age;
+                // Respawn at random position with age 0
+                const { x: newX, y: newY } = this.field!.randomize();
+                this.particleData[i] = newX;
+                this.particleData[i + 1] = newY;
+                this.particleData[i + 2] = 0; // Reset age to 0 on respawn
                 // Set xt, yt to same as x, y so no line is drawn on first frame after respawn
-                this.particleData[idx + 3] = tempParticle.x;
-                this.particleData[idx + 4] = tempParticle.y;
-                this.particleData[idx + 5] = 0; // magnitude
+                this.particleData[i + 3] = newX;
+                this.particleData[i + 4] = newY;
+                this.particleData[i + 5] = 0; // magnitude
             } else {
                 const v = this.field!(x, y);
                 const m = v[2];
 
                 if (m === null) {
-                    this.particleData[idx + 2] = MAX_PARTICLE_AGE;
+                    this.particleData[i + 2] = MAX_PARTICLE_AGE;
                 } else {
                     const xt = x + v[0];
                     const yt = y + v[1];
 
                     if (this.field!.isDefined(xt, yt)) {
                         // Valid move - store next position and magnitude
-                        this.particleData[idx + 3] = xt;
-                        this.particleData[idx + 4] = yt;
-                        this.particleData[idx + 5] = m;
+                        this.particleData[i + 3] = xt;
+                        this.particleData[i + 4] = yt;
+                        this.particleData[i + 5] = m;
                     } else {
                         // Invalid move - just update position
-                        this.particleData[idx] = xt;
-                        this.particleData[idx + 1] = yt;
+                        this.particleData[i] = xt;
+                        this.particleData[i + 1] = yt;
                     }
                 }
             }
             // Increment age
-            this.particleData[idx + 2] += 1;
+            this.particleData[i + 2] += 1;
         }
     }
 
@@ -519,7 +480,7 @@ export class ParticleSystem {
         }
 
         // Draw all particles with single color
-        this.ctx2D.lineWidth = 1.0;
+        this.ctx2D.lineWidth = PARTICLE_LINE_WIDTH;
         this.ctx2D.globalAlpha = 0.9;
         this.ctx2D.strokeStyle = 'white';
 
@@ -591,19 +552,7 @@ export class ParticleSystem {
     private reset(): void {
         debugLog('PARTICLES', 'Resetting system state');
 
-        // Clear WebGL canvas
-        if (this.webglCanvas) {
-            const ctx = this.webglCanvas.getContext('webgl') || this.webglCanvas.getContext('webgl2');
-            if (ctx) {
-                ctx.clearColor(0.0, 0.0, 0.0, 0.0);
-                ctx.clear(ctx.COLOR_BUFFER_BIT | ctx.DEPTH_BUFFER_BIT);
-            }
-        }
-
-        // Clear 2D canvas
-        if (this.ctx2D) {
-            this.ctx2D.clearRect(0, 0, this.canvas2D.width, this.canvas2D.height);
-        }
+        this.clearCanvas();
 
         // Dispose WebGL resources
         if (this.webglParticleSystem) {
@@ -621,8 +570,6 @@ export class ParticleSystem {
         // Reset state
         this.useWebGL = false;
     }
-
-    // ===== PUBLIC API (same as original) =====
 
     /**
      * Set external state provider (no longer subscribing to events)
@@ -696,26 +643,6 @@ export class ParticleSystem {
         }
     }
 
-    // ===== ADDITIONAL PARTICLE-SPECIFIC METHODS =====
-
-    /**
-     * Check if the system is ready
-     */
-    isReady(): boolean {
-        const config = this.stateProvider?.getConfig();
-        if (!config || !config.particleType || config.particleType === 'off') {
-            return true; // Ready when particles are disabled
-        }
-
-        return !!this.field;
-    }
-
-    /**
-     * Get current particle count
-     */
-    getParticleCount(): number {
-        return this.particleCount;
-    }
 
     /**
      * Start the particle animation loop
@@ -730,7 +657,7 @@ export class ParticleSystem {
      * Stop the particle animation loop
      */
     stopAnimation(): void {
-        console.log("Stop animation called");
+        debugLog('PARTICLES', 'Stop animation called');
         if (this.animationId) {
             clearTimeout(this.animationId);
             this.animationId = null;

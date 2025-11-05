@@ -5,8 +5,6 @@
  * Does NOT handle rendering - just evolves particle positions.
  */
 
-import { Particle } from '../renderers/Particles';
-
 const MAX_PARTICLE_AGE = 50;
 
 // ===== RENDERING SHADERS =====
@@ -1176,7 +1174,7 @@ export class WebGLParticleSystem {
     /**
      * Render particles as lines (no ReadPixels!)
      */
-    public render(projectionMatrix: Float32Array, lineWidth: number = 5.0): void {
+    public render(lineWidth: number = 0.5): void {
         if (!this.gl || !this.renderProgram || !this.renderLocations || !this.renderVertexBuffer) {
             console.error('[WebGLParticleSystem] Not ready to render');
             return;
@@ -1188,6 +1186,14 @@ export class WebGLParticleSystem {
         // Set viewport to match canvas
         const canvas = this.gl.canvas as HTMLCanvasElement;
         this.gl.viewport(0, 0, canvas.width, canvas.height);
+
+        // Create projection matrix to convert pixel coords to clip space
+        const projectionMatrix = new Float32Array([
+            2.0 / canvas.width, 0, 0, 0,
+            0, -2.0 / canvas.height, 0, 0,
+            0, 0, 1, 0,
+            -1, 1, 0, 1
+        ]);
 
         // Render fade quad to create trails
         this.renderFadeQuad();
