@@ -624,12 +624,13 @@ export class WebGLParticleSystem {
         }
 
         this.gl.bindTexture(this.gl.TEXTURE_2D, this.windTexture);
+        // Data is stored column-major, so swap dimensions to match UV swap in shader
         this.gl.texImage2D(
             this.gl.TEXTURE_2D,
             0,
             this.gl.RGBA,
-            width,
-            height,
+            height,  // swap: texture width = data height
+            width,   // swap: texture height = data width
             0,
             this.gl.RGBA,
             this.gl.UNSIGNED_BYTE,
