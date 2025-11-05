@@ -51,6 +51,7 @@ export class PlanetSystem {
 
     // 2D system
     private planetImageData: ImageData | null = null;
+    private current2DPlanetImage: HTMLImageElement | null = null;
 
     // External state references
     private stateProvider: any = null;
@@ -90,17 +91,17 @@ export class PlanetSystem {
         this.reset();
 
         // Check if we should attempt WebGL
-        // if (this.shouldUseWebGL()) {
-        //     debugLog('PLANET', 'Attempting WebGL initialization');
-        //     if (this.initializeWebGL()) {
-        //         this.useWebGL = true;
-        //         debugLog('PLANET', 'WebGL initialization successful');
-        //         return;
-        //     }
-        //     debugLog('PLANET', 'WebGL initialization failed, falling back to 2D');
-        // } else {
-        //     debugLog('PLANET', 'WebGL not suitable for current mode/projection, using 2D');
-        // }
+        if (this.shouldUseWebGL()) {
+            debugLog('PLANET', 'Attempting WebGL initialization');
+            if (this.initializeWebGL()) {
+                this.useWebGL = true;
+                debugLog('PLANET', 'WebGL initialization successful');
+                return;
+            }
+            debugLog('PLANET', 'WebGL initialization failed, falling back to 2D');
+        } else {
+            debugLog('PLANET', 'WebGL not suitable for current mode/projection, using 2D');
+        }
 
         // Fallback to 2D
         this.initialize2D();
@@ -180,6 +181,20 @@ export class PlanetSystem {
 
         // Clear any existing ImageData to force recreation
         this.planetImageData = null;
+
+        // Load the appropriate planet image for 2D rendering
+        const config = this.stateProvider?.getConfig();
+        const planetType = config?.planetType || 'earth';
+        const useDayNight = config?.useDayNight || false;
+        const cacheKey = useDayNight ? `${planetType}_daynight` : planetType;
+        
+        this.current2DPlanetImage = this.imageCache[cacheKey] || null;
+        
+        if (!this.current2DPlanetImage) {
+            debugLog('PLANET', `2D initialization: planet image not loaded yet (${cacheKey})`);
+        } else {
+            debugLog('PLANET', `2D initialization: using cached planet image (${cacheKey})`);
+        }
 
         debugLog('PLANET', '2D system initialized');
     }
@@ -302,11 +317,8 @@ export class PlanetSystem {
                 this.planetImageData = null; // Force recreation
             }
 
-            // Get planet image (use same cache key logic as loadPlanetImage)
-            const useDayNight = config?.useDayNight || false;
-            const cacheKey = useDayNight ? `${planetType}_daynight` : planetType;
-            const planetImage = this.imageCache[cacheKey];
-            if (!planetImage) {
+            // Use pre-loaded planet image from initialization
+            if (!this.current2DPlanetImage) {
                 debugLog('PLANET', '2D render failed - planet image not loaded');
                 return false;
             }
@@ -322,7 +334,7 @@ export class PlanetSystem {
 
             // Generate planet data
             const bounds = globe.bounds(view);
-            this.generate2DPlanetData(planetImage, globe, view, mask, bounds, planetData);
+            this.generate2DPlanetData(this.current2DPlanetImage, globe, view, mask, bounds, planetData);
 
             // Put ImageData onto canvas
             this.ctx2D.putImageData(this.planetImageData, 0, 0);
@@ -440,6 +452,7 @@ export class PlanetSystem {
         // Reset state
         this.useWebGL = false;
         this.planetImageData = null;
+        this.current2DPlanetImage = null;
     }
 
     // ===== PUBLIC API (same as original) =====
@@ -626,46 +639,6 @@ export class PlanetSystem {
         }
     }
 
-    // ===== ADDITIONAL PLANET-SPECIFIC METHODS =====
-
-
-
-
-    /**
-     * Check if a planet image is loaded
-     */
-    isPlanetLoaded(planetType: string, useDayNight: boolean = false): boolean {
-        const cacheKey = useDayNight ? `${planetType}_daynight` : planetType;
-        return !!this.imageCache[cacheKey];
-    }
-
-    /**
-     * Preload planet images
-     */
-    async preloadPlanets(planetTypes: string[]): Promise<void> {
-        const loadPromises = planetTypes.map(planetType =>
-            this.loadPlanetImage(planetType).catch(error => {
-                debugLog('PLANET', `Failed to preload ${planetType}:`, error);
-                return null;
-            })
-        );
-
-        await Promise.all(loadPromises);
-        debugLog('PLANET', 'Planet preloading complete');
-    }
-
-    /**
-     * Check if the system is ready
-     */
-    isReady(): boolean {
-        const config = this.stateProvider?.getConfig();
-        if (!config || config.mode !== 'planet') {
-            return true; // Ready when not in planet mode
-        }
-
-        const planetType = config.planetType || 'earth';
-        return this.isPlanetLoaded(planetType);
-    }
 
     /**
      * Clean up resources
