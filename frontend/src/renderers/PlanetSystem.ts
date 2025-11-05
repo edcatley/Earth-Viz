@@ -90,17 +90,17 @@ export class PlanetSystem {
         this.reset();
 
         // Check if we should attempt WebGL
-        if (this.shouldUseWebGL()) {
-            debugLog('PLANET', 'Attempting WebGL initialization');
-            if (this.initializeWebGL()) {
-                this.useWebGL = true;
-                debugLog('PLANET', 'WebGL initialization successful');
-                return;
-            }
-            debugLog('PLANET', 'WebGL initialization failed, falling back to 2D');
-        } else {
-            debugLog('PLANET', 'WebGL not suitable for current mode/projection, using 2D');
-        }
+        // if (this.shouldUseWebGL()) {
+        //     debugLog('PLANET', 'Attempting WebGL initialization');
+        //     if (this.initializeWebGL()) {
+        //         this.useWebGL = true;
+        //         debugLog('PLANET', 'WebGL initialization successful');
+        //         return;
+        //     }
+        //     debugLog('PLANET', 'WebGL initialization failed, falling back to 2D');
+        // } else {
+        //     debugLog('PLANET', 'WebGL not suitable for current mode/projection, using 2D');
+        // }
 
         // Fallback to 2D
         this.initialize2D();
@@ -302,8 +302,10 @@ export class PlanetSystem {
                 this.planetImageData = null; // Force recreation
             }
 
-            // Get planet image
-            const planetImage = this.imageCache[planetType];
+            // Get planet image (use same cache key logic as loadPlanetImage)
+            const useDayNight = config?.useDayNight || false;
+            const cacheKey = useDayNight ? `${planetType}_daynight` : planetType;
+            const planetImage = this.imageCache[cacheKey];
             if (!planetImage) {
                 debugLog('PLANET', '2D render failed - planet image not loaded');
                 return false;
