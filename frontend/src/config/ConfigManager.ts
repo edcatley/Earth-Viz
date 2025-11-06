@@ -69,9 +69,18 @@ export class ConfigManager {
 
     /**
      * Get current configuration (read-only copy)
+     * WARNING: Creates new object - avoid calling in hot paths
      */
     getConfig(): EarthConfig {
         return { ...this.config };
+    }
+
+    /**
+     * Get a specific config property without creating new object
+     * Use this in hot paths like render loops
+     */
+    get<K extends keyof EarthConfig>(key: K): EarthConfig[K] {
+        return this.config[key];
     }
 
     /**

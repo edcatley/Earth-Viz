@@ -14,17 +14,6 @@ function debugLog(section: string, message: string, data?: any): void {
 
 // Constants from original
 
-export interface RenderData {
-    globe: Globe;
-    overlayGrid?: any;  // For color scale
-
-    // Single canvas per system - each system decides internally whether to use WebGL or 2D
-    meshCanvas?: HTMLCanvasElement | null;     // Single mesh canvas output
-    overlayCanvas?: HTMLCanvasElement | null;  // Single overlay canvas output  
-    planetCanvas?: HTMLCanvasElement | null;   // Single planet canvas output
-    particleCanvas?: HTMLCanvasElement | null; // Single particle canvas output
-}
-
 export class RenderSystem {
     private display: DisplayOptions;
 
@@ -38,7 +27,11 @@ export class RenderSystem {
     
     // Scale listener tracking
     private scaleListenerSetup: boolean = false;
-    private lastOverlayGrid: any = null;
+    private lastOverlayScale: any = null;
+    private lastOverlayUnits: any = null;
+    
+    // Cached D3 selections
+    private foregroundSvg: d3.Selection<SVGSVGElement, unknown, HTMLElement, any> | null = null;
 
     constructor(display: DisplayOptions) {
         this.display = display;
@@ -102,77 +95,67 @@ export class RenderSystem {
 
 
 
-    /**
-     * Clear the animation canvas completely
-     */
-    public clearAnimationCanvas(): void {
-        if (!this.context) return;
 
-        this.context.clearRect(0, 0, this.display.width, this.display.height);
-    }
 
     /**
      * Main rendering method - renders the complete frame
+     * Uses direct parameters to avoid object allocation in hot path
      */
-    public renderFrame(data: RenderData): void {
-        if (!data.globe) {
+    public renderFrame(
+        globe: Globe,
+        planetCanvas: HTMLCanvasElement | null,
+        overlayCanvas: HTMLCanvasElement | null,
+        meshCanvas: HTMLCanvasElement | null,
+        particleCanvas: HTMLCanvasElement | null,
+        overlayScale: any,
+        overlayUnits: any
+    ): void {
+        if (!globe) {
             return;
         }
 
-        const t0 = performance.now();
-
         try {
-            // 1. Clear everything
-            this.clearAnimationCanvas();
-            Utils.clearCanvas(this.overlayCanvas!);
-            if (this.scaleCanvas) {
-                Utils.clearCanvas(this.scaleCanvas);
+            // 1. Clear all canvases
+            if (this.context) {
+                this.context.clearRect(0, 0, this.display.width, this.display.height);
             }
-
-            const t1 = performance.now();
+            if (this.overlayContext) {
+                this.overlayContext.clearRect(0, 0, this.display.width, this.display.height);
+            }
+            if (this.scaleContext && this.scaleCanvas) {
+                this.scaleContext.clearRect(0, 0, this.scaleCanvas.width, this.scaleCanvas.height);
+            }
 
             // SVG map structure is now handled by Earth.ts lifecycle
 
             // 2. Draw planet canvas (if provided)
-            if (data.planetCanvas) {
-                this.overlayContext!.drawImage(data.planetCanvas, 0, 0);
+            if (planetCanvas) {
+                this.overlayContext!.drawImage(planetCanvas, 0, 0);
             }
-
-            const t2 = performance.now();
 
             // 3. Draw overlay canvas (if provided)
-            if (data.overlayCanvas) {
-                this.overlayContext!.drawImage(data.overlayCanvas, 0, 0);
+            if (overlayCanvas) {
+                this.overlayContext!.drawImage(overlayCanvas, 0, 0);
             }
-
-            const t3 = performance.now();
 
             // 4. Draw mesh canvas (if provided)
-            if (data.meshCanvas) {
-                this.overlayContext!.drawImage(data.meshCanvas, 0, 0);
+            if (meshCanvas) {
+                this.overlayContext!.drawImage(meshCanvas, 0, 0);
             }
 
-            const t4 = performance.now();
-
             // 5. Draw particle canvas (if provided) with special blending
-            if (data.particleCanvas) {
+            if (particleCanvas) {
                 // Use "lighter" blending for particles to create glowing effect
                 const prevCompositeOperation = this.overlayContext!.globalCompositeOperation;
                 this.overlayContext!.globalCompositeOperation = "lighter";
-                this.overlayContext!.drawImage(data.particleCanvas, 0, 0);
+                this.overlayContext!.drawImage(particleCanvas, 0, 0);
                 this.overlayContext!.globalCompositeOperation = prevCompositeOperation;
             }
 
-            const t5 = performance.now();
-
             // 6. Draw color scale (if provided)
-            if (data.overlayGrid) {
-                this.drawColorScale(data.overlayGrid);
+            if (overlayScale) {
+                this.drawColorScale(overlayScale, overlayUnits);
             }
-
-            const t6 = performance.now();
-
-            //console.log(`[RENDER-FRAME] Clear: ${(t1-t0).toFixed(2)}ms, Planet: ${(t2-t1).toFixed(2)}ms, Overlay: ${(t3-t2).toFixed(2)}ms, Mesh: ${(t4-t3).toFixed(2)}ms, Particles: ${(t5-t4).toFixed(2)}ms, Scale: ${(t6-t5).toFixed(2)}ms, Total: ${(t6-t0).toFixed(2)}ms`);
 
         } catch (error) {
             console.error('Frame render failed:', error);
@@ -196,17 +179,17 @@ export class RenderSystem {
         const width = canvas.width - 1;
 
         colorBar.on("mousemove", (event) => {
-            if (!this.lastOverlayGrid?.scale) return;
+            if (!this.lastOverlayScale) return;
 
             const [x] = d3.pointer(event);
             const pct = Utils.clamp((Math.round(x) - 2) / (width - 2), 0, 1);
-            const bounds = this.lastOverlayGrid.scale.bounds;
+            const bounds = this.lastOverlayScale.bounds;
             if (!bounds) return;
 
             const value = Utils.spread(pct, bounds[0], bounds[1]);
 
-            if (this.lastOverlayGrid.units?.[0]) {
-                const units = this.lastOverlayGrid.units[0];
+            if (this.lastOverlayUnits?.[0]) {
+                const units = this.lastOverlayUnits[0];
                 const convertedValue = units.conversion(value);
                 const formattedValue = convertedValue.toFixed(units.precision);
                 colorBar.attr("title", `${formattedValue} ${units.label}`);
@@ -219,14 +202,13 @@ export class RenderSystem {
     /**
      * Draw color scale bar
      */
-    private drawColorScale(overlayGrid: any): void {
-        if (!this.scaleContext || !overlayGrid.scale) {
+    private drawColorScale(scale: any, units: any): void {
+        if (!this.scaleContext || !scale) {
             return;
         }
 
         const canvas = this.scaleCanvas!;
         const ctx = this.scaleContext;
-        const scale = overlayGrid.scale;
         const bounds = scale.bounds;
 
         if (!bounds) return;
@@ -237,8 +219,9 @@ export class RenderSystem {
             this.scaleListenerSetup = true;
         }
 
-        // Store current overlay grid for tooltip handler
-        this.lastOverlayGrid = overlayGrid;
+        // Store current scale/units for tooltip handler
+        this.lastOverlayScale = scale;
+        this.lastOverlayUnits = units;
 
         // Draw gradient bar
         const width = canvas.width - 1;
@@ -256,10 +239,14 @@ export class RenderSystem {
     public drawLocationMark(point: Point, coord: GeoPoint): void {
         debugLog('LOCATION', 'Drawing location mark', { point, coord });
 
-        const foregroundSvg = d3.select("#foreground");
-        foregroundSvg.selectAll(".location-mark").remove();
+        // Cache the foreground SVG selection
+        if (!this.foregroundSvg) {
+            this.foregroundSvg = d3.select("#foreground") as d3.Selection<SVGSVGElement, unknown, HTMLElement, any>;
+        }
 
-        foregroundSvg.append("circle")
+        this.foregroundSvg.selectAll(".location-mark").remove();
+
+        this.foregroundSvg.append("circle")
             .attr("class", "location-mark")
             .attr("cx", point[0])
             .attr("cy", point[1])
@@ -267,13 +254,6 @@ export class RenderSystem {
             .style("fill", "red")
             .style("stroke", "white")
             .style("stroke-width", 2);
-    }
-
-    /**
-     * Check if rendering contexts are available
-     */
-    public isReady(): boolean {
-        return !!(this.context && this.overlayContext && this.scaleContext);
     }
 
     /**

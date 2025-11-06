@@ -296,61 +296,52 @@ class EarthModernApp {
     }
 
     /**
-     * Render current state - only pass data that should actually be rendered
+     * Render current state - pass data directly to avoid object allocation
      */
     private performRender(): void {
         if (!this.globe) return;
 
-        // Determine what should be rendered based on current mode and overlay state
-        const config = this.configManager.getConfig();
-        const mode = config.mode || 'air';
-        const overlayType = config.overlayType || 'off';
+        // Get config properties individually to avoid creating new config object
+        const mode = this.configManager.get('mode') || 'air';
+        const overlayType = this.configManager.get('overlayType') || 'off';
+        const particleType = this.configManager.get('particleType') || 'off';
 
-        // Determine what canvases to pass based on mode
+        // Determine what to render based on mode
         let planetCanvas = null;
         let overlayCanvas = null;
         let meshCanvas = null;
         let particleCanvas = null;
-        let overlayGrid = null;
+        let overlayScale = null;
+        let overlayUnits = null;
 
-        // Planet mode: only show planet surface, no mesh or overlay or particles
         if (mode === 'planet') {
+            // Planet mode: only show planet surface
             planetCanvas = this.planetCanvas;
-            // No overlay, mesh, or particles in planet mode - pure planet view
-        }
-        // Air/Ocean modes: show mesh, overlay, and particles if enabled, no planet
-        else if (mode === 'air' || mode === 'ocean') {
-            // Always show mesh (coastlines, etc.) in air/ocean modes
+        } else if (mode === 'air' || mode === 'ocean') {
+            // Air/Ocean modes: show mesh, overlay, and particles if enabled
             meshCanvas = this.meshCanvas;
 
-            if (overlayType !== 'off') {
+            if (overlayType !== 'off' && this.overlayProduct) {
                 overlayCanvas = this.overlayCanvas;
-                // Extract only what's needed for color scale (scale + units)
-                // Instead of passing entire 260KB WeatherProduct
-                if (this.overlayProduct) {
-                    overlayGrid = {
-                        scale: this.overlayProduct.scale,
-                        units: this.overlayProduct.units
-                    };
-                }
+                overlayScale = this.overlayProduct.scale;
+                overlayUnits = this.overlayProduct.units;
             }
 
-            // Show particles if enabled
-            const particleType = this.configManager.getConfig().particleType || 'off';
             if (particleType !== 'off') {
                 particleCanvas = this.particleCanvas;
             }
         }
 
-        // Pass single canvases to render system
-        this.renderSystem.renderFrame({
-            globe: this.globe,
-            planetCanvas: planetCanvas,
-            overlayCanvas: overlayCanvas,
-            meshCanvas: meshCanvas,
-            particleCanvas: particleCanvas,
-            overlayGrid: overlayGrid
-        });
+        // Pass data directly - no object allocation
+        this.renderSystem.renderFrame(
+            this.globe,
+            planetCanvas,
+            overlayCanvas,
+            meshCanvas,
+            particleCanvas,
+            overlayScale,
+            overlayUnits
+        );
     }
 
     // Simple event emitter for visual state changes
