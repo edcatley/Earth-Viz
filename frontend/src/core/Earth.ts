@@ -325,7 +325,14 @@ class EarthModernApp {
 
             if (overlayType !== 'off') {
                 overlayCanvas = this.overlayCanvas;
-                overlayGrid = this.overlayProduct;
+                // Extract only what's needed for color scale (scale + units)
+                // Instead of passing entire 260KB WeatherProduct
+                if (this.overlayProduct) {
+                    overlayGrid = {
+                        scale: this.overlayProduct.scale,
+                        units: this.overlayProduct.units
+                    };
+                }
             }
 
             // Show particles if enabled

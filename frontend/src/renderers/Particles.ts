@@ -66,11 +66,15 @@ export class ParticleSystem {
     // External state references
     private stateProvider: any = null;
 
+    // Cached config values (updated in handleDataChange)
+    private cachedParticleType: string = 'off';
+
     // Event callbacks
     private eventHandlers: { [key: string]: Function[] } = {};
 
     // Animation
     private animationId: number | null = null;
+    private boundAnimate: (() => void) | null = null;
 
     constructor() {
         // Create canvases
@@ -82,6 +86,9 @@ export class ParticleSystem {
             throw new Error("Failed to create 2D canvas context for particles");
         }
         this.ctx2D = ctx;
+
+        // Bind animate once to avoid creating new closures every frame
+        this.boundAnimate = this.animateFrame.bind(this);
 
         debugLog('PARTICLES', 'particles created with standardized pattern');
     }
@@ -103,6 +110,9 @@ export class ParticleSystem {
         const mask = this.stateProvider?.getMask();
         const config = this.stateProvider?.getConfig();
         const particleProduct = this.stateProvider?.getParticleProduct();
+
+        // Cache particleType to avoid creating config objects in hot path
+        this.cachedParticleType = config?.particleType || 'off';
 
         // Validate required data
         if (!globe || !mask || !view || !config || !particleProduct) {
@@ -253,8 +263,6 @@ export class ParticleSystem {
 
         // Render particles (pass half width for quad rendering)
         this.webglParticleSystem.render(PARTICLE_LINE_WIDTH / 2);
-
-        debugLog('PARTICLES', `WebGL render complete - canvas: ${view.width}x${view.height}`);
         return true;
     }
 
@@ -538,10 +546,9 @@ export class ParticleSystem {
         }
 
         // Emit cleared canvas
-        const config = this.stateProvider?.getConfig();
         const result: ParticleResult = {
             canvas: this.canvas2D,
-            particleType: config?.particleType || 'off'
+            particleType: this.cachedParticleType
         };
         this.emit('particlesChanged', result);
     }
@@ -614,11 +621,10 @@ export class ParticleSystem {
      */
     private regenerateParticles(): void {
         const canvas = this.generateFrame();
-        const config = this.stateProvider?.getConfig();
 
         const result: ParticleResult = {
             canvas: canvas,
-            particleType: config?.particleType || 'off'
+            particleType: this.cachedParticleType
         };
 
         this.emit('particlesChanged', result);
@@ -672,28 +678,37 @@ export class ParticleSystem {
      * Internal animation loop - evolves particles and emits canvas
      */
     private animate(): void {
+        if (!this.boundAnimate) return;
+        
         try {
             // Generate new frame (evolve particles and draw to canvas)
             const canvas = this.generateFrame();
 
             if (canvas) {
-                const config = this.stateProvider?.getConfig();
+                // Use cached particleType instead of calling getConfig() every frame
                 const result: ParticleResult = {
                     canvas: canvas,
-                    particleType: config?.particleType || 'off'
+                    particleType: this.cachedParticleType
                 };
 
                 this.emit('particlesChanged', result);
             }
 
-            // Schedule next frame at fixed 40ms (25fps)
-            this.animationId = setTimeout(() => {
-                if (this.animationId) this.animate();
-            }, 40) as any;
+            // Schedule next frame using pre-bound function (no new closure)
+            this.animationId = setTimeout(this.boundAnimate, 1000) as any;
 
         } catch (error) {
             debugLog('PARTICLES', 'Animation error:', error);
             this.stopAnimation();
+        }
+    }
+    
+    /**
+     * Animation frame wrapper for setTimeout
+     */
+    private animateFrame(): void {
+        if (this.animationId) {
+            this.animate();
         }
     }
 

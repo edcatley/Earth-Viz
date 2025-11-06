@@ -35,6 +35,10 @@ export class RenderSystem {
     private overlayContext: CanvasRenderingContext2D | null = null;
     private scaleCanvas: HTMLCanvasElement | null = null;
     private scaleContext: CanvasRenderingContext2D | null = null;
+    
+    // Scale listener tracking
+    private scaleListenerSetup: boolean = false;
+    private lastOverlayGrid: any = null;
 
     constructor(display: DisplayOptions) {
         this.display = display;
@@ -184,6 +188,35 @@ export class RenderSystem {
 
 
     /**
+     * Setup scale tooltip listener (called once)
+     */
+    private setupScaleTooltip(): void {
+        const colorBar = d3.select("#scale");
+        const canvas = this.scaleCanvas!;
+        const width = canvas.width - 1;
+
+        colorBar.on("mousemove", (event) => {
+            if (!this.lastOverlayGrid?.scale) return;
+
+            const [x] = d3.pointer(event);
+            const pct = Utils.clamp((Math.round(x) - 2) / (width - 2), 0, 1);
+            const bounds = this.lastOverlayGrid.scale.bounds;
+            if (!bounds) return;
+
+            const value = Utils.spread(pct, bounds[0], bounds[1]);
+
+            if (this.lastOverlayGrid.units?.[0]) {
+                const units = this.lastOverlayGrid.units[0];
+                const convertedValue = units.conversion(value);
+                const formattedValue = convertedValue.toFixed(units.precision);
+                colorBar.attr("title", `${formattedValue} ${units.label}`);
+            } else {
+                colorBar.attr("title", `${value.toFixed(1)}`);
+            }
+        });
+    }
+
+    /**
      * Draw color scale bar
      */
     private drawColorScale(overlayGrid: any): void {
@@ -198,36 +231,23 @@ export class RenderSystem {
 
         if (!bounds) return;
 
-        const width = canvas.width - 1;
+        // Setup tooltip listener on first call
+        if (!this.scaleListenerSetup) {
+            this.setupScaleTooltip();
+            this.scaleListenerSetup = true;
+        }
+
+        // Store current overlay grid for tooltip handler
+        this.lastOverlayGrid = overlayGrid;
 
         // Draw gradient bar
+        const width = canvas.width - 1;
         for (let i = 0; i <= width; i++) {
             const value = Utils.spread(i / width, bounds[0], bounds[1]);
-            const rgb = scale.gradient(value, 1); // Full opacity for scale
+            const rgb = scale.gradient(value, 1);
             ctx.fillStyle = `rgb(${rgb[0]},${rgb[1]},${rgb[2]})`;
             ctx.fillRect(i, 0, 1, canvas.height);
         }
-
-        // Add tooltip functionality like the original
-        const colorBar = d3.select("#scale");
-        colorBar.on("mousemove", (event) => {
-            const [x] = d3.pointer(event);
-            const pct = Utils.clamp((Math.round(x) - 2) / (width - 2), 0, 1);
-            const value = Utils.spread(pct, bounds[0], bounds[1]);
-
-            if (overlayGrid.units && overlayGrid.units[0]) {
-                const units = overlayGrid.units[0];
-                const convertedValue = units.conversion(value);
-                const formattedValue = convertedValue.toFixed(units.precision);
-
-                colorBar.attr("title", `${formattedValue} ${units.label}`);
-            } else {
-                // Fallback for products without units
-                colorBar.attr("title", `${value.toFixed(1)}`);
-            }
-        });
-
-
     }
 
     /**
