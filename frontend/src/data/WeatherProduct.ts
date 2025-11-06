@@ -34,6 +34,7 @@ export abstract class WeatherProduct {
     public readonly name: string;
     public readonly description: string;
     public readonly type: WeatherDataType;
+    public readonly field: WeatherDataType;  // Alias for compatibility with old code
     public readonly date: Date;
     public readonly source: string = "GFS / NCEP / US National Weather Service";
     
@@ -54,6 +55,7 @@ export abstract class WeatherProduct {
         this.name = config.name;
         this.description = config.description;
         this.type = config.type;
+        this.field = config.type;  // Alias for compatibility
         this.date = config.date;
         this.units = config.units;
         this.scale = config.scale;

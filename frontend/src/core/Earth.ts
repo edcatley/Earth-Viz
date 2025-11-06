@@ -12,7 +12,8 @@ import * as d3 from 'd3';
 import '../styles/styles.css';
 
 import { Globes, Globe, ViewportSize } from '../core/Globes';
-import { Products } from '../data/Products';
+import { WeatherProduct, WeatherProductFactory } from '../data/WeatherProduct';
+import { getParticleConfig, getOverlayConfig } from '../data/ProductCatalog';
 import { Utils } from '../utils/Utils';
 import { MenuSystem } from '../components/MenuSystem';
 import { ConfigManager, EarthConfig } from '../config/ConfigManager';
@@ -29,15 +30,6 @@ import coastlines10km from '../data/ne_110m_coastline.json';
 import lakes10km from '../data/ne_110m_lakes.json';
 import rivers10km from '../data/ne_110m_rivers_lake_centerlines.json';
 
-// ===== CLEAN INTERFACES =====
-
-interface WeatherData {
-    wind: any;
-    overlay: any;
-}
-
-
-
 // ===== CLEAN EARTH APP =====
 
 class EarthModernApp {
@@ -49,7 +41,6 @@ class EarthModernApp {
     private earthAPI: EarthAPI;
 
     // Systems (each with single responsibility)
-    private products: Products;
     private globe: Globe | null = null;
     private menuSystem: MenuSystem;
     private particleSystem: ParticleSystem;
@@ -75,8 +66,8 @@ class EarthModernApp {
     private particleCanvas: HTMLCanvasElement | null = null;
 
     // Weather data - cleanly separated
-    private overlayProduct: any = null;
-    private particleProduct: any = null;
+    private overlayProduct: WeatherProduct | null = null;
+    private particleProduct: WeatherProduct | null = null;
     private overlayCanvas: HTMLCanvasElement | null = null;
 
 
@@ -92,7 +83,6 @@ class EarthModernApp {
         this.earthAPI = new EarthAPI(this.configManager);
 
         // Initialize systems (no coupling yet)
-        this.products = new Products();
         this.menuSystem = new MenuSystem(this.configManager);
         this.overlaySystem = new OverlaySystem();
         this.planetSystem = new PlanetSystem();
@@ -590,26 +580,44 @@ class EarthModernApp {
 
         try {
             const config = this.configManager.getConfig();
+            console.log('[EARTH-MODERN] Config:', config);
+            
+            // Get a date that's guaranteed to have data (yesterday at 18z)
+            const dataDate = new Date();
+            dataDate.setDate(dataDate.getDate() - 1);  // Yesterday
+            dataDate.setUTCHours(18, 0, 0, 0);  // 18z
+            
             // Load particle data if needed (wind, waves, ocean currents, etc.)
             if (config.particleType && config.particleType !== 'off') {
-                console.log('[EARTH-MODERN] Loading particle data:', config.particleType);
-                this.particleProduct = Products.createParticleProduct(config.particleType, config);
-                await this.particleProduct.load({ requested: false });
+                console.log('[EARTH-MODERN] Loading particle data:', config.particleType, 'level:', config.level);
+                const particleConfig = getParticleConfig(config.particleType, config.level, dataDate);
+                console.log('[EARTH-MODERN] Particle config:', particleConfig);
+                this.particleProduct = await WeatherProductFactory.createVector(particleConfig);
+                console.log('[EARTH-MODERN] Particle product created:', this.particleProduct);
             } else {
                 this.particleProduct = null;
             }
 
             // Load overlay data if needed  
             if (config.overlayType && config.overlayType !== 'off' && config.overlayType !== 'default') {
-                console.log('[EARTH-MODERN] Loading overlay data:', config.overlayType);
-                this.overlayProduct = Products.createOverlayProduct(config.overlayType, config);
-                await this.overlayProduct.load({ requested: false });
+                console.log('[EARTH-MODERN] Loading overlay data:', config.overlayType, 'level:', config.level);
+                const overlayConfig = getOverlayConfig(config.overlayType, config.level, dataDate);
+                console.log('[EARTH-MODERN] Overlay config:', overlayConfig);
+                
+                // Determine if it's scalar or vector
+                if (overlayConfig.type === 'scalar') {
+                    this.overlayProduct = await WeatherProductFactory.createScalar(overlayConfig);
+                } else {
+                    this.overlayProduct = await WeatherProductFactory.createVector(overlayConfig);
+                }
+                console.log('[EARTH-MODERN] Overlay product created:', this.overlayProduct);
             } else {
                 this.overlayProduct = null;
             }
 
             // Update menu system with weather data metadata
             const products = [this.particleProduct, this.overlayProduct].filter(p => p !== null);
+            console.log('[EARTH-MODERN] Products for menu:', products);
             this.menuSystem.updateWeatherData(products);
 
             console.log('[EARTH-MODERN] Weather data loaded - Particles:', !!this.particleProduct, 'Overlay:', !!this.overlayProduct);
@@ -619,6 +627,7 @@ class EarthModernApp {
 
         } catch (error) {
             console.error('[EARTH-MODERN] Failed to load weather data:', error);
+            console.error('[EARTH-MODERN] Error stack:', error instanceof Error ? error.stack : 'No stack');
             // Don't fail completely
             this.particleProduct = null;
             this.overlayProduct = null;
@@ -843,11 +852,11 @@ class EarthModernApp {
         return this.configManager.getConfig();
     }
 
-    getParticleProduct(): any {
+    getParticleProduct(): WeatherProduct | null {
         return this.particleProduct;
     }
 
-    getOverlayProduct(): any {
+    getOverlayProduct(): WeatherProduct | null {
         return this.overlayProduct;
     }
 
