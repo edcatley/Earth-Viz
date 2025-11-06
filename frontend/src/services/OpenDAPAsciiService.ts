@@ -102,7 +102,6 @@ const PRESSURE_LEVEL_MAP: Record<number, number> = {
 
 export class OpenDAPAsciiService {
     private static instance: OpenDAPAsciiService;
-    private cache: Map<string, any> = new Map();
     private proxyUrl = '/earth-viz/api/proxy/opendap';
     // Use 1° resolution for better performance on low-end devices
     private opendapBaseUrl = 'https://nomads.ncep.noaa.gov/dods/gfs_1p00';
@@ -282,13 +281,6 @@ export class OpenDAPAsciiService {
     public async fetchScalarData(parameter: string, level: string, date?: Date): Promise<WeatherData> {
         const dateStr = date ? date.toISOString().split('T')[0].replace(/-/g, '') : 'current';
         const hourStr = date ? String(date.getUTCHours()).padStart(2, '0') : '00';
-        const cacheKey = `scalar-${parameter}-${level}-${dateStr}-${hourStr}`;
-
-        // Check cache first
-        if (this.cache.has(cacheKey)) {
-            debugLog('OPENDAP-ASCII', 'Returning cached scalar data for:', cacheKey);
-            return this.cache.get(cacheKey);
-        }
 
         try {
             debugLog('OPENDAP-ASCII', 'Fetching scalar data:', { parameter, level, date: dateStr, hour: hourStr });
@@ -334,10 +326,6 @@ export class OpenDAPAsciiService {
                 values: flippedValues
             };
 
-            // Cache the result
-            this.cache.set(cacheKey, weatherData);
-            this.limitCacheSize();
-
             return weatherData;
 
         } catch (error) {
@@ -352,13 +340,6 @@ export class OpenDAPAsciiService {
     public async fetchVectorData(uParam: string, vParam: string, level: string, date?: Date): Promise<VectorWeatherData> {
         const dateStr = date ? date.toISOString().split('T')[0].replace(/-/g, '') : 'current';
         const hourStr = date ? String(date.getUTCHours()).padStart(2, '0') : '00';
-        const cacheKey = `vector-${uParam}-${vParam}-${level}-${dateStr}-${hourStr}`;
-
-        // Check cache first
-        if (this.cache.has(cacheKey)) {
-            debugLog('OPENDAP-ASCII', 'Returning cached vector data for:', cacheKey);
-            return this.cache.get(cacheKey);
-        }
 
         try {
             debugLog('OPENDAP-ASCII', 'Fetching vector data:', { uParam, vParam, level, date: dateStr, hour: hourStr });
@@ -397,10 +378,6 @@ export class OpenDAPAsciiService {
                 magnitude,
                 direction
             };
-
-            // Cache the result
-            this.cache.set(cacheKey, vectorData);
-            this.limitCacheSize();
 
             return vectorData;
 
@@ -498,27 +475,6 @@ export class OpenDAPAsciiService {
         const hour = parseInt(dataTime.substring(0, 2));
         const minute = parseInt(dataTime.substring(2, 4));
         return new Date(year, month, day, hour, minute).toISOString();
-    }
-
-    /**
-     * Limit cache size (reduced to 3 for low-memory devices)
-     */
-    private limitCacheSize(): void {
-        if (this.cache.size > 3) {
-            const iterator = this.cache.keys();
-            const firstResult = iterator.next();
-            if (!firstResult.done) {
-                this.cache.delete(firstResult.value);
-            }
-        }
-    }
-
-    /**
-     * Clear the cache
-     */
-    public clearCache(): void {
-        this.cache.clear();
-        debugLog('OPENDAP-ASCII', 'Cache cleared');
     }
 }
 
