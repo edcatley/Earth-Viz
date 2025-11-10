@@ -12,8 +12,8 @@ import * as d3 from 'd3';
 import '../styles/styles.css';
 
 import { Globes, Globe, ViewportSize } from '../core/Globes';
-import { WeatherProduct, WeatherProductFactory } from '../data/WeatherProduct';
-import { getParticleConfig, getOverlayConfig } from '../data/ProductCatalog';
+import { WeatherProduct } from '../data/WeatherProduct';
+import { ProductManager } from '../data/ProductManager';
 import { Utils } from '../utils/Utils';
 import { MenuSystem } from '../components/MenuSystem';
 import { ConfigManager, EarthConfig } from '../config/ConfigManager';
@@ -69,6 +69,9 @@ class EarthModernApp {
     private overlayProduct: WeatherProduct | null = null;
     private particleProduct: WeatherProduct | null = null;
     private overlayCanvas: HTMLCanvasElement | null = null;
+    
+    // Product manager - handles caching and creation
+    private productManager: ProductManager;
 
 
 
@@ -81,6 +84,9 @@ class EarthModernApp {
         // Initialize configuration management
         this.configManager = new ConfigManager(this.createInitialConfig());
         this.earthAPI = new EarthAPI(this.configManager);
+        
+        // Initialize product manager
+        this.productManager = ProductManager.getInstance();
 
         // Initialize systems (no coupling yet)
         this.menuSystem = new MenuSystem(this.configManager);
@@ -591,28 +597,22 @@ class EarthModernApp {
             
             // Load particle data if needed (wind, waves, ocean currents, etc.)
             if (config.particleType && config.particleType !== 'off') {
-                console.log('[EARTH-MODERN] Loading particle data:', config.particleType, 'level:', config.level);
-                const particleConfig = getParticleConfig(config.particleType, config.level, dataDate);
-                console.log('[EARTH-MODERN] Particle config:', particleConfig);
-                this.particleProduct = await WeatherProductFactory.createVector(particleConfig);
-                console.log('[EARTH-MODERN] Particle product created:', this.particleProduct);
+                this.particleProduct = await this.productManager.getParticleProduct(
+                    config.particleType,
+                    config.level,
+                    dataDate
+                );
             } else {
                 this.particleProduct = null;
             }
 
             // Load overlay data if needed  
             if (config.overlayType && config.overlayType !== 'off' && config.overlayType !== 'default') {
-                console.log('[EARTH-MODERN] Loading overlay data:', config.overlayType, 'level:', config.level);
-                const overlayConfig = getOverlayConfig(config.overlayType, config.level, dataDate);
-                console.log('[EARTH-MODERN] Overlay config:', overlayConfig);
-                
-                // Determine if it's scalar or vector
-                if (overlayConfig.type === 'scalar') {
-                    this.overlayProduct = await WeatherProductFactory.createScalar(overlayConfig);
-                } else {
-                    this.overlayProduct = await WeatherProductFactory.createVector(overlayConfig);
-                }
-                console.log('[EARTH-MODERN] Overlay product created:', this.overlayProduct);
+                this.overlayProduct = await this.productManager.getOverlayProduct(
+                    config.overlayType,
+                    config.level,
+                    dataDate
+                );
             } else {
                 this.overlayProduct = null;
             }

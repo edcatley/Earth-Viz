@@ -695,7 +695,7 @@ export class ParticleSystem {
             }
 
             // Schedule next frame using pre-bound function (no new closure)
-            this.animationId = setTimeout(this.boundAnimate, 1000) as any;
+            this.animationId = setTimeout(this.boundAnimate, 40) as any;
 
         } catch (error) {
             debugLog('PARTICLES', 'Animation error:', error);
