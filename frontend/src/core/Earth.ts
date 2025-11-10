@@ -421,6 +421,10 @@ class EarthModernApp {
 
         this.particleSystem.setStateProvider(this);
         this.particleSystem.handleDataChange();
+        
+        this.renderSystem.setStateProvider(this);
+        this.renderSystem.handleDataChange();
+        
         this.setupMapStructure();
 
 

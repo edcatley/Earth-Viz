@@ -32,6 +32,12 @@ export class RenderSystem {
     
     // Cached D3 selections
     private foregroundSvg: d3.Selection<SVGSVGElement, unknown, HTMLElement, any> | null = null;
+    
+    // Pre-rendered scale canvas (updated only when data changes)
+    private preRenderedScaleCanvas: HTMLCanvasElement | null = null;
+    
+    // External state provider
+    private stateProvider: any = null;
 
     constructor(display: DisplayOptions) {
         this.display = display;
@@ -170,66 +176,23 @@ export class RenderSystem {
 
 
 
-    /**
-     * Setup scale tooltip listener (called once)
-     */
-    private setupScaleTooltip(): void {
-        const colorBar = d3.select("#scale");
-        const canvas = this.scaleCanvas!;
-        const width = canvas.width - 1;
 
-        colorBar.on("mousemove", (event) => {
-            if (!this.lastOverlayScale) return;
-
-            const [x] = d3.pointer(event);
-            const pct = Utils.clamp((Math.round(x) - 2) / (width - 2), 0, 1);
-            const bounds = this.lastOverlayScale.bounds;
-            if (!bounds) return;
-
-            const value = Utils.spread(pct, bounds[0], bounds[1]);
-
-            if (this.lastOverlayUnits?.[0]) {
-                const units = this.lastOverlayUnits[0];
-                const convertedValue = units.conversion(value);
-                const formattedValue = convertedValue.toFixed(units.precision);
-                colorBar.attr("title", `${formattedValue} ${units.label}`);
-            } else {
-                colorBar.attr("title", `${value.toFixed(1)}`);
-            }
-        });
-    }
 
     /**
-     * Draw color scale bar
+     * Draw color scale bar - just copy the pre-rendered canvas
      */
     private drawColorScale(scale: any, units: any): void {
-        if (!this.scaleContext || !scale) {
+        if (!this.scaleContext) {
             return;
-        }
-
-        const canvas = this.scaleCanvas!;
-        const ctx = this.scaleContext;
-        const bounds = scale.bounds;
-
-        if (!bounds) return;
-
-        // Setup tooltip listener on first call
-        if (!this.scaleListenerSetup) {
-            this.setupScaleTooltip();
-            this.scaleListenerSetup = true;
         }
 
         // Store current scale/units for tooltip handler
         this.lastOverlayScale = scale;
         this.lastOverlayUnits = units;
 
-        // Draw gradient bar
-        const width = canvas.width - 1;
-        for (let i = 0; i <= width; i++) {
-            const value = Utils.spread(i / width, bounds[0], bounds[1]);
-            const rgb = scale.gradient(value, 1);
-            ctx.fillStyle = `rgb(${rgb[0]},${rgb[1]},${rgb[2]})`;
-            ctx.fillRect(i, 0, 1, canvas.height);
+        // Just copy the pre-rendered canvas (single drawImage instead of 200 fillRect)
+        if (this.preRenderedScaleCanvas) {
+            this.scaleContext.drawImage(this.preRenderedScaleCanvas, 0, 0);
         }
     }
 
@@ -277,6 +240,93 @@ export class RenderSystem {
             width: display.width,
             height: display.height
         });
+    }
+
+    /**
+     * Set external state provider
+     */
+    setStateProvider(stateProvider: any): void {
+        this.stateProvider = stateProvider;
+    }
+
+    /**
+     * Handle data changes - regenerate color scale when overlay data changes
+     */
+    handleDataChange(): void {
+        const overlayProduct = this.stateProvider?.getOverlayProduct();
+        
+        if (overlayProduct?.scale) {
+            this.generateColorScale(overlayProduct.scale, overlayProduct.units);
+            this.setupScaleTooltip(overlayProduct.scale, overlayProduct.units);
+        }
+    }
+
+    /**
+     * Generate color scale canvas (called once when data changes)
+     */
+    private generateColorScale(scale: any, units: any): void {
+        if (!this.scaleContext || !scale) {
+            return;
+        }
+
+        const bounds = scale.bounds;
+        if (!bounds) return;
+
+        // Create offscreen canvas for pre-rendering
+        if (!this.preRenderedScaleCanvas) {
+            this.preRenderedScaleCanvas = document.createElement('canvas');
+        }
+
+        // Match the size of the actual scale canvas
+        this.preRenderedScaleCanvas.width = this.scaleCanvas!.width;
+        this.preRenderedScaleCanvas.height = this.scaleCanvas!.height;
+
+        const ctx = this.preRenderedScaleCanvas.getContext('2d')!;
+
+        // Draw gradient once
+        const width = this.preRenderedScaleCanvas.width - 1;
+        for (let i = 0; i <= width; i++) {
+            const value = Utils.spread(i / width, bounds[0], bounds[1]);
+            const rgb = scale.gradient(value, 1);
+            ctx.fillStyle = `rgb(${rgb[0]},${rgb[1]},${rgb[2]})`;
+            ctx.fillRect(i, 0, 1, this.preRenderedScaleCanvas.height);
+        }
+
+        debugLog('RENDER', 'Color scale pre-rendered');
+    }
+
+    /**
+     * Setup scale tooltip (called once when data changes)
+     */
+    private setupScaleTooltip(scale: any, units: any): void {
+        if (this.scaleListenerSetup) return; // Already setup
+
+        const colorBar = d3.select("#scale");
+        const canvas = this.scaleCanvas!;
+        const width = canvas.width - 1;
+
+        colorBar.on("mousemove", (event) => {
+            if (!this.lastOverlayScale) return;
+
+            const [x] = d3.pointer(event);
+            const pct = Utils.clamp((Math.round(x) - 2) / (width - 2), 0, 1);
+            const bounds = this.lastOverlayScale.bounds;
+            if (!bounds) return;
+
+            const value = Utils.spread(pct, bounds[0], bounds[1]);
+
+            if (this.lastOverlayUnits?.[0]) {
+                const units = this.lastOverlayUnits[0];
+                const convertedValue = units.conversion(value);
+                const formattedValue = convertedValue.toFixed(units.precision);
+                colorBar.attr("title", `${formattedValue} ${units.label}`);
+            } else {
+                colorBar.attr("title", `${value.toFixed(1)}`);
+            }
+        });
+
+        this.scaleListenerSetup = true;
+        debugLog('RENDER', 'Scale tooltip setup');
     }
 
 
