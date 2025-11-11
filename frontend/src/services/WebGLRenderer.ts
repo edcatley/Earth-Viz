@@ -837,6 +837,15 @@ export class WebGLRenderer {
         }
     }
 
+    /**
+     * Clear the canvas
+     */
+    public clear(): void {
+        if (!this.gl) return;
+        this.gl.clearColor(0.0, 0.0, 0.0, 0.0);
+        this.gl.clear(this.gl.COLOR_BUFFER_BIT | this.gl.DEPTH_BUFFER_BIT);
+    }
+
     public dispose(): void {
         if (!this.gl) return;
 
