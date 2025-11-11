@@ -446,8 +446,9 @@ class EarthModernApp {
             this.meshSystem.handleDataChange(globe, mesh, view);
         }
 
-        this.planetSystem.setStateProvider(this);
-        this.planetSystem.handleDataChange();
+        if (globe && mask && view && config.planetType !== undefined && config.useDayNight !== undefined) {
+            this.planetSystem.handleDataChange(globe, mask, view, config.planetType, config.useDayNight);
+        }
 
         this.particleSystem.setStateProvider(this);
         this.particleSystem.handleDataChange();
@@ -485,8 +486,9 @@ class EarthModernApp {
             this.meshSystem.handleRotation(globe, view);
         }
 
-        this.planetSystem.setStateProvider(this);
-        this.planetSystem.handleRotation();
+        if (globe && mask && view && config.planetType !== undefined) {
+            this.planetSystem.handleRotation(globe, mask, view, config.planetType);
+        }
 
         this.particleSystem.setStateProvider(this);
         this.particleSystem.handleRotation();

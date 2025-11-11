@@ -12,8 +12,6 @@ import { Globe, ViewportSize } from '../core/Globes';
 import { WebGLRenderer } from '../services/WebGLRenderer';
 import { DayNightBlender } from '../services/DayNightBlender';
 import { PlanetRenderer2D } from './2dPlanetRenderer';
-import { PlanetRenderer2D } from './2dPlanetRenderer';
-import { PlanetRenderer2D } from './2dPlanetRenderer';
 
 // --- Constants ---
 // Available planet types (day versions)
@@ -52,9 +50,6 @@ export class PlanetSystem {
     // Renderer delegates
     private webglRenderer: WebGLRenderer | null = null;
     private renderer2D: PlanetRenderer2D | null = null;
-
-    // External state references
-    private stateProvider: any = null;
 
     // Event callbacks
     private eventHandlers: { [key: string]: Function[] } = {};
@@ -104,7 +99,7 @@ export class PlanetSystem {
      * Setup renderers with current data
      * Tries WebGL first (if available), falls back to 2D
      */
-    public setup(): void {
+    public setup(globe: Globe, view: ViewportSize, planetType: string, useDayNight: boolean): void {
         debugLog('PLANET', 'Starting setup');
 
         // Clear any existing setup
@@ -113,7 +108,7 @@ export class PlanetSystem {
         // Try WebGL first (if available)
         if (this.webglRenderer) {
             debugLog('PLANET', 'Attempting WebGL setup');
-            if (this.setupWebGL()) {
+            if (this.setupWebGL(globe, view, planetType, useDayNight)) {
                 this.useWebGL = true;
                 debugLog('PLANET', 'WebGL setup successful');
                 return;
@@ -124,7 +119,7 @@ export class PlanetSystem {
         }
 
         // Fallback to 2D
-        this.setup2D();
+        this.setup2D(view, planetType, useDayNight);
         this.useWebGL = false;
         debugLog('PLANET', '2D setup complete');
     }
@@ -132,25 +127,23 @@ export class PlanetSystem {
     /**
      * Attempt WebGL setup - returns true if successful
      */
-    private setupWebGL(): boolean {
+    private setupWebGL(globe: Globe, view: ViewportSize, planetType: string, useDayNight: boolean): boolean {
         if (!this.webglRenderer) {
             return false;
         }
 
         try {
-            // Get current state
-            const config = this.stateProvider?.getConfig();
-            const globe = this.stateProvider?.getGlobe();
-            const planetType = config?.planetType || 'earth';
-
-            if (!config || !globe || config.mode !== 'planet') {
-                debugLog('PLANET', 'WebGL setup skipped - not in planet mode or missing data');
+            if (!globe || !view) {
+                debugLog('PLANET', 'WebGL setup skipped - missing globe or view data');
                 return false;
             }
 
+            // Size canvas
+            this.webglCanvas.width = view.width;
+            this.webglCanvas.height = view.height;
+
             // Load planet image and setup WebGL
             // Use same cache key logic as loadPlanetImage
-            const useDayNight = config?.useDayNight || false;
             const cacheKey = useDayNight ? `${planetType}_daynight` : planetType;
             const planetImage = this.imageCache[cacheKey];
             debugLog('PLANET', `Looking for cached image with key: ${cacheKey}, found: ${!!planetImage}, type: ${planetImage instanceof HTMLCanvasElement ? 'Canvas' : 'Image'}`);
@@ -178,10 +171,9 @@ export class PlanetSystem {
     /**
      * Setup 2D rendering system
      */
-    private setup2D(): void {
+    private setup2D(view: ViewportSize, planetType: string, useDayNight: boolean): void {
         debugLog('PLANET', 'Setting up 2D rendering system');
 
-        const view = this.stateProvider?.getView();
         if (!view || !this.ctx2D || !this.renderer2D) {
             return;
         }
@@ -194,9 +186,6 @@ export class PlanetSystem {
         this.renderer2D.initialize(this.ctx2D, view);
 
         // Load the appropriate planet image for 2D rendering
-        const config = this.stateProvider?.getConfig();
-        const planetType = config?.planetType || 'earth';
-        const useDayNight = config?.useDayNight || false;
         const cacheKey = useDayNight ? `${planetType}_daynight` : planetType;
         
         const planetImage = this.imageCache[cacheKey];
@@ -214,21 +203,13 @@ export class PlanetSystem {
     /**
      * Generate frame using appropriate rendering system
      */
-    public generateFrame(): HTMLCanvasElement | null {
-        const config = this.stateProvider?.getConfig();
-
-        // Skip if not in planet mode
-        if (!config || config.mode !== 'planet') {
-            debugLog('PLANET', `Skipping test generation - not in planet mode: ${config?.mode}`);
-            return null;
-        }
-
+    public generateFrame(globe: Globe, mask: any, view: ViewportSize): HTMLCanvasElement | null {
         debugLog('PLANET', `Generating using ${this.useWebGL ? 'WebGL' : '2D'}`);
 
         if (this.useWebGL) {
-            return this.renderWebGL() ? this.webglCanvas : null;
+            return this.renderWebGL(globe, view) ? this.webglCanvas : null;
         } else {
-            return this.render2D() ? this.canvas2D : null;
+            return this.render2D(globe, mask, view) ? this.canvas2D : null;
         }
     }
 
@@ -237,25 +218,16 @@ export class PlanetSystem {
     /**
      * Render using WebGL system
      */
-    private renderWebGL(): boolean {
+    private renderWebGL(globe: Globe, view: ViewportSize): boolean {
         if (!this.webglRenderer) {
             debugLog('PLANET', 'WebGL render failed - no renderer');
             return false;
         }
 
         try {
-            const globe = this.stateProvider?.getGlobe();
-            const view = this.stateProvider?.getView();
-
             if (!globe || !view) {
                 debugLog('PLANET', 'WebGL render failed - missing state');
                 return false;
-            }
-
-            // Ensure canvas is properly sized
-            if (this.webglCanvas.width !== view.width || this.webglCanvas.height !== view.height) {
-                this.webglCanvas.width = view.width;
-                this.webglCanvas.height = view.height;
             }
 
             // Render the planet 
@@ -278,17 +250,13 @@ export class PlanetSystem {
     /**
      * Render using 2D system - delegates to PlanetRenderer2D
      */
-    private render2D(): boolean {
+    private render2D(globe: Globe, mask: any, view: ViewportSize): boolean {
         if (!this.ctx2D || !this.renderer2D) {
             debugLog('PLANET', '2D render failed - no renderer');
             return false;
         }
 
         try {
-            const globe = this.stateProvider?.getGlobe();
-            const mask = this.stateProvider?.getMask();
-            const view = this.stateProvider?.getView();
-
             if (!globe || !mask || !view) {
                 debugLog('PLANET', '2D render failed - missing state');
                 return false;
@@ -324,58 +292,45 @@ export class PlanetSystem {
         this.useWebGL = false;
     }
 
-    // ===== PUBLIC API (same as original) =====
-
-    /**
-     * Set external state provider (no longer subscribing to events)
-     */
-    setStateProvider(stateProvider: any): void {
-        this.stateProvider = stateProvider;
-        debugLog('PLANET', 'State provider set');
-    }
+    // ===== PUBLIC API =====
 
     /**
      * Handle rotation changes that require re-rendering (not re-initialization)
      * Now called directly from Earth.ts centralized functions
      */
-    public handleRotation(): void {
+    public handleRotation(globe: Globe, mask: any, view: ViewportSize, planetType: string): void {
         debugLog('PLANET', 'Handling rotation change - regenerating frame');
-        this.regeneratePlanet();
+        this.regeneratePlanet(globe, mask, view, planetType);
     }
 
     /**
      * Handle data changes that require re-initialization
      * Now called directly from Earth.ts centralized functions
      */
-    public handleDataChange(): void {
+    public handleDataChange(globe: Globe, mask: any, view: ViewportSize, planetType: string, useDayNight: boolean): void {
         debugLog('PLANET', 'Handling data change - re-setting up system');
 
         // Load planet image first, then setup
-        const config = this.stateProvider?.getConfig();
-        const planetType = config?.planetType || 'earth';
-        const useDayNight = config?.useDayNight || false;
-
         this.loadPlanetImage(planetType, useDayNight).then(() => {
-            this.setup();
-            this.regeneratePlanet();
+            this.setup(globe, view, planetType, useDayNight);
+            this.regeneratePlanet(globe, mask, view, planetType);
         }).catch(error => {
             debugLog('PLANET', 'Failed to load planet image:', error);
             // Still setup without image
-            this.setup();
-            this.regeneratePlanet();
+            this.setup(globe, view, planetType, useDayNight);
+            this.regeneratePlanet(globe, mask, view, planetType);
         });
     }
 
     /**
      * Generate planet and emit result
      */
-    private regeneratePlanet(): void {
-        const canvas = this.generateFrame();
-        const config = this.stateProvider?.getConfig();
+    private regeneratePlanet(globe: Globe, mask: any, view: ViewportSize, planetType: string): void {
+        const canvas = this.generateFrame(globe, mask, view);
 
         const result: PlanetResult = {
             canvas: canvas,
-            planetType: config?.planetType || 'earth'
+            planetType: planetType
         };
 
         this.emit('planetChanged', result);
@@ -415,18 +370,8 @@ export class PlanetSystem {
         // Cache the result
         this.imageCache[cacheKey] = image;
 
-        // Setup WebGL for this planet if WebGL is available
-        if (this.useWebGL && this.webglRenderer) {
-            const globe = this.stateProvider?.getGlobe();
-            if (globe) {
-                const setupSuccess = this.webglRenderer.setup('planet', image, globe);
-                if (setupSuccess) {
-                    debugLog('PLANET', `WebGL setup completed for ${planetType}${useDayNight ? ' (day/night)' : ''}`);
-                } else {
-                    debugLog('PLANET', `WebGL setup failed for ${planetType}${useDayNight ? ' (day/night)' : ''}`);
-                }
-            }
-        }
+        // Note: WebGL setup happens in setupWebGL() when setup() is called
+        // This just loads and caches the image
 
         return image;
     }
@@ -522,6 +467,5 @@ export class PlanetSystem {
         this.imageCache = {};
 
         this.eventHandlers = {};
-        this.stateProvider = null;
     }
 }
