@@ -18,12 +18,12 @@ import { Utils } from '../utils/Utils';
 import { MenuSystem } from '../components/MenuSystem';
 import { ConfigManager, EarthConfig } from '../config/ConfigManager';
 import { EarthAPI } from './EarthAPI';
-import { ParticleSystem } from '../renderers/ParticlesSystem';
+import { ParticleSystem } from '../services/ParticlesSystem';
 import { InputHandler } from '../services/InputHandler';
-import { RenderSystem } from '../renderers/RenderSystem';
-import { OverlaySystem } from '../renderers/OverlaySystem';
-import { PlanetSystem } from '../renderers/PlanetSystem';
-import { MeshSystem } from '../renderers/MeshSystem';
+import { RenderSystem } from '../services/RenderSystem';
+import { OverlaySystem } from '../services/OverlaySystem';
+import { PlanetSystem } from '../services/PlanetSystem';
+import { MeshSystem } from '../services/MeshSystem';
 
 // Import Natural Earth data
 import coastlines10km from '../data/ne_110m_coastline.json';

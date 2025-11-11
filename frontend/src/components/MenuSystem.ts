@@ -5,7 +5,7 @@
 
 import * as d3 from 'd3';
 import { ConfigManager, EarthConfig } from '../config/ConfigManager';
-import { AVAILABLE_PLANETS } from '../renderers/PlanetSystem';
+import { AVAILABLE_PLANETS } from '../services/PlanetSystem';
 
 // Extend d3 with extended projections (same as globes.ts)
 declare module 'd3' {

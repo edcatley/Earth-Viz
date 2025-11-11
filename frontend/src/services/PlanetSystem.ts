@@ -9,9 +9,9 @@
  */
 
 import { Globe, ViewportSize } from '../core/Globes';
-import { WebGLRenderer } from '../services/WebGLRenderer';
-import { DayNightBlender } from '../services/DayNightBlender';
-import { PlanetRenderer2D } from './2dPlanetRenderer';
+import { WebGLRenderer } from '../renderers/WebGLRenderer';
+import { DayNightBlender } from '../renderers/DayNightBlender';
+import { PlanetRenderer2D } from '../renderers/2dPlanetRenderer';
 
 // --- Constants ---
 // Available planet types (day versions)

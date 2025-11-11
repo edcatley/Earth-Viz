@@ -10,8 +10,8 @@
 
 import { Utils } from '../utils/Utils';
 import { ViewportSize, Globe } from '../core/Globes';
-import { WebGLParticleSystem } from '../services/WebGLParticleSystem';
-import { ParticleRenderer2D } from './2dParticleRenderer';
+import { WebGLParticleSystem } from '../renderers/WebGLParticleSystem';
+import { ParticleRenderer2D } from '../renderers/2dParticleRenderer';
 
 // Debug logging
 function debugLog(category: string, message: string, data?: any): void {
@@ -69,44 +69,61 @@ export class ParticleSystem {
         }
         this.ctx2D = ctx;
 
-        // Create 2D renderer
+        // Initialize renderers once - check what's available
+        debugLog('PARTICLES', 'Initializing renderers');
+
+        // Try to initialize WebGL renderer
+        this.webglParticleSystem = new WebGLParticleSystem();
+        const webglAvailable = this.webglParticleSystem.initialize(this.webglCanvas);
+
+        if (!webglAvailable) {
+            debugLog('PARTICLES', 'WebGL not available on this system');
+            this.webglParticleSystem.dispose();
+            this.webglParticleSystem = null;
+        } else {
+            debugLog('PARTICLES', 'WebGL renderer initialized');
+        }
+
+        // Create 2D renderer (always available)
         this.renderer2D = new ParticleRenderer2D();
+        debugLog('PARTICLES', '2D renderer created');
 
         // Bind animate once to avoid creating new closures every frame
         this.boundAnimate = this.animateFrame.bind(this);
 
-        debugLog('PARTICLES', 'particles created with standardized pattern');
+        debugLog('PARTICLES', 'ParticleSystem created');
     }
 
     // ===== MAIN PATTERN METHODS =====
 
     /**
-     * Main initialization - decides WebGL vs 2D based on projection and data availability
+     * Setup renderers with current data
+     * Tries WebGL first (if available), falls back to 2D
      */
-    public initialize(
+    public setup(
         globe: Globe,
         mask: any,
         view: ViewportSize,
         particleProduct: any,
         particleType: string
     ): void {
-        debugLog('PARTICLES', 'Starting initialization');
+        debugLog('PARTICLES', 'Starting setup');
 
-        // Reset everything
-        this.reset();
+        // Clear any existing setup
+        this.clearSetup();
 
         // Cache particleType to avoid creating config objects in hot path
         this.cachedParticleType = particleType;
 
         // Validate required data
         if (!globe || !mask || !view || !particleProduct) {
-            debugLog('PARTICLES', 'Initialization skipped - missing required data');
+            debugLog('PARTICLES', 'Setup skipped - missing required data');
             return;
         }
 
         // Skip if particles are disabled
         if (!particleType || particleType === 'off') {
-            debugLog('PARTICLES', 'Initialization skipped - particles disabled');
+            debugLog('PARTICLES', 'Setup skipped - particles disabled');
             return;
         }
 
@@ -121,79 +138,75 @@ export class ParticleSystem {
         }
         debugLog('PARTICLES', `Calculated particle count: ${this.particleCount} for viewport width ${bounds.width}`);
 
-        // Attempt WebGL initialization
-        debugLog('PARTICLES', 'Attempting WebGL initialization');
-        if (this.initializeWebGL(view)) {
-            this.useWebGL = true;
-            this.startAnimation();
-            debugLog('PARTICLES', 'WebGL initialization successful - animation started');
-            return;
+        // Try WebGL first (if available)
+        if (this.webglParticleSystem) {
+            debugLog('PARTICLES', 'Attempting WebGL setup');
+            if (this.setupWebGL(view)) {
+                this.useWebGL = true;
+                this.startAnimation();
+                debugLog('PARTICLES', 'WebGL setup successful - animation started');
+                return;
+            }
+            debugLog('PARTICLES', 'WebGL setup failed, falling back to 2D');
+        } else {
+            debugLog('PARTICLES', 'WebGL not available, using 2D');
         }
-        debugLog('PARTICLES', 'WebGL initialization failed, falling back to 2D');
 
         // Fallback to 2D
-        this.initialize2D(view, validPositions);
+        this.setup2D(view, validPositions);
         this.useWebGL = false;
         this.startAnimation();
-        debugLog('PARTICLES', '2D initialization complete');
+        debugLog('PARTICLES', '2D setup complete');
     }
 
     /**
-     * Attempt WebGL initialization - returns true if successful
+     * Attempt WebGL setup - returns true if successful
      * Assumes particle field has already been initialized
      */
-    private initializeWebGL(view: ViewportSize): boolean {
-        debugLog('PARTICLES', 'Attempting WebGL particle system initialization');
-
-        // Validate wind data is available
-        if (!this.windData || !this.windBounds) {
-            debugLog('PARTICLES', 'WebGL init skipped - no wind data');
+    private setupWebGL(view: ViewportSize): boolean {
+        if (!this.webglParticleSystem) {
             return false;
         }
 
-        // Ensure canvas is properly sized
-        this.webglCanvas.width = view.width;
-        this.webglCanvas.height = view.height;
-
-        // Create WebGL particle system only if it doesn't exist (initialize once)
-        if (!this.webglParticleSystem) {
-            this.webglParticleSystem = new WebGLParticleSystem();
-
-            // Initialize WebGL context (only on first creation)
-            if (!this.webglParticleSystem.initialize(this.webglCanvas)) {
-                debugLog('PARTICLES', 'WebGL context initialization failed');
-                this.webglParticleSystem = null;
+        try {
+            // Validate wind data is available
+            if (!this.windData || !this.windBounds) {
+                debugLog('PARTICLES', 'WebGL setup skipped - no wind data');
                 return false;
             }
-            debugLog('PARTICLES', 'WebGL context initialized');
-        } else {
-            debugLog('PARTICLES', 'Reusing existing WebGL context');
-        }
 
-        // Setup WebGL particle system with data (can be called multiple times)
-        if (!this.webglParticleSystem.setup(this.particleCount, this.windData, this.windBounds)) {
-            debugLog('PARTICLES', 'WebGL setup failed');
+            // Ensure canvas is properly sized
+            this.webglCanvas.width = view.width;
+            this.webglCanvas.height = view.height;
+
+            // Setup WebGL particle system with data
+            if (!this.webglParticleSystem.setup(this.particleCount, this.windData, this.windBounds)) {
+                debugLog('PARTICLES', 'WebGL setup failed');
+                return false;
+            }
+
+            // Free CPU wind data after GPU upload - no longer needed
+            debugLog('PARTICLES', `Freeing wind data (${(this.windData.byteLength / 1048576).toFixed(2)} MB)`);
+            this.windData = null;
+            this.windBounds = null;
+
+            debugLog('PARTICLES', 'WebGL setup successful');
+            return true;
+
+        } catch (error) {
+            debugLog('PARTICLES', 'WebGL setup error:', error);
             return false;
         }
-
-        // Free CPU wind data after GPU upload - no longer needed
-        debugLog('PARTICLES', `Freeing wind data (${(this.windData.byteLength / 1048576).toFixed(2)} MB)`);
-        this.windData = null;
-        this.windBounds = null;
-
-        debugLog('PARTICLES', 'WebGL particle system setup successfully');
-        return true;
     }
 
     /**
-     * Initialize 2D particle system
-     * Assumes wind field data has already been initialized
+     * Setup 2D rendering system
      */
-    private initialize2D(view: ViewportSize, validPositions: Array<[number, number]>): void {
-        debugLog('PARTICLES', 'Initializing 2D particle system');
+    private setup2D(view: ViewportSize, validPositions: Array<[number, number]>): void {
+        debugLog('PARTICLES', 'Setting up 2D rendering system');
 
         if (!this.renderer2D || !this.windData || !this.windBounds) {
-            debugLog('PARTICLES', '2D init failed - missing renderer or wind data');
+            debugLog('PARTICLES', '2D setup failed - missing renderer or wind data');
             return;
         }
 
@@ -204,7 +217,7 @@ export class ParticleSystem {
         // Delegate to 2D renderer
         this.renderer2D.initialize(this.particleCount, this.windData, this.windBounds, validPositions);
 
-        debugLog('PARTICLES', `2D system initialized with ${this.particleCount} particles`);
+        debugLog('PARTICLES', '2D setup complete');
     }
 
     /**
@@ -214,7 +227,7 @@ export class ParticleSystem {
         if (this.useWebGL && this.webglParticleSystem) {
             // WebGL path - pure GPU rendering
             this.webglParticleSystem.evolve();
-            this.renderWebGL(view);
+            this.renderWebGL();
             return this.webglCanvas;
         } else if (this.renderer2D) {
             // CPU path - evolve and render on CPU
@@ -230,16 +243,10 @@ export class ParticleSystem {
     /**
      * Render particles using WebGL (no ReadPixels!)
      */
-    private renderWebGL(view: ViewportSize): boolean {
+    private renderWebGL(): boolean {
         if (!this.webglParticleSystem) {
             debugLog('PARTICLES', 'WebGL render failed - no system');
             return false;
-        }
-
-        // Ensure canvas is properly sized
-        if (this.webglCanvas.width !== view.width || this.webglCanvas.height !== view.height) {
-            this.webglCanvas.width = view.width;
-            this.webglCanvas.height = view.height;
         }
 
         // Render particles (pass half width for quad rendering)
@@ -259,12 +266,6 @@ export class ParticleSystem {
         if (!globe || !view) {
             debugLog('PARTICLES', '2D render failed - missing state');
             return false;
-        }
-
-        // Ensure canvas is properly sized
-        if (this.canvas2D.width !== view.width || this.canvas2D.height !== view.height) {
-            this.canvas2D.width = view.width;
-            this.canvas2D.height = view.height;
         }
 
         // Delegate to 2D renderer
@@ -359,8 +360,10 @@ export class ParticleSystem {
 
     // ===== UTILITY METHODS =====
 
+
+
     /**
-     * Clear the particle canvas and emit empty result
+     * Clear the particle canvases
      */
     private clearCanvas(): void {
         debugLog('PARTICLES', 'Clearing particle canvas');
@@ -378,30 +381,24 @@ export class ParticleSystem {
                 ctx.clear(ctx.COLOR_BUFFER_BIT | ctx.DEPTH_BUFFER_BIT);
             }
         }
-
-        // Emit cleared canvas
-        const result: ParticleResult = {
-            canvas: this.canvas2D,
-            particleType: this.cachedParticleType
-        };
-        this.emit('particlesChanged', result);
     }
 
     /**
-     * Reset system state
+     * Clear current setup (but don't dispose renderers)
      */
-    private reset(): void {
-        debugLog('PARTICLES', 'Resetting system state');
+    private clearSetup(): void {
+        debugLog('PARTICLES', 'Clearing current setup');
 
-        this.clearCanvas();
-
-        // Dispose WebGL resources
-        if (this.webglParticleSystem) {
-            this.webglParticleSystem.dispose();
-            this.webglParticleSystem = null;
+        // Stop animation
+        if (this.animationId) {
+            clearTimeout(this.animationId);
+            this.animationId = null;
         }
 
-        // Dispose 2D renderer
+        // Clear canvases
+        this.clearCanvas();
+
+        // Clear 2D renderer state
         if (this.renderer2D) {
             this.renderer2D.dispose();
         }
@@ -411,10 +408,6 @@ export class ParticleSystem {
         this.windData = null;
         this.windBounds = null;
 
-        // Clear cached state
-        this.cachedGlobe = null;
-        this.cachedView = null;
-
         // Reset state
         this.useWebGL = false;
     }
@@ -422,14 +415,14 @@ export class ParticleSystem {
 
 
     /**
-     * Handle rotation changes that require re-rendering (not re-initialization)
+     * Handle rotation changes that require re-rendering (not re-setup)
      * Now called directly from Earth.ts centralized functions
      */
     public handleRotation(): void {
         debugLog('PARTICLES', 'Handling rotation change');
 
         if (this.isAnimating()) {
-            // We were animating, so stop and clear, then restart
+            // We were animating, so stop and clear during rotation
             debugLog('PARTICLES', 'Stopping animation and clearing canvas during rotation');
             this.stopAnimation();
             this.clearCanvas();
@@ -437,7 +430,7 @@ export class ParticleSystem {
     }
 
     /**
-     * Handle data changes that require re-initialization
+     * Handle data changes that require re-setup
      * Now called directly from Earth.ts centralized functions
      */
     public handleDataChange(
@@ -447,14 +440,13 @@ export class ParticleSystem {
         particleProduct: any,
         particleType: string
     ): void {
-        debugLog('PARTICLES', 'Handling data change - reinitializing system');
+        debugLog('PARTICLES', 'Handling data change - re-setting up system');
 
         // Cache state for animation
         this.cachedGlobe = globe;
         this.cachedView = view;
 
-        this.clearCanvas();
-        this.initialize(globe, mask, view, particleProduct, particleType);
+        this.setup(globe, mask, view, particleProduct, particleType);
         this.regenerateParticles(globe, view); // Generate initial frame
     }
 
@@ -511,11 +503,9 @@ export class ParticleSystem {
         if (this.animationId) {
             clearTimeout(this.animationId);
             this.animationId = null;
+            this.clearCanvas();
             debugLog('PARTICLES', 'Particle animation stopped');
         }
-
-        // Clear the particle canvas when stopping animation
-        this.clearCanvas();
     }
 
     /**
@@ -574,7 +564,15 @@ export class ParticleSystem {
             this.webglParticleSystem = null;
         }
 
-        this.reset();
+        if (this.renderer2D) {
+            this.renderer2D.dispose();
+            this.renderer2D = null;
+        }
+
+        this.windData = null;
+        this.windBounds = null;
+        this.cachedGlobe = null;
+        this.cachedView = null;
         this.eventHandlers = {};
     }
 }

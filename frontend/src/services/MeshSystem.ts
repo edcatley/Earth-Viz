@@ -8,8 +8,8 @@
  * - generateFrame() - Produces final canvas output
  */
 
-import { WebGLMeshRenderer } from '../services/WebGLMeshRenderer';
-import { MeshRenderer2D, MeshStyle } from './2dMeshRenderer';
+import { WebGLMeshRenderer } from '../renderers/WebGLMeshRenderer';
+import { MeshRenderer2D, MeshStyle } from '../renderers/2dMeshRenderer';
 
 // Debug logging
 function debugLog(category: string, message: string, data?: any): void {

@@ -8,8 +8,8 @@
  * - generateFrame() - Produces final canvas output
  */
 
-import { WebGLRenderer } from '../services/WebGLRenderer';
-import { OverlayRenderer2D } from './2dOverlayRenderer';
+import { WebGLRenderer } from '../renderers/WebGLRenderer';
+import { OverlayRenderer2D } from '../renderers/2dOverlayRenderer';
 import { Globe, ViewportSize } from '../core/Globes';
 
 // Debug logging
