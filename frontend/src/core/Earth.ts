@@ -18,7 +18,7 @@ import { Utils } from '../utils/Utils';
 import { MenuSystem } from '../components/MenuSystem';
 import { ConfigManager, EarthConfig } from '../config/ConfigManager';
 import { EarthAPI } from './EarthAPI';
-import { ParticleSystem } from '../renderers/Particles';
+import { ParticleSystem } from '../renderers/ParticlesSystem';
 import { InputHandler } from '../services/InputHandler';
 import { RenderSystem } from '../renderers/RenderSystem';
 import { OverlaySystem } from '../renderers/OverlaySystem';
@@ -450,8 +450,11 @@ class EarthModernApp {
             this.planetSystem.handleDataChange(globe, mask, view, config.planetType, config.useDayNight);
         }
 
-        this.particleSystem.setStateProvider(this);
-        this.particleSystem.handleDataChange();
+        const particleProduct = this.particleProduct;
+        if (globe && mask && view && particleProduct && config.particleType !== undefined) {
+            // Pass particleProduct even if null - particle system will handle it
+            this.particleSystem.handleDataChange(globe, mask, view, particleProduct, config.particleType);
+        }
         
         this.renderSystem.setStateProvider(this);
         this.renderSystem.handleDataChange();
@@ -490,7 +493,7 @@ class EarthModernApp {
             this.planetSystem.handleRotation(globe, mask, view, config.planetType);
         }
 
-        this.particleSystem.setStateProvider(this);
+        // Particle system doesn't need parameters for rotation - just stops/clears animation
         this.particleSystem.handleRotation();
     }
 
