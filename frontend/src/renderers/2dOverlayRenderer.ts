@@ -93,7 +93,9 @@ export class OverlayRenderer2D {
                             // Get overlay value from weather data
                             const overlayValue = overlayProduct.interpolate(λ, φ);
                             if (overlayValue != null && overlayProduct.scale) {
-                                const rawValue = overlayValue;
+                                // Handle both scalar and vector products
+                                // Vector products return [u, v, magnitude], we want magnitude
+                                const rawValue = Array.isArray(overlayValue) ? overlayValue[2] : overlayValue;
 
                                 // Skip if no valid value
                                 if (rawValue == null || !isFinite(rawValue)) {
