@@ -51,94 +51,109 @@ export class OverlaySystem {
         }
         this.ctx2D = ctx;
 
-        debugLog('OVERLAY', 'OverlaySystem created with standardized pattern');
+        // Initialize renderers once - check what's available
+        debugLog('OVERLAY', 'Initializing renderers');
+        
+        // Try to initialize WebGL renderer
+        this.webglRenderer = new WebGLRenderer();
+        const webglAvailable = this.webglRenderer.initialize(this.webglCanvas);
+        
+        if (!webglAvailable) {
+            debugLog('OVERLAY', 'WebGL not available on this system');
+            this.webglRenderer.dispose();
+            this.webglRenderer = null;
+        } else {
+            debugLog('OVERLAY', 'WebGL renderer initialized');
+        }
+
+        // Create 2D renderer (always available)
+        this.renderer2D = new OverlayRenderer2D();
+        debugLog('OVERLAY', '2D renderer created');
+
+        debugLog('OVERLAY', 'OverlaySystem created');
     }
 
     // ===== MAIN PATTERN METHODS =====
 
     /**
-     * Main initialization - tries WebGL first, falls back to 2D
+     * Setup renderers with current data
+     * Tries WebGL first (if available and projection supported), falls back to 2D
      * Centralized data gathering - all stateProvider access happens here
      */
-    public initialize(): void {
-        debugLog('OVERLAY', 'Starting initialization');
+    public setup(): void {
+        debugLog('OVERLAY', 'Starting setup');
 
-        // Reset everything
-        this.reset();
+        // Clear any existing setup
+        this.clearSetup();
 
         // Gather all required state in one place
-        const config = this.stateProvider?.getConfig();
         const overlayProduct = this.stateProvider?.getOverlayProduct();
         const globe = this.stateProvider?.getGlobe();
         const view = this.stateProvider?.getView();
-        const overlayType = config?.overlayType || 'off';
 
         // Check if we have required data
-        if (!config || !overlayProduct || !globe || !view || overlayType === 'off') {
-            debugLog('OVERLAY', 'Initialization skipped - missing required data');
+        if (!overlayProduct || !globe || !view) {
+            debugLog('OVERLAY', 'Setup skipped - missing required data');
             return;
         }
 
-        // Try WebGL first
-        debugLog('OVERLAY', 'Attempting WebGL initialization');
-        if (this.initializeWebGL(overlayProduct, globe, view)) {
-            this.useWebGL = true;
-            debugLog('OVERLAY', 'WebGL initialization successful');
-            return;
+        // Try WebGL first (if available)
+        if (this.webglRenderer) {
+            debugLog('OVERLAY', 'Attempting WebGL setup');
+            if (this.setupWebGL(overlayProduct, globe, view)) {
+                this.useWebGL = true;
+                debugLog('OVERLAY', 'WebGL setup successful');
+                return;
+            }
+            debugLog('OVERLAY', 'WebGL setup failed, falling back to 2D');
+        } else {
+            debugLog('OVERLAY', 'WebGL not available, using 2D');
         }
 
         // Fallback to 2D
-        debugLog('OVERLAY', 'WebGL failed, falling back to 2D');
-        this.initialize2D(overlayProduct, view);
+        this.setup2D(overlayProduct, view);
         this.useWebGL = false;
-        debugLog('OVERLAY', '2D initialization complete');
+        debugLog('OVERLAY', '2D setup complete');
     }
 
     /**
-     * Attempt WebGL initialization - returns true if successful
+     * Attempt WebGL setup - returns true if successful
      */
-    private initializeWebGL(overlayProduct: any, globe: any, view: any): boolean {
-        try {
-            // Create WebGL renderer
-            this.webglRenderer = new WebGLRenderer();
-            const webglInitialized = this.webglRenderer.initialize(this.webglCanvas);
+    private setupWebGL(overlayProduct: any, globe: any, view: any): boolean {
+        if (!this.webglRenderer) {
+            return false;
+        }
 
-            if (!webglInitialized) {
-                debugLog('OVERLAY', 'WebGL renderer initialization failed - check console for WebGL diagnostics');
-                return false;
-            }
+        try {
+            // Size canvas
+            this.webglCanvas.width = view.width;
+            this.webglCanvas.height = view.height;
 
             // Setup overlay with current data
             const useInterpolatedLookup = true;
             const setupSuccess = this.webglRenderer.setup('overlay', overlayProduct, globe, useInterpolatedLookup);
 
             if (!setupSuccess) {
-                debugLog('OVERLAY', 'WebGL overlay setup failed');
-                this.webglRenderer.dispose();
-                this.webglRenderer = null;
+                debugLog('OVERLAY', 'WebGL overlay setup failed (likely unsupported projection)');
                 return false;
             }
 
-            debugLog('OVERLAY', 'WebGL system initialized successfully');
+            debugLog('OVERLAY', 'WebGL setup successful');
             return true;
 
         } catch (error) {
-            debugLog('OVERLAY', 'WebGL initialization error:', error);
-            if (this.webglRenderer) {
-                this.webglRenderer.dispose();
-                this.webglRenderer = null;
-            }
+            debugLog('OVERLAY', 'WebGL setup error:', error);
             return false;
         }
     }
 
     /**
-     * Initialize 2D rendering system
+     * Setup 2D rendering system
      */
-    private initialize2D(overlayProduct: any, view: any): void {
-        debugLog('OVERLAY', 'Initializing 2D rendering system');
+    private setup2D(overlayProduct: any, view: any): void {
+        debugLog('OVERLAY', 'Setting up 2D rendering system');
 
-        if (!this.ctx2D) {
+        if (!this.ctx2D || !this.renderer2D) {
             return;
         }
 
@@ -146,12 +161,11 @@ export class OverlaySystem {
         this.canvas2D.width = view.width;
         this.canvas2D.height = view.height;
 
-        // Create 2D renderer
-        this.renderer2D = new OverlayRenderer2D();
+        // Setup 2D renderer
         this.renderer2D.initialize(this.ctx2D, view);
         this.renderer2D.setup(overlayProduct);
 
-        debugLog('OVERLAY', '2D system initialized');
+        debugLog('OVERLAY', '2D setup complete');
     }
 
     /**
@@ -220,26 +234,40 @@ export class OverlaySystem {
     // ===== UTILITY METHODS =====
 
     /**
-     * Reset system state
+     * Clear current setup (but don't dispose renderers)
      */
-    private reset(): void {
-        debugLog('OVERLAY', 'Resetting system state');
+    private clearSetup(): void {
+        debugLog('OVERLAY', 'Clearing current setup');
 
-        // Clear and dispose renderers
+        // Clear canvases
         if (this.webglRenderer) {
             this.webglRenderer.clear();
-            this.webglRenderer.dispose();
-            this.webglRenderer = null;
         }
 
         if (this.renderer2D && this.ctx2D) {
             this.renderer2D.clear(this.ctx2D, this.canvas2D);
-            this.renderer2D.dispose();
-            this.renderer2D = null;
         }
 
         // Reset state
         this.useWebGL = false;
+    }
+
+    /**
+     * Dispose of all resources (called on destruction)
+     */
+    public dispose(): void {
+        debugLog('OVERLAY', 'Disposing OverlaySystem');
+
+        // Dispose renderers
+        if (this.webglRenderer) {
+            this.webglRenderer.dispose();
+            this.webglRenderer = null;
+        }
+
+        if (this.renderer2D) {
+            this.renderer2D.dispose();
+            this.renderer2D = null;
+        }
     }
 
     // ===== PUBLIC API (same as original) =====
@@ -262,12 +290,12 @@ export class OverlaySystem {
     }
 
     /**
-     * Handle data changes that require re-initialization
+     * Handle data changes that require re-setup
      * Now called directly from Earth.ts centralized functions
      */
     public handleDataChange(): void {
-        debugLog('OVERLAY', 'Handling data change - reinitializing system');
-        this.initialize();
+        debugLog('OVERLAY', 'Handling data change - re-setting up system');
+        this.setup();
         this.regenerateOverlay();
     }
 

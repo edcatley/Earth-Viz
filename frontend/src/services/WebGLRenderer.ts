@@ -320,9 +320,15 @@ export class WebGLRenderer {
     /**
      * Setup a render item (heavy operation - done once)
      */
-    public setup(type: 'planet' | 'overlay', data: any, globe?: any, useInterpolatedLookup = false): boolean {
+    public setup(type: 'planet' | 'overlay', data: any, globe: any, useInterpolatedLookup = false): boolean {
         // Determine projection type from globe
-        const projectionType = globe ? this.getProjectionType(globe) : 'orthographic';
+        const projectionType = this.getProjectionType(globe);
+        
+        if (!projectionType) {
+            console.log(`[WebGLRenderer] Setup failed: Unsupported projection '${globe.projectionType}'`);
+            return false;
+        }
+        
         console.log(`[WebGLRenderer] Setup called: type=${type}, projectionType=${projectionType}`);
 
         if (!this.gl || !this.isInitialized) {
@@ -709,26 +715,25 @@ export class WebGLRenderer {
         return texture;
     }
 
-    private getProjectionType(globe: any): 'orthographic' | 'equirectangular' {
+    private getProjectionType(globe: any): 'orthographic' | 'equirectangular' | null {
         if (globe.projectionType) {
             switch (globe.projectionType) {
                 case 'equirectangular':
                     return 'equirectangular';
                 case 'orthographic':
                     return 'orthographic';
+                // Unsupported projections return null
                 case 'azimuthal_equidistant':
                 case 'stereographic':
-                    return 'orthographic';
                 case 'conic_equidistant':
                 case 'waterman':
                 case 'winkel3':
                 case 'atlantis':
-                    return 'equirectangular';
                 default:
-                    return 'orthographic';
+                    return null;
             }
         }
-        return 'orthographic';
+        return 'orthographic'; // Default if no projection type specified
     }
 
     private qe(value: number, range: number): number {
