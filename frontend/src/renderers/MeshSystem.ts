@@ -8,19 +8,12 @@
  * - generateFrame() - Produces final canvas output
  */
 
-import * as d3 from 'd3';
 import { WebGLMeshRenderer } from '../services/WebGLMeshRenderer';
+import { MeshRenderer2D, MeshStyle } from './2dMeshRenderer';
 
 // Debug logging
 function debugLog(category: string, message: string, data?: any): void {
     console.log(`[${category}] ${message}`, data || '');
-}
-
-// Constants
-export interface MeshStyle {
-    color: [number, number, number];
-    lineWidth: number;
-    opacity: number;
 }
 
 export interface MeshResult {
@@ -35,23 +28,15 @@ export class MeshSystem {
     private ctx2D: CanvasRenderingContext2D | null = null;
     private useWebGL: boolean = false;
 
-    // WebGL system
+    // Renderer delegates
     private webglMeshRenderer: WebGLMeshRenderer | null = null;
-
-
+    private renderer2D: MeshRenderer2D | null = null;
 
     // External state references
     private stateProvider: any = null;
 
     // Event callbacks
     private eventHandlers: { [key: string]: Function[] } = {};
-
-    // Mesh styling configuration
-    private meshStyles = {
-        coastlines: { color: [0.98, 0.98, 0.98] as [number, number, number], lineWidth: 8.0, opacity: 0.65 },
-        lakes: { color: [0.86, 0.86, 0.86] as [number, number, number], lineWidth: 6.0, opacity: 0.65 },
-        rivers: { color: [0.86, 0.86, 0.86] as [number, number, number], lineWidth: 4.0, opacity: 0.65 }
-    };
 
     constructor() {
         // Create canvases
@@ -64,55 +49,79 @@ export class MeshSystem {
         }
         this.ctx2D = ctx;
 
-        debugLog('MESH', 'MeshSystem created with standardized pattern');
+        // Initialize renderers once - check what's available
+        debugLog('MESH', 'Initializing renderers');
+
+        // Try to initialize WebGL renderer
+        this.webglMeshRenderer = new WebGLMeshRenderer();
+        // Note: WebGLMeshRenderer.initialize() needs globe, so we can't call it here
+        // We'll initialize it during setup instead
+        debugLog('MESH', 'WebGL mesh renderer created');
+
+        // Create 2D renderer (always available)
+        this.renderer2D = new MeshRenderer2D();
+        debugLog('MESH', '2D renderer created');
+
+        debugLog('MESH', 'MeshSystem created');
     }
 
     // ===== MAIN PATTERN METHODS =====
 
     /**
-     * Main initialization - decides WebGL vs 2D based on projection and data availability
+     * Setup renderers with current data
+     * Tries WebGL first (if projection supported), falls back to 2D
+     * Centralized data gathering - all stateProvider access happens here
      */
-    public initialize(): void {
-        debugLog('MESH', 'Starting initialization');
+    public setup(): void {
+        debugLog('MESH', 'Starting setup');
 
-        // Reset everything
-        this.reset();
+        // Clear any existing setup
+        this.clearSetup();
 
-        // Check if we should attempt WebGL
-        if (this.shouldUseWebGL()) {
-            debugLog('MESH', 'Attempting WebGL initialization');
-            if (this.initializeWebGL()) {
+        // Gather all required state in one place
+        const globe = this.stateProvider?.getGlobe();
+        const mesh = this.stateProvider?.getMesh();
+        const view = this.stateProvider?.getView();
+
+        // Check if we have required data
+        if (!globe || !mesh || !view) {
+            debugLog('MESH', 'Setup skipped - missing required data');
+            return;
+        }
+
+        // Try WebGL first (only for orthographic projection)
+        if (globe.projectionType === 'orthographic' && this.webglMeshRenderer) {
+            debugLog('MESH', 'Attempting WebGL setup');
+            if (this.setupWebGL(globe, mesh, view)) {
                 this.useWebGL = true;
-                debugLog('MESH', 'WebGL initialization successful');
+                debugLog('MESH', 'WebGL setup successful');
                 return;
             }
-            debugLog('MESH', 'WebGL initialization failed, falling back to 2D');
+            debugLog('MESH', 'WebGL setup failed, falling back to 2D');
         } else {
-            debugLog('MESH', 'WebGL not suitable for current projection, using 2D');
+            debugLog('MESH', 'Using 2D (projection not orthographic or WebGL unavailable)');
         }
 
         // Fallback to 2D
-        this.initialize2D();
+        this.setup2D(mesh, view);
         this.useWebGL = false;
-        debugLog('MESH', '2D initialization complete');
+        debugLog('MESH', '2D setup complete');
     }
 
     /**
-     * Attempt WebGL initialization - returns true if successful
+     * Attempt WebGL setup - returns true if successful
      */
-    private initializeWebGL(): boolean {
+    private setupWebGL(globe: any, mesh: any, view: any): boolean {
+        if (!this.webglMeshRenderer) {
+            return false;
+        }
+
         try {
-            // Get current state
-            const globe = this.stateProvider?.getGlobe();
-            const mesh = this.stateProvider?.getMesh();
+            // Size canvas
+            this.webglCanvas.width = view.width;
+            this.webglCanvas.height = view.height;
 
-            if (!globe || !mesh) {
-                debugLog('MESH', 'WebGL init skipped - missing required data');
-                return false;
-            }
-
-            // Create WebGL renderer
-            this.webglMeshRenderer = new WebGLMeshRenderer();
+            // Initialize WebGL renderer with globe
             const webglInitialized = this.webglMeshRenderer.initialize(this.webglCanvas, globe);
 
             if (!webglInitialized) {
@@ -123,66 +132,47 @@ export class MeshSystem {
             // Load mesh data into WebGL renderer
             this.loadWebGLMeshData(mesh);
 
-            debugLog('MESH', 'WebGL system initialized successfully');
+            debugLog('MESH', 'WebGL setup successful');
             return true;
 
         } catch (error) {
-            debugLog('MESH', 'WebGL initialization error:', error);
-            if (this.webglMeshRenderer) {
-                this.webglMeshRenderer.dispose();
-                this.webglMeshRenderer = null;
-            }
+            debugLog('MESH', 'WebGL setup error:', error);
             return false;
         }
     }
 
     /**
-     * Initialize 2D rendering system
+     * Setup 2D rendering system
      */
-    private initialize2D(): void {
-        debugLog('MESH', 'Initializing 2D rendering system');
+    private setup2D(mesh: any, view: any): void {
+        debugLog('MESH', 'Setting up 2D rendering system');
 
-        // 2D system is always ready since we created the canvas in constructor
-        // Just ensure canvas is properly sized
-        const view = this.stateProvider?.getView();
-        if (view) {
-            this.canvas2D.width = view.width;
-            this.canvas2D.height = view.height;
+        if (!this.ctx2D || !this.renderer2D) {
+            return;
         }
 
-        debugLog('MESH', '2D system initialized');
+        // Size canvas
+        this.canvas2D.width = view.width;
+        this.canvas2D.height = view.height;
+
+        // Setup 2D renderer
+        this.renderer2D.initialize();
+        this.renderer2D.setup(mesh);
+
+        debugLog('MESH', '2D setup complete');
     }
 
     /**
      * Generate frame using appropriate rendering system
      */
-    public generateFrame(): HTMLCanvasElement | null {
+    public generateFrame(globe: any, view: any): HTMLCanvasElement | null {
         debugLog('MESH', `Generating frame using ${this.useWebGL ? 'WebGL' : '2D'}`);
 
         if (this.useWebGL) {
-            return this.renderWebGL() ? this.webglCanvas : null;
+            return this.renderWebGL(globe, view) ? this.webglCanvas : null;
         } else {
-            return this.render2D() ? this.canvas2D : null;
+            return this.render2D(globe) ? this.canvas2D : null;
         }
-    }
-
-    // ===== DECISION LOGIC =====
-
-    /**
-     * Determine if WebGL should be used based on projection and data availability
-     */
-    private shouldUseWebGL(): boolean {
-        const globe = this.stateProvider?.getGlobe();
-        const mesh = this.stateProvider?.getMesh();
-
-        // Must have required data
-        if (!globe || !mesh) {
-            return false;
-        }
-
-        // Check projection support - WebGL works best with orthographic
-        const projectionType = globe.projectionType;
-        return projectionType === 'orthographic';
     }
 
     // ===== RENDERING IMPLEMENTATIONS =====
@@ -190,47 +180,23 @@ export class MeshSystem {
     /**
      * Render using WebGL system
      */
-    private renderWebGL(): boolean {
+    private renderWebGL(globe: any, view: any): boolean {
         if (!this.webglMeshRenderer) {
             debugLog('MESH', 'WebGL render failed - no renderer');
             return false;
         }
 
+        if (!globe || !view) {
+            debugLog('MESH', 'WebGL render failed - missing state');
+            return false;
+        }
+
         try {
-            const globe = this.stateProvider?.getGlobe();
-            const view = this.stateProvider?.getView();
-            const mesh = this.stateProvider?.getMesh();
-
-            if (!globe || !view || !mesh) {
-                debugLog('MESH', 'WebGL render failed - missing state');
-                return false;
-            }
-
-            // Ensure canvas is properly sized
-            if (this.webglCanvas.width !== view.width || this.webglCanvas.height !== view.height) {
-                this.webglCanvas.width = view.width;
-                this.webglCanvas.height = view.height;
-            }
-
             // Clear the canvas
             this.webglMeshRenderer.clear();
 
-            // Determine which meshes to render based on available data
-            const meshesToRender: string[] = [];
-            if (mesh.coastLo) meshesToRender.push('coastlines');
-            if (mesh.lakesLo) meshesToRender.push('lakes');
-            if (mesh.riversLo) meshesToRender.push('rivers');
-
-            // Render the meshes
-            const renderSuccess = this.webglMeshRenderer.render(globe, meshesToRender, [view.width, view.height]);
-
-            if (renderSuccess) {
-                debugLog('MESH', 'WebGL render successful');
-                return true;
-            } else {
-                debugLog('MESH', 'WebGL render failed');
-                return false;
-            }
+            // Render all loaded meshes
+            return this.webglMeshRenderer.render(globe, [view.width, view.height]);
 
         } catch (error) {
             debugLog('MESH', 'WebGL render error:', error);
@@ -239,71 +205,22 @@ export class MeshSystem {
     }
 
     /**
-     * Render using 2D system
+     * Render using 2D system - delegates to MeshRenderer2D
      */
-    private render2D(): boolean {
-        if (!this.ctx2D) {
-            debugLog('MESH', '2D render failed - no context');
+    private render2D(globe: any): boolean {
+        if (!this.ctx2D || !this.renderer2D) {
+            debugLog('MESH', '2D render failed - no renderer');
+            return false;
+        }
+
+        if (!globe) {
+            debugLog('MESH', '2D render failed - missing state');
             return false;
         }
 
         try {
-            const globe = this.stateProvider?.getGlobe();
-            const mesh = this.stateProvider?.getMesh();
-            const view = this.stateProvider?.getView();
-
-            if (!globe || !mesh || !view) {
-                debugLog('MESH', '2D render failed - missing state');
-                return false;
-            }
-
-            // Ensure canvas is properly sized
-            if (this.canvas2D.width !== view.width || this.canvas2D.height !== view.height) {
-                this.canvas2D.width = view.width;
-                this.canvas2D.height = view.height;
-            }
-
-            // Clear the canvas
-            this.ctx2D.clearRect(0, 0, this.canvas2D.width, this.canvas2D.height);
-
-            // Create a path renderer that draws to 2D canvas
-            const path = d3.geoPath(globe.projection).context(this.ctx2D);
-
-            // Render coastlines
-            if (mesh.coastLo) {
-                this.ctx2D.beginPath();
-                this.ctx2D.strokeStyle = this.rgbToString(this.meshStyles.coastlines.color);
-                this.ctx2D.lineWidth = this.meshStyles.coastlines.lineWidth / 8; // Scale down for 2D
-                this.ctx2D.globalAlpha = this.meshStyles.coastlines.opacity;
-                path(mesh.coastLo);
-                this.ctx2D.stroke();
-            }
-
-            // Render lakes
-            if (mesh.lakesLo) {
-                this.ctx2D.beginPath();
-                this.ctx2D.strokeStyle = this.rgbToString(this.meshStyles.lakes.color);
-                this.ctx2D.lineWidth = this.meshStyles.lakes.lineWidth / 8; // Scale down for 2D
-                this.ctx2D.globalAlpha = this.meshStyles.lakes.opacity;
-                path(mesh.lakesLo);
-                this.ctx2D.stroke();
-            }
-
-            // Render rivers
-            if (mesh.riversLo) {
-                this.ctx2D.beginPath();
-                this.ctx2D.strokeStyle = this.rgbToString(this.meshStyles.rivers.color);
-                this.ctx2D.lineWidth = this.meshStyles.rivers.lineWidth / 8; // Scale down for 2D
-                this.ctx2D.globalAlpha = this.meshStyles.rivers.opacity;
-                path(mesh.riversLo);
-                this.ctx2D.stroke();
-            }
-
-            // Reset alpha
-            this.ctx2D.globalAlpha = 1.0;
-
-            debugLog('MESH', '2D render successful');
-            return true;
+            // Delegate to 2D renderer
+            return this.renderer2D.render(this.ctx2D, this.canvas2D, globe);
 
         } catch (error) {
             debugLog('MESH', '2D render error:', error);
@@ -319,71 +236,36 @@ export class MeshSystem {
 
         debugLog('MESH', 'Loading mesh data into WebGL renderer');
 
-        let loadedCount = 0;
-
-        // Helper to check if geometry data exists
-        const hasGeometryData = (data: any) => {
-            if (!data) return false;
-            if (data.features && data.features.length > 0) return true; // FeatureCollection
-            if (data.geometries && data.geometries.length > 0) return true; // GeometryCollection
-            if (data.type && data.coordinates) return true; // Single geometry
-            return false;
+        // Get mesh styles from 2D renderer (single source of truth)
+        const styles = this.renderer2D?.getMeshStyles() || {
+            coastlines: { color: [0.98, 0.98, 0.98] as [number, number, number], lineWidth: 8.0, opacity: 0.65 },
+            lakes: { color: [0.86, 0.86, 0.86] as [number, number, number], lineWidth: 6.0, opacity: 0.65 },
+            rivers: { color: [0.86, 0.86, 0.86] as [number, number, number], lineWidth: 4.0, opacity: 0.65 }
         };
 
-        // Load coastlines
-        if (hasGeometryData(mesh.coastLo)) {
-            const success = this.webglMeshRenderer.loadMeshData(mesh.coastLo, 'coastlines', this.meshStyles.coastlines);
-            if (success) loadedCount++;
-        }
+        // Load mesh data (mesh is bundled, always available)
+        if (mesh.coastLo) this.webglMeshRenderer.loadMeshData(mesh.coastLo, 'coastlines', styles.coastlines);
+        if (mesh.lakesLo) this.webglMeshRenderer.loadMeshData(mesh.lakesLo, 'lakes', styles.lakes);
+        if (mesh.riversLo) this.webglMeshRenderer.loadMeshData(mesh.riversLo, 'rivers', styles.rivers);
 
-        // Load lakes
-        if (hasGeometryData(mesh.lakesLo)) {
-            const success = this.webglMeshRenderer.loadMeshData(mesh.lakesLo, 'lakes', this.meshStyles.lakes);
-            if (success) loadedCount++;
-        }
-
-        // Load rivers
-        if (hasGeometryData(mesh.riversLo)) {
-            const success = this.webglMeshRenderer.loadMeshData(mesh.riversLo, 'rivers', this.meshStyles.rivers);
-            if (success) loadedCount++;
-        }
-
-        debugLog('MESH', `Loaded ${loadedCount} mesh types into WebGL`);
-    }
-
-    /**
-     * Convert RGB array to CSS color string
-     */
-    private rgbToString(rgb: [number, number, number]): string {
-        return `rgb(${Math.round(rgb[0] * 255)}, ${Math.round(rgb[1] * 255)}, ${Math.round(rgb[2] * 255)})`;
+        debugLog('MESH', 'Mesh data loaded into WebGL');
     }
 
     // ===== UTILITY METHODS =====
 
     /**
-     * Reset system state
+     * Clear current setup (but don't dispose renderers)
      */
-    private reset(): void {
-        debugLog('MESH', 'Resetting system state');
+    private clearSetup(): void {
+        debugLog('MESH', 'Clearing current setup');
 
-        // Dispose WebGL resources
+        // Clear canvases
         if (this.webglMeshRenderer) {
-            this.webglMeshRenderer.dispose();
-            this.webglMeshRenderer = null;
+            this.webglMeshRenderer.clear();
         }
 
-        // Clear WebGL canvas
-        if (this.webglCanvas) {
-            const ctx = this.webglCanvas.getContext('webgl') || this.webglCanvas.getContext('webgl2');
-            if (ctx) {
-                ctx.clearColor(0.0, 0.0, 0.0, 0.0);
-                ctx.clear(ctx.COLOR_BUFFER_BIT | ctx.DEPTH_BUFFER_BIT);
-            }
-        }
-
-        // Clear 2D canvas
-        if (this.ctx2D) {
-            this.ctx2D.clearRect(0, 0, this.canvas2D.width, this.canvas2D.height);
+        if (this.renderer2D && this.ctx2D) {
+            this.renderer2D.clear(this.ctx2D, this.canvas2D);
         }
 
         // Reset state
@@ -411,20 +293,26 @@ export class MeshSystem {
     }
 
     /**
-     * Handle data changes that require re-initialization
+     * Handle data changes that require re-setup
      * Now called directly from Earth.ts centralized functions
      */
     public handleDataChange(): void {
-        debugLog('MESH', 'Handling data change - reinitializing system');
-        this.initialize();
+        debugLog('MESH', 'Handling data change - re-setting up system');
+        this.setup();
         this.regenerateMesh();
     }
 
     /**
      * Generate mesh and emit result
+     * Centralized data gathering - all stateProvider access happens here
      */
     public regenerateMesh(): void {
-        const canvas = this.generateFrame();
+        // Gather all required state in one place
+        const globe = this.stateProvider?.getGlobe();
+        const view = this.stateProvider?.getView();
+
+        // Generate frame with explicit parameters
+        const canvas = this.generateFrame(globe, view);
 
         const result: MeshResult = {
             canvas: canvas,
@@ -459,41 +347,38 @@ export class MeshSystem {
      * Get mesh styles for external use
      */
     getMeshStyles(): { [key: string]: MeshStyle } {
-        return { ...this.meshStyles };
+        return this.renderer2D?.getMeshStyles() || {};
     }
 
     /**
      * Update mesh styles
      */
     updateMeshStyles(styles: { [key: string]: Partial<MeshStyle> }): void {
-        for (const [meshType, style] of Object.entries(styles)) {
-            if (this.meshStyles[meshType as keyof typeof this.meshStyles]) {
-                this.meshStyles[meshType as keyof typeof this.meshStyles] = {
-                    ...this.meshStyles[meshType as keyof typeof this.meshStyles],
-                    ...style
-                };
-            }
+        if (this.renderer2D) {
+            this.renderer2D.updateMeshStyles(styles);
         }
 
-        // Re-initialize to apply new styles
-        this.initialize();
+        // Re-setup to apply new styles
+        this.setup();
         this.regenerateMesh();
     }
 
-    /**
-     * Check if the system is ready
-     */
-    isReady(): boolean {
-        return this.useWebGL ? !!this.webglMeshRenderer : true;
-    }
 
     /**
-     * Clean up resources
+     * Dispose of all resources (called on destruction)
      */
-    dispose(): void {
+    public dispose(): void {
+        debugLog('MESH', 'Disposing MeshSystem');
+
+        // Dispose renderers
         if (this.webglMeshRenderer) {
             this.webglMeshRenderer.dispose();
             this.webglMeshRenderer = null;
+        }
+
+        if (this.renderer2D) {
+            this.renderer2D.dispose();
+            this.renderer2D = null;
         }
 
         this.eventHandlers = {};

@@ -314,7 +314,7 @@ export class WebGLMeshRenderer {
     /**
      * Render all loaded meshes
      */
-    public render(globe: Globe, meshesToRender: string[], viewport: [number, number]): boolean {
+    public render(globe: Globe, viewport: [number, number]): boolean {
         if (!this.gl || !this.program || !this.locations || !this.isInitialized) {
             console.error('[WebGLMeshRenderer] Not properly initialized');
             return false;
@@ -338,14 +338,11 @@ export class WebGLMeshRenderer {
         this.gl.enable(this.gl.BLEND);
         this.gl.blendFunc(this.gl.SRC_ALPHA, this.gl.ONE_MINUS_SRC_ALPHA);
 
-        // Render each requested mesh
+        // Render all loaded meshes
         let rendered = 0;
-        for (const meshName of meshesToRender) {
-            const buffer = this.meshBuffers.get(meshName);
-            if (buffer) {
-                this.renderMeshBuffer(buffer);
-                rendered++;
-            }
+        for (const buffer of this.meshBuffers.values()) {
+            this.renderMeshBuffer(buffer);
+            rendered++;
         }
 
         return rendered > 0;
