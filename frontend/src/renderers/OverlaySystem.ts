@@ -34,9 +34,6 @@ export class OverlaySystem {
     private webglRenderer: WebGLRenderer | null = null;
     private renderer2D: OverlayRenderer2D | null = null;
 
-    // External state references
-    private stateProvider: any = null;
-
     // Event callbacks
     private eventHandlers: { [key: string]: Function[] } = {};
 
@@ -78,18 +75,12 @@ export class OverlaySystem {
     /**
      * Setup renderers with current data
      * Tries WebGL first (if available and projection supported), falls back to 2D
-     * Centralized data gathering - all stateProvider access happens here
      */
-    public setup(): void {
+    public setup(overlayProduct: any, globe: any, view: any): void {
         debugLog('OVERLAY', 'Starting setup');
 
         // Clear any existing setup
         this.clearSetup();
-
-        // Gather all required state in one place
-        const overlayProduct = this.stateProvider?.getOverlayProduct();
-        const globe = this.stateProvider?.getGlobe();
-        const view = this.stateProvider?.getView();
 
         // Check if we have required data
         if (!overlayProduct || !globe || !view) {
@@ -270,47 +261,31 @@ export class OverlaySystem {
         }
     }
 
-    // ===== PUBLIC API (same as original) =====
-
-    /**
-     * Set external state provider (no longer subscribing to events)
-     */
-    setStateProvider(stateProvider: any): void {
-        this.stateProvider = stateProvider;
-        debugLog('OVERLAY', 'State provider set');
-    }
+    // ===== PUBLIC API =====
 
     /**
      * Handle rotation changes that require re-rendering (not re-initialization)
      * Now called directly from Earth.ts centralized functions
      */
-    public handleRotation(): void {
+    public handleRotation(globe: any, mask: any, view: any, config: any, overlayProduct: any): void {
         debugLog('OVERLAY', 'Handling rotation change - regenerating frame');
-        this.regenerateOverlay();
+        this.regenerateOverlay(globe, mask, view, config, overlayProduct);
     }
 
     /**
      * Handle data changes that require re-setup
      * Now called directly from Earth.ts centralized functions
      */
-    public handleDataChange(): void {
+    public handleDataChange(overlayProduct: any, globe: any, view: any, mask: any, config: any): void {
         debugLog('OVERLAY', 'Handling data change - re-setting up system');
-        this.setup();
-        this.regenerateOverlay();
+        this.setup(overlayProduct, globe, view);
+        this.regenerateOverlay(globe, mask, view, config, overlayProduct);
     }
 
     /**
      * Generate overlay and emit result
-     * Centralized data gathering - all stateProvider access happens here
      */
-    private regenerateOverlay(): void {
-        // Gather all required state in one place
-        const globe = this.stateProvider?.getGlobe();
-        const mask = this.stateProvider?.getMask();
-        const view = this.stateProvider?.getView();
-        const config = this.stateProvider?.getConfig();
-        const overlayProduct = this.stateProvider?.getOverlayProduct();
-
+    private regenerateOverlay(globe: any, mask: any, view: any, config: any, overlayProduct: any): void {
         // Generate frame with explicit parameters
         const canvas = this.generateFrame(globe, mask, view);
 

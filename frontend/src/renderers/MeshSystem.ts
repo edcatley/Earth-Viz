@@ -32,9 +32,6 @@ export class MeshSystem {
     private webglMeshRenderer: WebGLMeshRenderer | null = null;
     private renderer2D: MeshRenderer2D | null = null;
 
-    // External state references
-    private stateProvider: any = null;
-
     // Event callbacks
     private eventHandlers: { [key: string]: Function[] } = {};
 
@@ -70,18 +67,12 @@ export class MeshSystem {
     /**
      * Setup renderers with current data
      * Tries WebGL first (if projection supported), falls back to 2D
-     * Centralized data gathering - all stateProvider access happens here
      */
-    public setup(): void {
+    public setup(globe: any, mesh: any, view: any): void {
         debugLog('MESH', 'Starting setup');
 
         // Clear any existing setup
         this.clearSetup();
-
-        // Gather all required state in one place
-        const globe = this.stateProvider?.getGlobe();
-        const mesh = this.stateProvider?.getMesh();
-        const view = this.stateProvider?.getView();
 
         // Check if we have required data
         if (!globe || !mesh || !view) {
@@ -272,47 +263,33 @@ export class MeshSystem {
         this.useWebGL = false;
     }
 
-    // ===== PUBLIC API (same as original) =====
-
-    /**
-     * Set external state provider (no longer subscribing to events)
-     */
-    setStateProvider(stateProvider: any): void {
-        console.log('MESH setStateProvider called');
-        this.stateProvider = stateProvider;
-        debugLog('MESH', 'State provider set');
-    }
+    // ===== PUBLIC API =====
 
     /**
      * Handle rotation changes that require re-rendering (not re-initialization)
      * Now called directly from Earth.ts centralized functions
      */
-    public handleRotation(): void {
+    public handleRotation(globe: any, view: any): void {
         debugLog('MESH', 'Handling rotation change - regenerating frame');
-        this.regenerateMesh();
+        this.regenerateMesh(globe, view);
     }
 
     /**
      * Handle data changes that require re-setup
      * Now called directly from Earth.ts centralized functions
      */
-    public handleDataChange(): void {
+    public handleDataChange(globe: any, mesh: any, view: any): void {
         debugLog('MESH', 'Handling data change - re-setting up system');
-        this.setup();
-        this.regenerateMesh();
+        this.setup(globe, mesh, view);
+        this.regenerateMesh(globe, view);
     }
 
     /**
      * Generate mesh and emit result
-     * Centralized data gathering - all stateProvider access happens here
      */
-    public regenerateMesh(): void {
-        // Gather all required state in one place
-        const globe = this.stateProvider?.getGlobe();
-        const view = this.stateProvider?.getView();
-
+    public regenerateMesh(globe: any, view: any): void {
         // Generate frame with explicit parameters
-        const canvas = this.generateFrame(globe, view);
+        const canvas = this.generateFrame(globe,  view);
 
         const result: MeshResult = {
             canvas: canvas,
@@ -341,27 +318,7 @@ export class MeshSystem {
         }
     }
 
-    // ===== ADDITIONAL MESH-SPECIFIC METHODS =====
 
-    /**
-     * Get mesh styles for external use
-     */
-    getMeshStyles(): { [key: string]: MeshStyle } {
-        return this.renderer2D?.getMeshStyles() || {};
-    }
-
-    /**
-     * Update mesh styles
-     */
-    updateMeshStyles(styles: { [key: string]: Partial<MeshStyle> }): void {
-        if (this.renderer2D) {
-            this.renderer2D.updateMeshStyles(styles);
-        }
-
-        // Re-setup to apply new styles
-        this.setup();
-        this.regenerateMesh();
-    }
 
 
     /**
@@ -382,6 +339,5 @@ export class MeshSystem {
         }
 
         this.eventHandlers = {};
-        this.stateProvider = null;
     }
 }

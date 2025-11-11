@@ -130,6 +130,20 @@ class EarthModernApp {
     }
 
     /**
+     * Update graticule on rotation (without recreating DOM)
+     */
+    private updateGraticule(): void {
+        if (!this.globe || !this.globe.projection) return;
+
+        const path = d3.geoPath().projection(this.globe.projection);
+
+        // Update graticule paths
+        d3.select("#map .graticule").attr("d", path as any);
+        d3.select("#map .hemisphere").attr("d", path as any);
+        d3.select("#map #sphere").attr("d", path as any);
+    }
+
+    /**
      * Setup window resize handling
      */
     private setupResizeHandling(): void {
@@ -415,12 +429,22 @@ class EarthModernApp {
     private updateSystemsOnDataChange(): void {
         console.log('[EARTH-MODERN] Updating all systems on data change');
 
-        // Set state provider and call handleDataChange on all systems
-        this.overlaySystem.setStateProvider(this);
-        this.overlaySystem.handleDataChange();
+        // Gather all required state in one place
+        const globe = this.globe;
+        const mesh = this.mesh;
+        const view = this.view;
+        const mask = this.mask;
+        const config = this.configManager.getConfig();
+        const overlayProduct = this.overlayProduct;
 
-        this.meshSystem.setStateProvider(this);
-        this.meshSystem.handleDataChange();
+        // Call handleDataChange on all systems with explicit parameters
+        if (overlayProduct && globe && view && mask && config) {
+            this.overlaySystem.handleDataChange(overlayProduct, globe, view, mask, config);
+        }
+
+        if (globe && mesh && view) {
+            this.meshSystem.handleDataChange(globe, mesh, view);
+        }
 
         this.planetSystem.setStateProvider(this);
         this.planetSystem.handleDataChange();
@@ -432,8 +456,6 @@ class EarthModernApp {
         this.renderSystem.handleDataChange();
         
         this.setupMapStructure();
-
-
     }
 
     /**
@@ -443,19 +465,31 @@ class EarthModernApp {
     private updateSystemsOnRotation(): void {
         console.log('[EARTH-MODERN] Updating all systems on rotation');
 
-        // Set state provider and call handleRotation on all systems
-        this.overlaySystem.setStateProvider(this);
-        this.overlaySystem.handleRotation();
+        // Update graticule without recreating DOM
+        this.updateGraticule();
 
-        this.meshSystem.setStateProvider(this);
-        this.meshSystem.handleRotation();
+        // Gather all required state in one place
+        const globe = this.globe;
+        const mesh = this.mesh;
+        const view = this.view;
+        const mask = this.mask;
+        const config = this.configManager.getConfig();
+        const overlayProduct = this.overlayProduct;
+
+        // Call handleRotation on all systems with explicit parameters
+        if (globe && mask && view && config && overlayProduct) {
+            this.overlaySystem.handleRotation(globe, mask, view, config, overlayProduct);
+        }
+
+        if (globe && mesh && view) {
+            this.meshSystem.handleRotation(globe, view);
+        }
 
         this.planetSystem.setStateProvider(this);
         this.planetSystem.handleRotation();
 
         this.particleSystem.setStateProvider(this);
         this.particleSystem.handleRotation();
-        this.setupMapStructure();
     }
 
     // ===== CALLBACK HANDLERS (Clean and focused) =====
@@ -702,139 +736,6 @@ class EarthModernApp {
         console.log('[EARTH-MODERN] Mesh loaded - all features available at all times');
     }
 
-    /**
-     * Simplify GeoJSON using Douglas-Peucker algorithm
-     * Reduces number of points while preserving shape
-     */
-    private simplifyGeoJSON(geojson: any, tolerance: number): any {
-        if (!geojson) return geojson;
-
-        // Handle GeometryCollection (geo-maps format)
-        if (geojson.type === 'GeometryCollection' && geojson.geometries) {
-            return {
-                ...geojson,
-                geometries: geojson.geometries.map((geometry: any) =>
-                    this.simplifyGeometry(geometry, tolerance)
-                )
-            };
-        }
-
-        // Handle FeatureCollection (standard GeoJSON)
-        if (geojson.features) {
-            return {
-                ...geojson,
-                features: geojson.features.map((feature: any) => ({
-                    ...feature,
-                    geometry: this.simplifyGeometry(feature.geometry, tolerance)
-                }))
-            };
-        }
-
-        return geojson;
-    }
-
-    /**
-     * Simplify a geometry object
-     */
-    private simplifyGeometry(geometry: any, tolerance: number): any {
-        if (!geometry) return geometry;
-
-        if (geometry.type === 'MultiPolygon') {
-            return {
-                ...geometry,
-                coordinates: geometry.coordinates.map((polygon: any) =>
-                    polygon.map((ring: any) => this.simplifyLineString(ring, tolerance))
-                )
-            };
-        } else if (geometry.type === 'Polygon') {
-            return {
-                ...geometry,
-                coordinates: geometry.coordinates.map((ring: any) =>
-                    this.simplifyLineString(ring, tolerance)
-                )
-            };
-        } else if (geometry.type === 'LineString') {
-            return {
-                ...geometry,
-                coordinates: this.simplifyLineString(geometry.coordinates, tolerance)
-            };
-        } else if (geometry.type === 'MultiLineString') {
-            return {
-                ...geometry,
-                coordinates: geometry.coordinates.map((line: any) =>
-                    this.simplifyLineString(line, tolerance)
-                )
-            };
-        }
-
-        return geometry;
-    }
-
-    /**
-     * Douglas-Peucker line simplification
-     */
-    private simplifyLineString(points: number[][], tolerance: number): number[][] {
-        if (points.length <= 2) return points;
-
-        const sqTolerance = tolerance * tolerance;
-
-        // Find point with maximum distance from line segment
-        let maxDist = 0;
-        let maxIndex = 0;
-
-        const first = points[0];
-        const last = points[points.length - 1];
-
-        for (let i = 1; i < points.length - 1; i++) {
-            const dist = this.perpendicularDistanceSq(points[i], first, last);
-            if (dist > maxDist) {
-                maxDist = dist;
-                maxIndex = i;
-            }
-        }
-
-        // If max distance is greater than tolerance, recursively simplify
-        if (maxDist > sqTolerance) {
-            const left = this.simplifyLineString(points.slice(0, maxIndex + 1), tolerance);
-            const right = this.simplifyLineString(points.slice(maxIndex), tolerance);
-            return left.slice(0, -1).concat(right);
-        }
-
-        // Otherwise, just keep endpoints
-        return [first, last];
-    }
-
-    /**
-     * Squared perpendicular distance from point to line segment
-     */
-    private perpendicularDistanceSq(point: number[], lineStart: number[], lineEnd: number[]): number {
-        const [x, y] = point;
-        const [x1, y1] = lineStart;
-        const [x2, y2] = lineEnd;
-
-        const dx = x2 - x1;
-        const dy = y2 - y1;
-
-        if (dx === 0 && dy === 0) {
-            // Line segment is a point
-            return (x - x1) * (x - x1) + (y - y1) * (y - y1);
-        }
-
-        const t = ((x - x1) * dx + (y - y1) * dy) / (dx * dx + dy * dy);
-
-        if (t < 0) {
-            // Beyond start point
-            return (x - x1) * (x - x1) + (y - y1) * (y - y1);
-        } else if (t > 1) {
-            // Beyond end point
-            return (x - x2) * (x - x2) + (y - y2) * (y - y2);
-        }
-
-        // Perpendicular distance
-        const projX = x1 + t * dx;
-        const projY = y1 + t * dy;
-        return (x - projX) * (x - projX) + (y - projY) * (y - projY);
-    }
 
     // ===== STATE ACCESS METHODS (for observers) =====
 
