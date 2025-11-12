@@ -80,8 +80,8 @@ export class MeshSystem {
             return;
         }
 
-        // Try WebGL first (only for orthographic projection)
-        if (globe.projectionType === 'orthographic' && this.webglMeshRenderer) {
+        // Try WebGL first (if available) - let the renderer decide if it can handle the projection
+        if (this.webglMeshRenderer) {
             debugLog('MESH', 'Attempting WebGL setup');
             if (this.setupWebGL(globe, mesh, view)) {
                 this.useWebGL = true;
@@ -90,7 +90,7 @@ export class MeshSystem {
             }
             debugLog('MESH', 'WebGL setup failed, falling back to 2D');
         } else {
-            debugLog('MESH', 'Using 2D (projection not orthographic or WebGL unavailable)');
+            debugLog('MESH', 'WebGL not available, using 2D');
         }
 
         // Fallback to 2D

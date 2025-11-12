@@ -252,9 +252,16 @@ export class WebGLMeshRenderer {
         this.supportsUint32Indices = !!ext;
         console.log('[WebGLMeshRenderer] 32-bit indices supported:', this.supportsUint32Indices);
 
-        // Determine projection type and create appropriate shader program
+        // Determine projection type and check if supported
         const projectionType = globe ? this.getProjectionType(globe) : 'orthographic';
         console.log('[WebGLMeshRenderer] Projection type:', projectionType);
+        
+        // Check if this projection is supported
+        if (!this.isProjectionSupported(globe)) {
+            console.log('[WebGLMeshRenderer] Projection not supported:', globe?.projectionType);
+            return false;
+        }
+        
         if (!this.createShaderProgram(projectionType)) {
             console.error('[WebGLMeshRenderer] Failed to create shader program');
             return false;
@@ -271,6 +278,21 @@ export class WebGLMeshRenderer {
         this.isInitialized = true;
         console.log('[WebGLMeshRenderer] Initialized with projection:', projectionType);
         return true;
+    }
+
+    /**
+     * Check if a projection is supported by this renderer
+     */
+    private isProjectionSupported(globe?: Globe): boolean {
+        if (!globe) return true; // Default to orthographic
+        
+        const projectionType = (globe as any).projectionType;
+        
+        // Currently only orthographic is fully supported
+        // Equirectangular has wrapping issues that need to be fixed
+        const supportedProjections = ['orthographic', 'equirectangular'];
+        
+        return supportedProjections.includes(projectionType);
     }
 
 
