@@ -321,7 +321,6 @@ interface WindBounds {
 
 export class WebGLParticleSystem {
     private gl: WebGLRenderingContext | null = null;
-    private canvas: HTMLCanvasElement | null = null;
     private program: WebGLProgram | null = null;
     private isInitialized = false;
 
@@ -379,9 +378,8 @@ export class WebGLParticleSystem {
     /**
      * Initialize WebGL context
      */
-    public initialize(canvas: HTMLCanvasElement): boolean {
-        this.canvas = canvas;
-        this.gl = canvas.getContext('webgl');
+    public initialize(gl: WebGLRenderingContext): boolean {
+        this.gl = gl;
 
         if (!this.gl) {
             console.error('[WebGLParticleSystem] WebGL not supported');
@@ -996,42 +994,42 @@ export class WebGLParticleSystem {
     /**
      * Render fade quad to create trail effect
      */
-    private renderFadeQuad(): void {
-        if (!this.gl || !this.fadeProgram || !this.fadeLocations || !this.fadeQuadBuffer) {
+    private renderFadeQuad(gl: WebGLRenderingContext): void {
+        if (!this.fadeProgram || !this.fadeLocations || !this.fadeQuadBuffer) {
             return;
         }
 
         // On first frame, clear with transparent instead of fading
         if (this.isFirstFrame) {
-            this.gl.clearColor(0.0, 0.0, 0.0, 0.0);
-            this.gl.clear(this.gl.COLOR_BUFFER_BIT);
+            gl.clearColor(0.0, 0.0, 0.0, 0.0);
+            gl.clear(gl.COLOR_BUFFER_BIT);
             this.isFirstFrame = false;
             return;
         }
 
-        this.gl.useProgram(this.fadeProgram);
+        gl.useProgram(this.fadeProgram);
 
         // Bind fade quad buffer
-        this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.fadeQuadBuffer);
-        this.gl.enableVertexAttribArray(this.fadeLocations.attributes.position);
-        this.gl.vertexAttribPointer(
+        gl.bindBuffer(gl.ARRAY_BUFFER, this.fadeQuadBuffer);
+        gl.enableVertexAttribArray(this.fadeLocations.attributes.position);
+        gl.vertexAttribPointer(
             this.fadeLocations.attributes.position,
             2,
-            this.gl.FLOAT,
+            gl.FLOAT,
             false,
             0,
             0
         );
 
         // Enable blending for fade effect
-        this.gl.enable(this.gl.BLEND);
-        this.gl.blendFunc(this.gl.SRC_ALPHA, this.gl.ONE_MINUS_SRC_ALPHA);
+        gl.enable(gl.BLEND);
+        gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
 
         // Draw fullscreen quad
-        this.gl.drawArrays(this.gl.TRIANGLE_STRIP, 0, 4);
+        gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
 
         // Disable blending (will be re-enabled for particle rendering)
-        this.gl.disable(this.gl.BLEND);
+        gl.disable(gl.BLEND);
     }
 
     /**
@@ -1067,8 +1065,8 @@ export class WebGLParticleSystem {
     /**
      * Render particles as lines (no ReadPixels!)
      */
-    public render(lineWidth: number = 0.5): void {
-        if (!this.gl || !this.renderProgram || !this.renderLocations || !this.renderVertexBuffer) {
+    public render(gl: WebGLRenderingContext, viewport: [number, number], lineWidth: number = 0.5): void {
+        if (!this.renderProgram || !this.renderLocations || !this.renderVertexBuffer) {
             console.error('[WebGLParticleSystem] Not ready to render');
             return;
         }
@@ -1076,17 +1074,16 @@ export class WebGLParticleSystem {
         const prevIndex = 1 - this.currentTextureIndex;
         const currIndex = this.currentTextureIndex;
 
-        // Set viewport to match canvas
-        const canvas = this.gl.canvas as HTMLCanvasElement;
-        this.gl.viewport(0, 0, canvas.width, canvas.height);
+        // Set viewport
+        gl.viewport(0, 0, viewport[0], viewport[1]);
 
         // Update projection matrix to convert pixel coords to clip space (reuse array)
-        this.projectionMatrix[0] = 2.0 / canvas.width;
+        this.projectionMatrix[0] = 2.0 / viewport[0];
         this.projectionMatrix[1] = 0;
         this.projectionMatrix[2] = 0;
         this.projectionMatrix[3] = 0;
         this.projectionMatrix[4] = 0;
-        this.projectionMatrix[5] = -2.0 / canvas.height;
+        this.projectionMatrix[5] = -2.0 / viewport[1];
         this.projectionMatrix[6] = 0;
         this.projectionMatrix[7] = 0;
         this.projectionMatrix[8] = 0;
@@ -1099,45 +1096,45 @@ export class WebGLParticleSystem {
         this.projectionMatrix[15] = 1;
 
         // Render fade quad to create trails
-        this.renderFadeQuad();
+        this.renderFadeQuad(gl);
 
-        this.gl.useProgram(this.renderProgram);
+        gl.useProgram(this.renderProgram);
 
         // Bind vertex buffer
-        this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.renderVertexBuffer);
-        this.gl.enableVertexAttribArray(this.renderLocations.attributes.particleCorner);
-        this.gl.vertexAttribPointer(
+        gl.bindBuffer(gl.ARRAY_BUFFER, this.renderVertexBuffer);
+        gl.enableVertexAttribArray(this.renderLocations.attributes.particleCorner);
+        gl.vertexAttribPointer(
             this.renderLocations.attributes.particleCorner,
             2, // 2 components: particleIndex, corner
-            this.gl.FLOAT,
+            gl.FLOAT,
             false,
             0,
             0
         );
 
         // Bind textures
-        this.gl.activeTexture(this.gl.TEXTURE0);
-        this.gl.bindTexture(this.gl.TEXTURE_2D, this.particleTextures[prevIndex]);
-        this.gl.uniform1i(this.renderLocations.uniforms.prevPos, 0);
+        gl.activeTexture(gl.TEXTURE0);
+        gl.bindTexture(gl.TEXTURE_2D, this.particleTextures[prevIndex]);
+        gl.uniform1i(this.renderLocations.uniforms.prevPos, 0);
 
-        this.gl.activeTexture(this.gl.TEXTURE1);
-        this.gl.bindTexture(this.gl.TEXTURE_2D, this.particleTextures[currIndex]);
-        this.gl.uniform1i(this.renderLocations.uniforms.currPos, 1);
+        gl.activeTexture(gl.TEXTURE1);
+        gl.bindTexture(gl.TEXTURE_2D, this.particleTextures[currIndex]);
+        gl.uniform1i(this.renderLocations.uniforms.currPos, 1);
 
         // Set uniforms
-        this.gl.uniformMatrix4fv(this.renderLocations.uniforms.projection, false, this.projectionMatrix);
-        this.gl.uniform1f(this.renderLocations.uniforms.lineWidth, lineWidth);
-        this.gl.uniform1f(this.renderLocations.uniforms.textureSize, this.particleTexSize);
+        gl.uniformMatrix4fv(this.renderLocations.uniforms.projection, false, this.projectionMatrix);
+        gl.uniform1f(this.renderLocations.uniforms.lineWidth, lineWidth);
+        gl.uniform1f(this.renderLocations.uniforms.textureSize, this.particleTexSize);
 
         // Enable blending
-        this.gl.enable(this.gl.BLEND);
-        this.gl.blendFunc(this.gl.SRC_ALPHA, this.gl.ONE_MINUS_SRC_ALPHA);
+        gl.enable(gl.BLEND);
+        gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
 
         // Draw all particles as triangles
-        this.gl.drawArrays(this.gl.TRIANGLES, 0, this.particleCount * 6);
+        gl.drawArrays(gl.TRIANGLES, 0, this.particleCount * 6);
 
         // Disable blending
-        this.gl.disable(this.gl.BLEND);
+        gl.disable(gl.BLEND);
     }
 
     /**
