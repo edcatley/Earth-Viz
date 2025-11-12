@@ -353,6 +353,9 @@ export class WebGLParticleSystem {
     // Previous frame data for merging old + new positions
     private previousFrameData: Float32Array | null = null;
 
+    // Cached projection matrix to avoid allocation every frame
+    private projectionMatrix: Float32Array = new Float32Array(16);
+
     // Shader locations
     private locations: {
         attributes: {
@@ -1077,13 +1080,23 @@ export class WebGLParticleSystem {
         const canvas = this.gl.canvas as HTMLCanvasElement;
         this.gl.viewport(0, 0, canvas.width, canvas.height);
 
-        // Create projection matrix to convert pixel coords to clip space
-        const projectionMatrix = new Float32Array([
-            2.0 / canvas.width, 0, 0, 0,
-            0, -2.0 / canvas.height, 0, 0,
-            0, 0, 1, 0,
-            -1, 1, 0, 1
-        ]);
+        // Update projection matrix to convert pixel coords to clip space (reuse array)
+        this.projectionMatrix[0] = 2.0 / canvas.width;
+        this.projectionMatrix[1] = 0;
+        this.projectionMatrix[2] = 0;
+        this.projectionMatrix[3] = 0;
+        this.projectionMatrix[4] = 0;
+        this.projectionMatrix[5] = -2.0 / canvas.height;
+        this.projectionMatrix[6] = 0;
+        this.projectionMatrix[7] = 0;
+        this.projectionMatrix[8] = 0;
+        this.projectionMatrix[9] = 0;
+        this.projectionMatrix[10] = 1;
+        this.projectionMatrix[11] = 0;
+        this.projectionMatrix[12] = -1;
+        this.projectionMatrix[13] = 1;
+        this.projectionMatrix[14] = 0;
+        this.projectionMatrix[15] = 1;
 
         // Render fade quad to create trails
         this.renderFadeQuad();
@@ -1112,7 +1125,7 @@ export class WebGLParticleSystem {
         this.gl.uniform1i(this.renderLocations.uniforms.currPos, 1);
 
         // Set uniforms
-        this.gl.uniformMatrix4fv(this.renderLocations.uniforms.projection, false, projectionMatrix);
+        this.gl.uniformMatrix4fv(this.renderLocations.uniforms.projection, false, this.projectionMatrix);
         this.gl.uniform1f(this.renderLocations.uniforms.lineWidth, lineWidth);
         this.gl.uniform1f(this.renderLocations.uniforms.textureSize, this.particleTexSize);
 
