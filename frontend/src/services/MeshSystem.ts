@@ -9,7 +9,7 @@
  */
 
 import { WebGLMeshRenderer } from '../renderers/WebGLMeshRenderer';
-import { MeshRenderer2D, MeshStyle } from '../renderers/2dMeshRenderer';
+import { MeshRenderer2D } from '../renderers/2dMeshRenderer';
 
 // Debug logging
 function debugLog(category: string, message: string, data?: any): void {
@@ -23,7 +23,6 @@ export interface MeshResult {
 
 export class MeshSystem {
     // Common rendering system properties
-    private webglCanvas: HTMLCanvasElement;
     private canvas2D: HTMLCanvasElement;
     private ctx2D: CanvasRenderingContext2D | null = null;
     private useWebGL: boolean = false;
@@ -36,8 +35,7 @@ export class MeshSystem {
     private eventHandlers: { [key: string]: Function[] } = {};
 
     constructor() {
-        // Create canvases
-        this.webglCanvas = document.createElement("canvas");
+        // Create canvas for 2D fallback
         this.canvas2D = document.createElement("canvas");
 
         const ctx = this.canvas2D.getContext("2d");
@@ -46,20 +44,54 @@ export class MeshSystem {
         }
         this.ctx2D = ctx;
 
-        // Initialize renderers once - check what's available
-        debugLog('MESH', 'Initializing renderers');
-
-        // Try to initialize WebGL renderer
-        this.webglMeshRenderer = new WebGLMeshRenderer();
-        // Note: WebGLMeshRenderer.initialize() needs globe, so we can't call it here
-        // We'll initialize it during setup instead
-        debugLog('MESH', 'WebGL mesh renderer created');
-
         // Create 2D renderer (always available)
         this.renderer2D = new MeshRenderer2D();
         debugLog('MESH', '2D renderer created');
 
+        // webglMeshRenderer will be created in initializeGL()
         debugLog('MESH', 'MeshSystem created');
+    }
+
+    /**
+     * Initialize WebGL renderer with shared GL context
+     */
+    public initializeGL(gl: WebGLRenderingContext): void {
+        if (this.webglMeshRenderer) {
+            debugLog('MESH', 'WebGL renderer already initialized');
+            return;
+        }
+
+        debugLog('MESH', 'Initializing WebGL renderer with shared context');
+        this.webglMeshRenderer = new WebGLMeshRenderer();
+        const success = this.webglMeshRenderer.initialize(gl);
+
+        if (!success) {
+            debugLog('MESH', 'WebGL initialization failed');
+            this.webglMeshRenderer.dispose();
+            this.webglMeshRenderer = null;
+            this.useWebGL = false;
+        } else {
+            debugLog('MESH', 'WebGL renderer initialized successfully');
+            // useWebGL will be set to true in setup() when data is ready
+        }
+    }
+
+    /**
+     * Check if this system can render directly to a shared GL context
+     */
+    public canRenderDirect(): boolean {
+        return this.useWebGL && this.webglMeshRenderer !== null;
+    }
+
+    /**
+     * Render directly to provided GL context (fast path)
+     */
+    public renderDirect(gl: WebGLRenderingContext, globe: any, view: any): void {
+        if (!this.canRenderDirect()) {
+            throw new Error('MeshSystem not ready for direct rendering');
+        }
+
+        this.webglMeshRenderer!.render(gl, globe, [view.width, view.height]);
     }
 
     // ===== MAIN PATTERN METHODS =====
@@ -83,7 +115,7 @@ export class MeshSystem {
         // Try WebGL first (if available) - let the renderer decide if it can handle the projection
         if (this.webglMeshRenderer) {
             debugLog('MESH', 'Attempting WebGL setup');
-            if (this.setupWebGL(globe, mesh, view)) {
+            if (this.setupWebGL(globe, mesh)) {
                 this.useWebGL = true;
                 debugLog('MESH', 'WebGL setup successful');
                 return;
@@ -102,26 +134,21 @@ export class MeshSystem {
     /**
      * Attempt WebGL setup - returns true if successful
      */
-    private setupWebGL(globe: any, mesh: any, view: any): boolean {
+    private setupWebGL(globe: any, mesh: any): boolean {
         if (!this.webglMeshRenderer) {
             return false;
         }
 
         try {
-            // Size canvas
-            this.webglCanvas.width = view.width;
-            this.webglCanvas.height = view.height;
+            debugLog('MESH', 'Attempting WebGL setup');
+            
+            // Setup WebGL renderer with mesh data (includes shader compilation)
+            const setupSuccess = this.webglMeshRenderer.setup(mesh, globe);
 
-            // Initialize WebGL renderer with globe
-            const webglInitialized = this.webglMeshRenderer.initialize(this.webglCanvas, globe);
-
-            if (!webglInitialized) {
-                debugLog('MESH', 'WebGL mesh renderer initialization failed');
+            if (!setupSuccess) {
+                debugLog('MESH', 'WebGL mesh setup failed (likely unsupported projection)');
                 return false;
             }
-
-            // Load mesh data into WebGL renderer
-            this.loadWebGLMeshData(mesh);
 
             debugLog('MESH', 'WebGL setup successful');
             return true;
@@ -154,46 +181,14 @@ export class MeshSystem {
     }
 
     /**
-     * Generate frame using appropriate rendering system
+     * Generate frame using 2D rendering (for fallback compositing)
      */
-    public generateFrame(globe: any, view: any): HTMLCanvasElement | null {
-        debugLog('MESH', `Generating frame using ${this.useWebGL ? 'WebGL' : '2D'}`);
-
-        if (this.useWebGL) {
-            return this.renderWebGL(globe, view) ? this.webglCanvas : null;
-        } else {
-            return this.render2D(globe) ? this.canvas2D : null;
-        }
+    public generateFrame(globe: any): HTMLCanvasElement | null {
+        debugLog('MESH', 'Generating frame using 2D');
+        return this.render2D(globe) ? this.canvas2D : null;
     }
 
     // ===== RENDERING IMPLEMENTATIONS =====
-
-    /**
-     * Render using WebGL system
-     */
-    private renderWebGL(globe: any, view: any): boolean {
-        if (!this.webglMeshRenderer) {
-            debugLog('MESH', 'WebGL render failed - no renderer');
-            return false;
-        }
-
-        if (!globe || !view) {
-            debugLog('MESH', 'WebGL render failed - missing state');
-            return false;
-        }
-
-        try {
-            // Clear the canvas
-            this.webglMeshRenderer.clear();
-
-            // Render all loaded meshes
-            return this.webglMeshRenderer.render(globe, [view.width, view.height]);
-
-        } catch (error) {
-            debugLog('MESH', 'WebGL render error:', error);
-            return false;
-        }
-    }
 
     /**
      * Render using 2D system - delegates to MeshRenderer2D
@@ -219,29 +214,6 @@ export class MeshSystem {
         }
     }
 
-    /**
-     * Load mesh data into WebGL renderer
-     */
-    private loadWebGLMeshData(mesh: any): void {
-        if (!this.webglMeshRenderer) return;
-
-        debugLog('MESH', 'Loading mesh data into WebGL renderer');
-
-        // Get mesh styles from 2D renderer (single source of truth)
-        const styles = this.renderer2D?.getMeshStyles() || {
-            coastlines: { color: [0.98, 0.98, 0.98] as [number, number, number], lineWidth: 8.0, opacity: 0.65 },
-            lakes: { color: [0.86, 0.86, 0.86] as [number, number, number], lineWidth: 6.0, opacity: 0.65 },
-            rivers: { color: [0.86, 0.86, 0.86] as [number, number, number], lineWidth: 4.0, opacity: 0.65 }
-        };
-
-        // Load mesh data (mesh is bundled, always available)
-        if (mesh.coastLo) this.webglMeshRenderer.loadMeshData(mesh.coastLo, 'coastlines', styles.coastlines);
-        if (mesh.lakesLo) this.webglMeshRenderer.loadMeshData(mesh.lakesLo, 'lakes', styles.lakes);
-        if (mesh.riversLo) this.webglMeshRenderer.loadMeshData(mesh.riversLo, 'rivers', styles.rivers);
-
-        debugLog('MESH', 'Mesh data loaded into WebGL');
-    }
-
     // ===== UTILITY METHODS =====
 
     /**
@@ -250,11 +222,7 @@ export class MeshSystem {
     private clearSetup(): void {
         debugLog('MESH', 'Clearing current setup');
 
-        // Clear canvases
-        if (this.webglMeshRenderer) {
-            this.webglMeshRenderer.clear();
-        }
-
+        // Clear 2D canvas only
         if (this.renderer2D && this.ctx2D) {
             this.renderer2D.clear(this.ctx2D, this.canvas2D);
         }
@@ -269,9 +237,9 @@ export class MeshSystem {
      * Handle rotation changes that require re-rendering (not re-initialization)
      * Now called directly from Earth.ts centralized functions
      */
-    public handleRotation(globe: any, view: any): void {
+    public handleRotation(globe: any): void {
         debugLog('MESH', 'Handling rotation change - regenerating frame');
-        this.regenerateMesh(globe, view);
+        this.regenerateMesh(globe);
     }
 
     /**
@@ -281,15 +249,15 @@ export class MeshSystem {
     public handleDataChange(globe: any, mesh: any, view: any): void {
         debugLog('MESH', 'Handling data change - re-setting up system');
         this.setup(globe, mesh, view);
-        this.regenerateMesh(globe, view);
+        this.regenerateMesh(globe);
     }
 
     /**
      * Generate mesh and emit result
      */
-    public regenerateMesh(globe: any, view: any): void {
+    public regenerateMesh(globe: any): void {
         // Generate frame with explicit parameters
-        const canvas = this.generateFrame(globe,  view);
+        const canvas = this.generateFrame(globe);
 
         const result: MeshResult = {
             canvas: canvas,
