@@ -42,7 +42,6 @@ export interface PlanetResult {
 
 export class PlanetSystem {
     // Common rendering system properties
-    private webglCanvas: HTMLCanvasElement;
     private canvas2D: HTMLCanvasElement;
     private ctx2D: CanvasRenderingContext2D | null = null;
     private useWebGL: boolean = false;
@@ -61,8 +60,7 @@ export class PlanetSystem {
     private dayNightBlender: DayNightBlender | null = null;
 
     constructor() {
-        // Create canvases
-        this.webglCanvas = document.createElement("canvas");
+        // Create canvas for 2D fallback
         this.canvas2D = document.createElement("canvas");
 
         const ctx = this.canvas2D.getContext("2d");
@@ -71,26 +69,54 @@ export class PlanetSystem {
         }
         this.ctx2D = ctx;
 
-        // Initialize renderers once - check what's available
-        debugLog('PLANET', 'Initializing renderers');
-
-        // Try to initialize WebGL renderer
-        this.webglRenderer = new WebGLRenderer();
-        const webglAvailable = this.webglRenderer.initialize(this.webglCanvas);
-
-        if (!webglAvailable) {
-            debugLog('PLANET', 'WebGL not available on this system');
-            this.webglRenderer.dispose();
-            this.webglRenderer = null;
-        } else {
-            debugLog('PLANET', 'WebGL renderer initialized');
-        }
-
         // Create 2D renderer (always available)
         this.renderer2D = new PlanetRenderer2D();
         debugLog('PLANET', '2D renderer created');
 
+        // webglRenderer will be created in initializeGL()
         debugLog('PLANET', 'PlanetSystem created');
+    }
+
+    /**
+     * Initialize WebGL renderer with shared GL context
+     */
+    public initializeGL(gl: WebGLRenderingContext): void {
+        if (this.webglRenderer) {
+            debugLog('PLANET', 'WebGL renderer already initialized');
+            return;
+        }
+
+        debugLog('PLANET', 'Initializing WebGL renderer with shared context');
+        this.webglRenderer = new WebGLRenderer();
+        const success = this.webglRenderer.initialize(gl);
+
+        if (!success) {
+            debugLog('PLANET', 'WebGL initialization failed');
+            this.webglRenderer.dispose();
+            this.webglRenderer = null;
+            this.useWebGL = false;
+        } else {
+            debugLog('PLANET', 'WebGL renderer initialized successfully');
+            // useWebGL will be set to true in setup() when data is ready
+        }
+    }
+
+    /**
+     * Check if this system can render directly to a shared GL context
+     */
+    public canRenderDirect(): boolean {
+        return this.useWebGL && this.webglRenderer !== null;
+    }
+
+    /**
+     * Render directly to provided GL context (fast path)
+     */
+    public renderDirect(gl: WebGLRenderingContext, globe: Globe, view: ViewportSize): void {
+        if (!this.canRenderDirect()) {
+            throw new Error('PlanetSystem not ready for direct rendering');
+        }
+
+        this.webglRenderer!.render(gl, globe, view);
     }
 
     // ===== MAIN PATTERN METHODS =====
@@ -137,10 +163,6 @@ export class PlanetSystem {
                 debugLog('PLANET', 'WebGL setup skipped - missing globe or view data');
                 return false;
             }
-
-            // Size canvas
-            this.webglCanvas.width = view.width;
-            this.webglCanvas.height = view.height;
 
             // Load planet image and setup WebGL
             // Use same cache key logic as loadPlanetImage
@@ -201,51 +223,14 @@ export class PlanetSystem {
     }
 
     /**
-     * Generate frame using appropriate rendering system
+     * Generate frame using 2D rendering (for fallback compositing)
      */
     public generateFrame(globe: Globe, mask: any, view: ViewportSize): HTMLCanvasElement | null {
-        debugLog('PLANET', `Generating using ${this.useWebGL ? 'WebGL' : '2D'}`);
-
-        if (this.useWebGL) {
-            return this.renderWebGL(globe, view) ? this.webglCanvas : null;
-        } else {
-            return this.render2D(globe, mask, view) ? this.canvas2D : null;
-        }
+        debugLog('PLANET', 'Generating frame using 2D');
+        return this.render2D(globe, mask, view) ? this.canvas2D : null;
     }
 
     // ===== RENDERING IMPLEMENTATIONS =====
-
-    /**
-     * Render using WebGL system
-     */
-    private renderWebGL(globe: Globe, view: ViewportSize): boolean {
-        if (!this.webglRenderer) {
-            debugLog('PLANET', 'WebGL render failed - no renderer');
-            return false;
-        }
-
-        try {
-            if (!globe || !view) {
-                debugLog('PLANET', 'WebGL render failed - missing state');
-                return false;
-            }
-
-            // Render the planet 
-            const renderSuccess = this.webglRenderer.render(globe, view);
-
-            if (renderSuccess) {
-                debugLog('PLANET', 'WebGL render successful');
-                return true;
-            } else {
-                debugLog('PLANET', 'WebGL render failed');
-                return false;
-            }
-
-        } catch (error) {
-            debugLog('PLANET', 'WebGL render error:', error);
-            return false;
-        }
-    }
 
     /**
      * Render using 2D system - delegates to PlanetRenderer2D
@@ -279,11 +264,7 @@ export class PlanetSystem {
     private clearSetup(): void {
         debugLog('PLANET', 'Clearing current setup');
 
-        // Clear canvases
-        if (this.webglRenderer) {
-            this.webglRenderer.clear();
-        }
-
+        // Clear 2D canvas
         if (this.renderer2D && this.ctx2D) {
             this.renderer2D.clear(this.ctx2D, this.canvas2D);
         }
