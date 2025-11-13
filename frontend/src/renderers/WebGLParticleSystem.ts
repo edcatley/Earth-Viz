@@ -364,8 +364,8 @@ export class WebGLParticleSystem {
     private projectionMatrix: Float32Array = new Float32Array(16);
     
     // Rendering configuration (set during setup)
-    private viewportWidth: number = 0;
-    private viewportHeight: number = 0;
+    private canvasWidth: number = 0;
+    private canvasHeight: number = 0;
     private lineWidth: number = 0.5;
 
     // Shader locations
@@ -539,13 +539,17 @@ export class WebGLParticleSystem {
 
     /**
      * Setup particle system with data
+     * 
+     * @param canvasWidth - Width of the rendering canvas
+     * @param canvasHeight - Height of the rendering canvas
+     * @param windBounds - Pixel bounds where particles exist (subset of canvas)
      */
     public setup(
         particleCount: number,
         windData: Float32Array,
         windBounds: WindBounds,
-        viewportWidth: number,
-        viewportHeight: number,
+        canvasWidth: number,
+        canvasHeight: number,
         lineWidth: number = 0.5
     ): boolean {
         if (!this.gl || !this.isInitialized) {
@@ -555,11 +559,11 @@ export class WebGLParticleSystem {
 
         this.windBounds = windBounds;
         this.particleCount = particleCount;
-        
-        // Store rendering configuration
-        this.viewportWidth = viewportWidth;
-        this.viewportHeight = viewportHeight;
         this.lineWidth = lineWidth;
+        
+        // Store canvas dimensions for viewport and projection
+        this.canvasWidth = canvasWidth;
+        this.canvasHeight = canvasHeight;
 
         // Create wind field texture
         if (!this.createWindTexture(windData, windBounds)) {
@@ -586,13 +590,14 @@ export class WebGLParticleSystem {
             return false;
         }
         
-        // Pre-calculate projection matrix (converts pixel coords to clip space)
+        // Pre-calculate projection matrix from particle coordinate space
         this.updateProjectionMatrix();
 
         console.log('[WebGLParticleSystem] Setup complete', {
             particles: particleCount,
             windSamples: windBounds.width * windBounds.height,
-            viewport: `${viewportWidth}x${viewportHeight}`,
+            canvas: `${canvasWidth}x${canvasHeight}`,
+            particleBounds: `${windBounds.x},${windBounds.y} to ${windBounds.x + windBounds.width * windBounds.spacing},${windBounds.y + windBounds.height * windBounds.spacing}`,
             lineWidth
         });
 
@@ -600,16 +605,19 @@ export class WebGLParticleSystem {
     }
     
     /**
-     * Update projection matrix based on current viewport settings
+     * Update projection matrix to map canvas pixel coordinates to clip space
+     * Simple orthographic projection: [0, canvasWidth] x [0, canvasHeight] → [-1, 1] x [1, -1]
      */
     private updateProjectionMatrix(): void {
-        // Projection matrix to convert pixel coordinates to clip space [-1, 1]
-        this.projectionMatrix[0] = 2.0 / this.viewportWidth;
+        // Map canvas pixels to clip space
+        // X: [0, width] → [-1, 1]
+        // Y: [0, height] → [1, -1] (inverted because canvas Y goes down, clip Y goes up)
+        this.projectionMatrix[0] = 2.0 / this.canvasWidth;
         this.projectionMatrix[1] = 0;
         this.projectionMatrix[2] = 0;
         this.projectionMatrix[3] = 0;
         this.projectionMatrix[4] = 0;
-        this.projectionMatrix[5] = -2.0 / this.viewportHeight;
+        this.projectionMatrix[5] = -2.0 / this.canvasHeight;
         this.projectionMatrix[6] = 0;
         this.projectionMatrix[7] = 0;
         this.projectionMatrix[8] = 0;
@@ -1084,8 +1092,8 @@ export class WebGLParticleSystem {
         const prevIndex = 1 - this.currentTextureIndex;
         const currIndex = this.currentTextureIndex;
 
-        // Set viewport (configured during setup)
-        gl.viewport(0, 0, this.viewportWidth, this.viewportHeight);
+        // Set viewport to match canvas
+        gl.viewport(0, 0, this.canvasWidth, this.canvasHeight);
 
         // Render fade quad to create trails
         this.renderFadeQuad(gl);

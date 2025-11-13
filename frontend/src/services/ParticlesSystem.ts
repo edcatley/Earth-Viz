@@ -117,8 +117,9 @@ export class ParticleSystem {
             throw new Error('ParticleSystem not ready for direct rendering');
         }
 
-        this.webglParticleSystem!.evolve();
+
         this.webglParticleSystem!.render(gl);
+                this.webglParticleSystem!.evolve();
     }
 
     /**
@@ -226,7 +227,7 @@ export class ParticleSystem {
                 return false;
             }
 
-            // Setup WebGL particle system with data and viewport configuration
+            // Setup WebGL particle system with data
             if (!this.webglParticleSystem.setup(
                 this.particleCount, 
                 this.windData, 
