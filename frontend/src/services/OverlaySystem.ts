@@ -25,6 +25,7 @@ export interface OverlayResult {
 
 export class OverlaySystem {
     // Common rendering system properties
+    private webglCanvas: HTMLCanvasElement;
     private canvas2D: HTMLCanvasElement;
     private ctx2D: CanvasRenderingContext2D | null = null;
     private useWebGL: boolean = false;
@@ -37,7 +38,8 @@ export class OverlaySystem {
     private eventHandlers: { [key: string]: Function[] } = {};
 
     constructor() {
-        // Create canvas for 2D fallback
+        // Create canvases
+        this.webglCanvas = document.createElement("canvas");
         this.canvas2D = document.createElement("canvas");
 
         const ctx = this.canvas2D.getContext("2d");
@@ -46,54 +48,26 @@ export class OverlaySystem {
         }
         this.ctx2D = ctx;
 
+        // Initialize renderers once - check what's available
+        debugLog('OVERLAY', 'Initializing renderers');
+        
+        // Try to initialize WebGL renderer
+        this.webglRenderer = new WebGLRenderer();
+        const webglAvailable = this.webglRenderer.initialize(this.webglCanvas);
+        
+        if (!webglAvailable) {
+            debugLog('OVERLAY', 'WebGL not available on this system');
+            this.webglRenderer.dispose();
+            this.webglRenderer = null;
+        } else {
+            debugLog('OVERLAY', 'WebGL renderer initialized');
+        }
+
         // Create 2D renderer (always available)
         this.renderer2D = new OverlayRenderer2D();
         debugLog('OVERLAY', '2D renderer created');
 
-        // webglRenderer will be created in initializeGL()
         debugLog('OVERLAY', 'OverlaySystem created');
-    }
-
-    /**
-     * Initialize WebGL renderer with shared GL context
-     */
-    public initializeGL(gl: WebGLRenderingContext): void {
-        if (this.webglRenderer) {
-            debugLog('OVERLAY', 'WebGL renderer already initialized');
-            return;
-        }
-
-        debugLog('OVERLAY', 'Initializing WebGL renderer with shared context');
-        this.webglRenderer = new WebGLRenderer();
-        const success = this.webglRenderer.initialize(gl);
-
-        if (!success) {
-            debugLog('OVERLAY', 'WebGL initialization failed');
-            this.webglRenderer.dispose();
-            this.webglRenderer = null;
-            this.useWebGL = false;
-        } else {
-            debugLog('OVERLAY', 'WebGL renderer initialized successfully');
-            // useWebGL will be set to true in setup() when data is ready
-        }
-    }
-
-    /**
-     * Check if this system can render directly to a shared GL context
-     */
-    public canRenderDirect(): boolean {
-        return this.useWebGL && this.webglRenderer !== null;
-    }
-
-    /**
-     * Render directly to provided GL context (fast path)
-     */
-    public renderDirect(gl: WebGLRenderingContext, globe: any, view: any): void {
-        if (!this.canRenderDirect()) {
-            throw new Error('OverlaySystem not ready for direct rendering');
-        }
-
-        this.webglRenderer!.render(gl, globe, view);
     }
 
     // ===== MAIN PATTERN METHODS =====
@@ -142,6 +116,10 @@ export class OverlaySystem {
         }
 
         try {
+            // Size canvas
+            this.webglCanvas.width = view.width;
+            this.webglCanvas.height = view.height;
+
             // Setup overlay with current data
             const useInterpolatedLookup = true;
             const setupSuccess = this.webglRenderer.setup('overlay', overlayProduct, globe, useInterpolatedLookup);
@@ -182,14 +160,43 @@ export class OverlaySystem {
     }
 
     /**
-     * Generate frame using 2D rendering (for fallback compositing)
+     * Generate frame using appropriate rendering system
      */
     public generateFrame(globe: any, mask: any, view: any): HTMLCanvasElement | null {
-        debugLog('OVERLAY', 'Generating frame using 2D');
-        return this.render2D(globe, mask, view) ? this.canvas2D : null;
+        debugLog('OVERLAY', `Generating frame using ${this.useWebGL ? 'WebGL' : '2D'}`);
+
+        if (this.useWebGL) {
+            return this.renderWebGL(globe, view) ? this.webglCanvas : null;
+        } else {
+            return this.render2D(globe, mask, view) ? this.canvas2D : null;
+        }
     }
 
     // ===== RENDERING IMPLEMENTATIONS =====
+
+    /**
+     * Render using WebGL system
+     */
+    private renderWebGL(globe: any, view: any): boolean {
+        if (!this.webglRenderer) {
+            debugLog('OVERLAY', 'WebGL render failed - no renderer');
+            return false;
+        }
+
+        if (!globe || !view) {
+            debugLog('OVERLAY', 'WebGL render failed - missing state');
+            return false;
+        }
+
+        try {
+            // Delegate to WebGL renderer
+            return this.webglRenderer.render(globe, view);
+
+        } catch (error) {
+            debugLog('OVERLAY', 'WebGL render error:', error);
+            return false;
+        }
+    }
 
     /**
      * Render using 2D system - delegates to OverlayRenderer2D
@@ -223,7 +230,11 @@ export class OverlaySystem {
     private clearSetup(): void {
         debugLog('OVERLAY', 'Clearing current setup');
 
-        // Clear 2D canvas
+        // Clear canvases
+        if (this.webglRenderer) {
+            this.webglRenderer.clear();
+        }
+
         if (this.renderer2D && this.ctx2D) {
             this.renderer2D.clear(this.ctx2D, this.canvas2D);
         }
