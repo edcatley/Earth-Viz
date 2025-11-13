@@ -5,7 +5,7 @@
 
 import * as d3 from 'd3';
 import { Utils } from '../utils/Utils';
-import { Globe, DisplayOptions, Point, GeoPoint } from '../core/Globes';
+import { Globe, DisplayOptions, Point, GeoPoint, ViewportSize } from '../core/Globes';
 
 // Debug logging - enabled
 function debugLog(section: string, message: string, data?: any): void {
@@ -152,109 +152,112 @@ export class RenderSystem {
 
 
     /**
-     * Main rendering method - renders the complete frame
-     * Uses direct WebGL rendering when available, falls back to 2D compositing
+     * Main rendering method - decides what to draw and delegates to WebGL or 2D
      */
-    public renderFrame(
+    public render(
         globe: Globe,
+        mask: any,
         mode: string,
         overlayScale: any,
         overlayUnits: any
     ): void {
-        console.log('[RENDER] renderFrame called, mode:', mode);
+        if (!globe) return;
+
+        const view = { width: this.display.width, height: this.display.height };
         
-        if (!globe) {
-            console.log('[RENDER] No globe, skipping render');
-            return;
+        // Decide what to draw based on mode
+        const drawPlanet = mode === 'planet';
+        const drawMesh = !drawPlanet;
+        const drawOverlay = mode === 'air' || mode === 'ocean';
+        const drawParticles = !drawPlanet;
+        
+        // Decide: WebGL or 2D?
+        const canUseWebGL = this.gl && 
+            this.planetSystem?.canRenderDirect() &&
+            this.overlaySystem?.canRenderDirect() &&
+            this.meshSystem?.canRenderDirect() &&
+            this.particleSystem?.canRenderDirect();
+        
+        if (canUseWebGL && this.gl) {
+            this.renderWebGL(globe, view, drawPlanet, drawMesh, drawOverlay, drawParticles);
+        } else if (this.overlayContext) {
+            this.render2D(globe, mask, view, drawPlanet, drawMesh, drawOverlay, drawParticles);
         }
-
-        try {
-            const view = { width: this.display.width, height: this.display.height };
-            
-            // Check if we can use WebGL direct rendering
-            console.log('[RENDER] Checking WebGL availability:', {
-                hasGL: !!this.gl,
-                planetReady: this.planetSystem?.canRenderDirect(),
-                overlayReady: this.overlaySystem?.canRenderDirect(),
-                meshReady: this.meshSystem?.canRenderDirect(),
-                particleReady: this.particleSystem?.canRenderDirect()
-            });
-            
-            const canUseWebGL = this.gl && 
-                this.planetSystem?.canRenderDirect() &&
-                this.overlaySystem?.canRenderDirect() &&
-                this.meshSystem?.canRenderDirect() &&
-                this.particleSystem?.canRenderDirect();
-            
-            console.log('[RENDER] Can use WebGL:', canUseWebGL);
-            
-            if (canUseWebGL && this.gl) {
-                // WebGL path: direct rendering to shared context
-                console.log('[RENDER] Using WebGL direct rendering');
-                
-                // Clear WebGL canvas
-                this.gl.clearColor(0.0, 0.0, 0.0, 0.0);
-                this.gl.clear(this.gl.COLOR_BUFFER_BIT | this.gl.DEPTH_BUFFER_BIT);
-                
-                // Render based on mode
-                if (mode === 'planet') {
-                    // Planet mode: only render planet
-                    this.planetSystem.renderDirect(this.gl, globe, view);
-                } else {
-                    // Air/Ocean modes: render mesh, overlay, particles
-                    this.meshSystem.renderDirect(this.gl, globe, view);
-                    
-                    if (mode === 'air' || mode === 'ocean') {
-                        this.overlaySystem.renderDirect(this.gl, globe, view);
-                    }
-                    
-                    this.particleSystem.renderDirect(this.gl);
-                }
-                
-            } else {
-                // 2D fallback path: direct rendering to 2D context
-                console.log('[RENDER] Using 2D direct rendering');
-                
-                if (!this.overlayContext) {
-                    console.error('[RENDER] No 2D context available');
-                    return;
-                }
-                
-                // Clear canvas
-                this.overlayContext.clearRect(0, 0, this.display.width, this.display.height);
-                
-                // Get mask from state provider
-                const mask = this.stateProvider?.getMask();
-                if (!mask) {
-                    console.error('[RENDER] No mask available for 2D rendering');
-                    return;
-                }
-                
-                // Render based on mode - systems draw directly to context
-                if (mode === 'planet') {
-                    // Planet mode: only render planet
-                    this.planetSystem.render2DDirect(this.overlayContext, globe, mask, view);
-                } else {
-                    // Air/Ocean modes: render mesh, overlay, particles
-                    this.meshSystem.render2DDirect(this.overlayContext, this.overlayCanvas!, globe);
-                    
-                    if (mode === 'air' || mode === 'ocean') {
-                        this.overlaySystem.render2DDirect(this.overlayContext, globe, mask, view);
-                    }
-                    
-                    this.particleSystem.render2DDirect(this.overlayContext, globe, view);
-                }
-            }
-            
-            // Draw color scale (if provided)
-            if (overlayScale && this.scaleContext && this.scaleCanvas) {
-                this.scaleContext.clearRect(0, 0, this.scaleCanvas.width, this.scaleCanvas.height);
-                this.drawColorScale(overlayScale, overlayUnits);
-            }
-
-        } catch (error) {
-            console.error('Frame render failed:', error);
-            throw error;
+        
+        // Draw color scale
+        if (overlayScale && this.scaleContext && this.scaleCanvas) {
+            this.scaleContext.clearRect(0, 0, this.scaleCanvas.width, this.scaleCanvas.height);
+            this.drawColorScale(overlayScale, overlayUnits);
+        }
+    }
+    
+    /**
+     * WebGL rendering path - draws what it's told to draw
+     */
+    private renderWebGL(
+        globe: Globe, 
+        view: ViewportSize, 
+        drawPlanet: boolean,
+        drawMesh: boolean,
+        drawOverlay: boolean,
+        drawParticles: boolean
+    ): void {
+        if (!this.gl) return;
+        
+        // Clear
+        this.gl.clearColor(0.0, 0.0, 0.0, 0.0);
+        this.gl.clear(this.gl.COLOR_BUFFER_BIT | this.gl.DEPTH_BUFFER_BIT);
+        
+        // Draw what we're told to draw
+        if (drawPlanet) {
+            this.planetSystem.renderDirect(this.gl, globe, view);
+        }
+        
+        if (drawMesh) {
+            this.meshSystem.renderDirect(this.gl, globe, view);
+        }
+        
+        if (drawOverlay) {
+            this.overlaySystem.renderDirect(this.gl, globe, view);
+        }
+        
+        if (drawParticles) {
+            this.particleSystem.renderDirect(this.gl);
+        }
+    }
+    
+    /**
+     * 2D rendering path - draws what it's told to draw
+     */
+    private render2D(
+        globe: Globe, 
+        mask: any, 
+        view: ViewportSize,
+        drawPlanet: boolean,
+        drawMesh: boolean,
+        drawOverlay: boolean,
+        drawParticles: boolean
+    ): void {
+        if (!this.overlayContext) return;
+        
+        // Clear
+        this.overlayContext.clearRect(0, 0, this.display.width, this.display.height);
+        
+        // Draw what we're told to draw
+        if (drawPlanet) {
+            this.planetSystem.render2DDirect(this.overlayContext, globe, mask, view);
+        }
+        
+        if (drawMesh) {
+            this.meshSystem.render2DDirect(this.overlayContext, this.overlayCanvas!, globe);
+        }
+        
+        if (drawOverlay) {
+            this.overlaySystem.render2DDirect(this.overlayContext, globe, mask, view);
+        }
+        
+        if (drawParticles) {
+            this.particleSystem.render2DDirect(this.overlayContext, globe, view);
         }
     }
 
@@ -339,7 +342,7 @@ export class RenderSystem {
     }
 
     /**
-     * Handle data changes - regenerate color scale when overlay data changes
+     * Handle data changes - regenerate color scale and trigger render
      */
     handleDataChange(): void {
         const overlayProduct = this.stateProvider?.getOverlayProduct();
@@ -347,6 +350,20 @@ export class RenderSystem {
         if (overlayProduct?.scale) {
             this.generateColorScale(overlayProduct.scale, overlayProduct.units);
             this.setupScaleTooltip(overlayProduct.scale, overlayProduct.units);
+        }
+        
+        // Trigger render with updated data
+        if (this.stateProvider) {
+            const globe = this.stateProvider.getGlobe();
+            const mask = this.stateProvider.getMask();
+            const config = this.stateProvider.getConfig();
+            const mode = config?.mode || 'planet';
+            const overlayScale = overlayProduct?.scale;
+            const overlayUnits = overlayProduct?.units;
+            
+            if (globe && mask) {
+                this.render(globe, mask, mode, overlayScale, overlayUnits);
+            }
         }
     }
 

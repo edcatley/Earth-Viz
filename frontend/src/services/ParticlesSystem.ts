@@ -45,17 +45,9 @@ export class ParticleSystem {
     private windData: Float32Array | null = null;
     private windBounds: { x: number; y: number; width: number; height: number; spacing: number } | null = null;
 
-    // Cached state for animation (updated in handleDataChange)
-    private cachedGlobe: Globe | null = null;
-    private cachedView: ViewportSize | null = null;
-    private cachedParticleType: string = 'off';
 
-    // Event callbacks
-    private eventHandlers: { [key: string]: Function[] } = {};
 
-    // Animation
-    private animationId: number | null = null;
-    private boundAnimate: (() => void) | null = null;
+
 
     constructor() {
         // Create canvas for 2D fallback
@@ -70,9 +62,6 @@ export class ParticleSystem {
         // Create 2D renderer (always available)
         this.renderer2D = new ParticleRenderer2D();
         debugLog('PARTICLES', '2D renderer created');
-
-        // Bind animate once to avoid creating new closures every frame
-        this.boundAnimate = this.animateFrame.bind(this);
 
         // webglParticleSystem will be created in initializeGL()
         debugLog('PARTICLES', 'ParticleSystem created');
@@ -106,20 +95,25 @@ export class ParticleSystem {
      * Check if this system can render directly to a shared GL context
      */
     public canRenderDirect(): boolean {
-        return this.useWebGL && this.webglParticleSystem !== null;
+        return this.webglParticleSystem !== null;
     }
 
     /**
      * Render directly to provided GL context (fast path)
+     * Note: render() before evolve() to avoid drawing teleport lines when particles respawn
+     * No-op if no data has been setup yet
      */
     public renderDirect(gl: WebGLRenderingContext): void {
-        if (!this.canRenderDirect()) {
-            throw new Error('ParticleSystem not ready for direct rendering');
+        if (!this.webglParticleSystem) {
+            return; // No WebGL renderer
+        }
+        
+        if (!this.useWebGL) {
+            return; // No data setup yet
         }
 
-
-        this.webglParticleSystem!.render(gl);
-                this.webglParticleSystem!.evolve();
+        this.webglParticleSystem.render(gl);
+        this.webglParticleSystem.evolve();
     }
 
     /**
@@ -164,9 +158,6 @@ export class ParticleSystem {
         // Clear any existing setup
         this.clearSetup();
 
-        // Cache particleType to avoid creating config objects in hot path
-        this.cachedParticleType = particleType;
-
         // Validate required data
         if (!globe || !mask || !view || !particleProduct) {
             debugLog('PARTICLES', 'Setup skipped - missing required data');
@@ -195,8 +186,7 @@ export class ParticleSystem {
             debugLog('PARTICLES', 'Attempting WebGL setup');
             if (this.setupWebGL(view)) {
                 this.useWebGL = true;
-                this.startAnimation();
-                debugLog('PARTICLES', 'WebGL setup successful - animation started');
+                debugLog('PARTICLES', 'WebGL setup successful');
                 return;
             }
             debugLog('PARTICLES', 'WebGL setup failed, falling back to 2D');
@@ -207,7 +197,6 @@ export class ParticleSystem {
         // Fallback to 2D
         this.setup2D(view, validPositions);
         this.useWebGL = false;
-        this.startAnimation();
         debugLog('PARTICLES', '2D setup complete');
     }
 
@@ -383,12 +372,6 @@ export class ParticleSystem {
     private clearSetup(): void {
         debugLog('PARTICLES', 'Clearing current setup');
 
-        // Stop animation
-        if (this.animationId) {
-            clearTimeout(this.animationId);
-            this.animationId = null;
-        }
-
         // Clear canvases
         this.clearCanvas();
 
@@ -414,13 +397,7 @@ export class ParticleSystem {
      */
     public handleRotation(): void {
         debugLog('PARTICLES', 'Handling rotation change');
-
-        if (this.isAnimating()) {
-            // We were animating, so stop and clear during rotation
-            debugLog('PARTICLES', 'Stopping animation and clearing canvas during rotation');
-            this.stopAnimation();
-            this.clearCanvas();
-        }
+        this.clearCanvas();
     }
 
     /**
@@ -436,116 +413,17 @@ export class ParticleSystem {
     ): void {
         debugLog('PARTICLES', 'Handling data change - re-setting up system');
 
-        // Cache state for animation
-        this.cachedGlobe = globe;
-        this.cachedView = view;
-
         this.setup(globe, mask, view, particleProduct, particleType);
-        this.regenerateParticles(globe, view); // Generate initial frame
     }
 
 
 
-    /**
-     * Emit ready signal for particles
-     */
-    private regenerateParticles(globe: Globe, view: ViewportSize): void {
-        const result: ParticleResult = {
-            canvas: null,  // No longer generating canvases
-            particleType: this.cachedParticleType
-        };
 
-        this.emit('particlesChanged', result);
-    }
-
-    /**
-     * Subscribe to particle change events
-     */
-    on(event: string, handler: Function): void {
-        if (!this.eventHandlers[event]) {
-            this.eventHandlers[event] = [];
-        }
-        this.eventHandlers[event].push(handler);
-    }
-
-    /**
-     * Emit events to subscribers
-     */
-    private emit(event: string, ...args: any[]): void {
-        if (this.eventHandlers[event]) {
-            this.eventHandlers[event].forEach(handler => handler(...args));
-        }
-    }
-
-
-    /**
-     * Start the particle animation loop
-     */
-    startAnimation(): void {
-        if (this.animationId) return; // Already running
-        debugLog('PARTICLES', 'Starting particle animation');
-        this.animate();
-    }
-
-    /**
-     * Stop the particle animation loop
-     */
-    stopAnimation(): void {
-        debugLog('PARTICLES', 'Stop animation called');
-        if (this.animationId) {
-            clearTimeout(this.animationId);
-            this.animationId = null;
-            this.clearCanvas();
-            debugLog('PARTICLES', 'Particle animation stopped');
-        }
-    }
-
-    /**
-     * Internal animation loop - evolves particles and emits canvas
-     */
-    private animate(): void {
-        if (!this.boundAnimate || !this.cachedGlobe || !this.cachedView) return;
-        
-        try {
-            // Emit ready signal (RenderSystem will call render2DDirect or renderDirect)
-            const result: ParticleResult = {
-                canvas: null,  // No longer generating canvases
-                particleType: this.cachedParticleType
-            };
-
-            this.emit('particlesChanged', result);
-
-            // Schedule next frame using pre-bound function (no new closure)
-            this.animationId = setTimeout(this.boundAnimate, 40) as any;
-
-        } catch (error) {
-            debugLog('PARTICLES', 'Animation error:', error);
-            this.stopAnimation();
-        }
-    }
-    
-    /**
-     * Animation frame wrapper for setTimeout
-     */
-    private animateFrame(): void {
-        if (this.animationId) {
-            this.animate();
-        }
-    }
-
-    /**
-     * Check if animation is running
-     */
-    isAnimating(): boolean {
-        return this.animationId !== null;
-    }
 
     /**
      * Clean up resources
      */
     dispose(): void {
-        this.stopAnimation();
-
         if (this.webglParticleSystem) {
             this.webglParticleSystem.dispose();
             this.webglParticleSystem = null;
@@ -558,8 +436,5 @@ export class ParticleSystem {
 
         this.windData = null;
         this.windBounds = null;
-        this.cachedGlobe = null;
-        this.cachedView = null;
-        this.eventHandlers = {};
     }
 }

@@ -411,7 +411,7 @@ export class WebGLRenderer {
      * Render a setup item (lightweight operation - done every frame)
      */
     public render(gl: WebGL2RenderingContext | WebGLRenderingContext, globe: any, view: any): boolean {
-        console.log(`[WebGLRenderer] Render called`);
+
 
         if (!this.isInitialized) {
             console.log(`[WebGLRenderer] Render failed: initialized=${this.isInitialized}`);
@@ -424,7 +424,6 @@ export class WebGLRenderer {
         }
 
         const item = this.currentItem;
-        console.log(`[WebGLRenderer] Rendering ${item.type}`);
 
         try {
             // Setup viewport (don't clear - RenderSystem handles that)
@@ -482,7 +481,6 @@ export class WebGLRenderer {
                 return false;
             }
 
-            console.log(`[WebGLRenderer] Render completed successfully`);
             return true;
 
         } catch (error) {

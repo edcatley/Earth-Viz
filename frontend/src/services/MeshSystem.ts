@@ -80,18 +80,23 @@ export class MeshSystem {
      * Check if this system can render directly to a shared GL context
      */
     public canRenderDirect(): boolean {
-        return this.useWebGL && this.webglMeshRenderer !== null;
+        return this.webglMeshRenderer !== null;
     }
 
     /**
      * Render directly to provided GL context (fast path)
+     * No-op if no data has been setup yet
      */
     public renderDirect(gl: WebGLRenderingContext, globe: any, view: any): void {
-        if (!this.canRenderDirect()) {
-            throw new Error('MeshSystem not ready for direct rendering');
+        if (!this.webglMeshRenderer) {
+            return; // No WebGL renderer
+        }
+        
+        if (!this.useWebGL) {
+            return; // No data setup yet
         }
 
-        this.webglMeshRenderer!.render(gl, globe, [view.width, view.height]);
+        this.webglMeshRenderer.render(gl, globe, [view.width, view.height]);
     }
 
     /**

@@ -62,6 +62,9 @@ class EarthModernApp {
     
     // Product manager - handles caching and creation
     private productManager: ProductManager;
+    
+    // Particle animation timer
+    private particleAnimationId: number | null = null;
 
 
 
@@ -205,7 +208,7 @@ class EarthModernApp {
 
         // 2. Input changes → Globe manipulation
         this.inputHandler.on('zoomStart', () => {
-            this.particleSystem.stopAnimation();
+            this.stopParticleAnimation();
         });
         this.inputHandler.on('zoom', () => {
             // Globe is changing during drag - emit globe changed event for immediate redraw
@@ -217,7 +220,10 @@ class EarthModernApp {
         });
         this.inputHandler.on('zoomEnd', () => {
             // No need for handleGlobeChange - mask regeneration will happen via zoomEnd
-            this.particleSystem.startAnimation();
+            const config = this.configManager.getConfig();
+            if (config.particleType && config.particleType !== 'off' && this.particleProduct) {
+                this.startParticleAnimation();
+            }
             this.emit('zoomEnd');
         });
         this.inputHandler.on('click', (point, coord) => {
@@ -239,10 +245,7 @@ class EarthModernApp {
             this.emit('planetChanged');
         });
 
-        // 5. ParticleSystem → Listen for ready signals
-        this.particleSystem.on('particlesChanged', () => {
-            this.emit('particlesChanged');
-        });
+
 
         // 6. MeshSystem → Listen for ready signals
         this.meshSystem.on('meshChanged', () => {
@@ -262,26 +265,26 @@ class EarthModernApp {
         // Any visual state change triggers a render of current state
         console.log('[EARTH-MODERN] Setting up render subscriptions for all visual systems');
 
-        // Listen for all visual system events and render when any system updates
-        this.on('overlayChanged', () => {
-            console.log('[EARTH-MODERN] Overlay changed, triggering render');
-            this.performRender();
-        });
+        // // Listen for all visual system events and render when any system updates
+        // this.on('overlayChanged', () => {
+        //     console.log('[EARTH-MODERN] Overlay changed, triggering render');
+        //     this.performRender();
+        // });
 
-        this.on('planetChanged', () => {
-            console.log('[EARTH-MODERN] Planet changed, triggering render');
-            this.performRender();
-        });
+        // this.on('planetChanged', () => {
+        //     console.log('[EARTH-MODERN] Planet changed, triggering render');
+        //     this.performRender();
+        // });
 
-        this.on('meshChanged', () => {
-            console.log('[EARTH-MODERN] Mesh changed, triggering render');
-            this.performRender();
-        });
+        // this.on('meshChanged', () => {
+        //     console.log('[EARTH-MODERN] Mesh changed, triggering render');
+        //     this.performRender();
+        // });
 
-        this.on('particlesChanged', () => {
-            //console.log('[EARTH-MODERN] Particles changed, triggering render');
-            this.performRender();
-        });
+        // this.on('particlesChanged', () => {
+        //     //console.log('[EARTH-MODERN] Particles changed, triggering render');
+        //     this.performRender();
+        // });
 
         // Only regenerate mask on zoom end (scale changes)
         this.on('zoomEnd', () => {
@@ -323,12 +326,15 @@ class EarthModernApp {
         }
 
         // Call RenderSystem with new signature
-        this.renderSystem.renderFrame(
-            this.globe,
-            mode,
-            overlayScale,
-            overlayUnits
-        );
+        if (this.globe && this.mask) {
+            this.renderSystem.render(
+                this.globe,
+                this.mask,
+                mode,
+                overlayScale,
+                overlayUnits
+            );
+        }
     }
 
     // Simple event emitter for visual state changes
@@ -433,6 +439,14 @@ class EarthModernApp {
         this.renderSystem.setStateProvider(this);
         this.renderSystem.handleDataChange();
         
+        // Start/stop particle animation based on whether particles are enabled
+        if (config.particleType && config.particleType !== 'off' && particleProduct) {
+            this.startParticleAnimation();
+            console.log('[EARTH-MODERN] Starting particle animation');
+        } else {
+            this.stopParticleAnimation();
+        }
+        
         this.setupMapStructure();
     }
 
@@ -469,6 +483,66 @@ class EarthModernApp {
 
         // Particle system doesn't need parameters for rotation - just stops/clears animation
         this.particleSystem.handleRotation();
+        
+        // Stop particle animation during rotation
+        this.stopParticleAnimation();
+        
+        // Trigger render with updated rotation
+        if (globe && mask) {
+            this.renderSystem.render(
+                globe,
+                mask,
+                config.mode || 'planet',
+                overlayProduct?.scale,
+                overlayProduct?.units
+            );
+        }
+    }
+    
+    /**
+     * Start particle animation loop
+     */
+    private startParticleAnimation(): void {
+        if (this.particleAnimationId) return; // Already running
+        
+        console.log('[EARTH-MODERN] Starting particle animation loop');
+        
+        // Set a dummy ID so the first animate() call doesn't exit early
+        this.particleAnimationId = -1 as any;
+        
+        const animate = () => {
+            
+            // Trigger render (which will evolve and render particles)
+            const globe = this.globe;
+            const mask = this.mask;
+            const config = this.configManager.getConfig();
+            const overlayProduct = this.overlayProduct;
+            
+            if (globe && mask) {
+                this.renderSystem.render(
+                    globe,
+                    mask,
+                    config.mode || 'planet',
+                    overlayProduct?.scale,
+                    overlayProduct?.units
+                );
+            }
+            
+            // Schedule next frame (40ms = 25fps)
+            this.particleAnimationId = setTimeout(animate, 40) as any;
+        };
+        
+        animate();
+    }
+    
+    /**
+     * Stop particle animation loop
+     */
+    private stopParticleAnimation(): void {
+        if (this.particleAnimationId) {
+            clearTimeout(this.particleAnimationId);
+            this.particleAnimationId = null;
+        }
     }
 
     // ===== CALLBACK HANDLERS (Clean and focused) =====

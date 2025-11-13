@@ -82,18 +82,23 @@ export class OverlaySystem {
      * Check if this system can render directly to a shared GL context
      */
     public canRenderDirect(): boolean {
-        return this.useWebGL && this.webglRenderer !== null;
+        return this.webglRenderer !== null;
     }
 
     /**
      * Render directly to provided GL context (fast path)
+     * No-op if no data has been setup yet
      */
     public renderDirect(gl: WebGLRenderingContext, globe: any, view: any): void {
-        if (!this.canRenderDirect()) {
-            throw new Error('OverlaySystem not ready for direct rendering');
+        if (!this.webglRenderer) {
+            return; // No WebGL renderer
+        }
+        
+        if (!this.useWebGL) {
+            return; // No data setup yet
         }
 
-        this.webglRenderer!.render(gl, globe, view);
+        this.webglRenderer.render(gl, globe, view);
     }
 
     /**
