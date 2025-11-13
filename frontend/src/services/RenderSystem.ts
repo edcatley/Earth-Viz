@@ -208,7 +208,7 @@ export class RenderSystem {
                         this.overlaySystem.renderDirect(this.gl, globe, view);
                     }
                     
-                    this.particleSystem.renderDirect(this.gl, [view.width, view.height]);
+                    this.particleSystem.renderDirect(this.gl);
                 }
                 
             } else {

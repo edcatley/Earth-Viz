@@ -7,6 +7,15 @@
 
 const MAX_PARTICLE_AGE = 50;
 
+// Fullscreen quad vertices (NDC coordinates: -1 to 1)
+// Used for both simulation and fade rendering
+const FULLSCREEN_QUAD_VERTICES = new Float32Array([
+    -1, -1,  // bottom-left
+    1, -1,   // bottom-right
+    -1, 1,   // top-left
+    1, 1     // top-right
+]);
+
 // ===== RENDERING SHADERS =====
 
 const RENDER_VERTEX_SHADER = `
@@ -347,13 +356,17 @@ export class WebGLParticleSystem {
     private fadeProgram: WebGLProgram | null = null;
     private fadeQuadBuffer: WebGLBuffer | null = null;
     private fadeLocations: any = null;
-    private isFirstFrame = true;
 
     // Previous frame data for merging old + new positions
     private previousFrameData: Float32Array | null = null;
 
     // Cached projection matrix to avoid allocation every frame
     private projectionMatrix: Float32Array = new Float32Array(16);
+    
+    // Rendering configuration (set during setup)
+    private viewportWidth: number = 0;
+    private viewportHeight: number = 0;
+    private lineWidth: number = 0.5;
 
     // Shader locations
     private locations: {
@@ -531,6 +544,9 @@ export class WebGLParticleSystem {
         particleCount: number,
         windData: Float32Array,
         windBounds: WindBounds,
+        viewportWidth: number,
+        viewportHeight: number,
+        lineWidth: number = 0.5
     ): boolean {
         if (!this.gl || !this.isInitialized) {
             console.error('[WebGLParticleSystem] Not initialized');
@@ -539,7 +555,11 @@ export class WebGLParticleSystem {
 
         this.windBounds = windBounds;
         this.particleCount = particleCount;
-        this.isFirstFrame = true;
+        
+        // Store rendering configuration
+        this.viewportWidth = viewportWidth;
+        this.viewportHeight = viewportHeight;
+        this.lineWidth = lineWidth;
 
         // Create wind field texture
         if (!this.createWindTexture(windData, windBounds)) {
@@ -565,13 +585,41 @@ export class WebGLParticleSystem {
         if (!this.createRenderVertexBuffer()) {
             return false;
         }
+        
+        // Pre-calculate projection matrix (converts pixel coords to clip space)
+        this.updateProjectionMatrix();
 
         console.log('[WebGLParticleSystem] Setup complete', {
             particles: particleCount,
             windSamples: windBounds.width * windBounds.height,
+            viewport: `${viewportWidth}x${viewportHeight}`,
+            lineWidth
         });
 
         return true;
+    }
+    
+    /**
+     * Update projection matrix based on current viewport settings
+     */
+    private updateProjectionMatrix(): void {
+        // Projection matrix to convert pixel coordinates to clip space [-1, 1]
+        this.projectionMatrix[0] = 2.0 / this.viewportWidth;
+        this.projectionMatrix[1] = 0;
+        this.projectionMatrix[2] = 0;
+        this.projectionMatrix[3] = 0;
+        this.projectionMatrix[4] = 0;
+        this.projectionMatrix[5] = -2.0 / this.viewportHeight;
+        this.projectionMatrix[6] = 0;
+        this.projectionMatrix[7] = 0;
+        this.projectionMatrix[8] = 0;
+        this.projectionMatrix[9] = 0;
+        this.projectionMatrix[10] = 1;
+        this.projectionMatrix[11] = 0;
+        this.projectionMatrix[12] = -1;
+        this.projectionMatrix[13] = 1;
+        this.projectionMatrix[14] = 0;
+        this.projectionMatrix[15] = 1;
     }
 
     /**
@@ -707,21 +755,6 @@ export class WebGLParticleSystem {
                 0
             );
 
-            // Check framebuffer status
-            const status = this.gl.checkFramebufferStatus(this.gl.FRAMEBUFFER);
-            if (status !== this.gl.FRAMEBUFFER_COMPLETE) {
-                const statusNames: { [key: number]: string } = {
-                    [this.gl.FRAMEBUFFER_COMPLETE]: 'COMPLETE',
-                    [this.gl.FRAMEBUFFER_INCOMPLETE_ATTACHMENT]: 'INCOMPLETE_ATTACHMENT',
-                    [this.gl.FRAMEBUFFER_INCOMPLETE_MISSING_ATTACHMENT]: 'INCOMPLETE_MISSING_ATTACHMENT',
-                    [this.gl.FRAMEBUFFER_INCOMPLETE_DIMENSIONS]: 'INCOMPLETE_DIMENSIONS',
-                    [this.gl.FRAMEBUFFER_UNSUPPORTED]: 'UNSUPPORTED'
-                };
-                console.error('[WebGLParticleSystem] Framebuffer incomplete:', statusNames[status] || status);
-                console.error('[WebGLParticleSystem] This means float texture rendering to framebuffer is not supported');
-                return false;
-            }
-
             this.framebuffers[i] = framebuffer;
         }
 
@@ -738,14 +771,6 @@ export class WebGLParticleSystem {
     private createQuadBuffer(): boolean {
         if (!this.gl) return false;
 
-        // Fullscreen quad: two triangles covering [-1, 1] in NDC
-        const vertices = new Float32Array([
-            -1, -1,  // bottom-left
-            1, -1,  // bottom-right
-            -1, 1,  // top-left
-            1, 1   // top-right
-        ]);
-
         this.quadBuffer = this.gl.createBuffer();
         if (!this.quadBuffer) {
             console.error('[WebGLParticleSystem] Failed to create quad buffer');
@@ -753,7 +778,7 @@ export class WebGLParticleSystem {
         }
 
         this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.quadBuffer);
-        this.gl.bufferData(this.gl.ARRAY_BUFFER, vertices, this.gl.STATIC_DRAW);
+        this.gl.bufferData(this.gl.ARRAY_BUFFER, FULLSCREEN_QUAD_VERTICES, this.gl.STATIC_DRAW);
 
         return true;
     }
@@ -972,13 +997,6 @@ export class WebGLParticleSystem {
     private createFadeQuadBuffer(): boolean {
         if (!this.gl) return false;
 
-        const vertices = new Float32Array([
-            -1, -1,
-            1, -1,
-            -1, 1,
-            1, 1
-        ]);
-
         this.fadeQuadBuffer = this.gl.createBuffer();
         if (!this.fadeQuadBuffer) {
             console.error('[WebGLParticleSystem] Failed to create fade quad buffer');
@@ -986,7 +1004,7 @@ export class WebGLParticleSystem {
         }
 
         this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.fadeQuadBuffer);
-        this.gl.bufferData(this.gl.ARRAY_BUFFER, vertices, this.gl.STATIC_DRAW);
+        this.gl.bufferData(this.gl.ARRAY_BUFFER, FULLSCREEN_QUAD_VERTICES, this.gl.STATIC_DRAW);
 
         return true;
     }
@@ -996,14 +1014,6 @@ export class WebGLParticleSystem {
      */
     private renderFadeQuad(gl: WebGLRenderingContext): void {
         if (!this.fadeProgram || !this.fadeLocations || !this.fadeQuadBuffer) {
-            return;
-        }
-
-        // On first frame, clear with transparent instead of fading
-        if (this.isFirstFrame) {
-            gl.clearColor(0.0, 0.0, 0.0, 0.0);
-            gl.clear(gl.COLOR_BUFFER_BIT);
-            this.isFirstFrame = false;
             return;
         }
 
@@ -1063,9 +1073,9 @@ export class WebGLParticleSystem {
     }
 
     /**
-     * Render particles as lines (no ReadPixels!)
+     * Render particles - just draws with pre-configured settings
      */
-    public render(gl: WebGLRenderingContext, viewport: [number, number], lineWidth: number = 0.5): void {
+    public render(gl: WebGLRenderingContext): void {
         if (!this.renderProgram || !this.renderLocations || !this.renderVertexBuffer) {
             console.error('[WebGLParticleSystem] Not ready to render');
             return;
@@ -1074,26 +1084,8 @@ export class WebGLParticleSystem {
         const prevIndex = 1 - this.currentTextureIndex;
         const currIndex = this.currentTextureIndex;
 
-        // Set viewport
-        gl.viewport(0, 0, viewport[0], viewport[1]);
-
-        // Update projection matrix to convert pixel coords to clip space (reuse array)
-        this.projectionMatrix[0] = 2.0 / viewport[0];
-        this.projectionMatrix[1] = 0;
-        this.projectionMatrix[2] = 0;
-        this.projectionMatrix[3] = 0;
-        this.projectionMatrix[4] = 0;
-        this.projectionMatrix[5] = -2.0 / viewport[1];
-        this.projectionMatrix[6] = 0;
-        this.projectionMatrix[7] = 0;
-        this.projectionMatrix[8] = 0;
-        this.projectionMatrix[9] = 0;
-        this.projectionMatrix[10] = 1;
-        this.projectionMatrix[11] = 0;
-        this.projectionMatrix[12] = -1;
-        this.projectionMatrix[13] = 1;
-        this.projectionMatrix[14] = 0;
-        this.projectionMatrix[15] = 1;
+        // Set viewport (configured during setup)
+        gl.viewport(0, 0, this.viewportWidth, this.viewportHeight);
 
         // Render fade quad to create trails
         this.renderFadeQuad(gl);
@@ -1121,9 +1113,9 @@ export class WebGLParticleSystem {
         gl.bindTexture(gl.TEXTURE_2D, this.particleTextures[currIndex]);
         gl.uniform1i(this.renderLocations.uniforms.currPos, 1);
 
-        // Set uniforms
+        // Set uniforms (all pre-calculated during setup)
         gl.uniformMatrix4fv(this.renderLocations.uniforms.projection, false, this.projectionMatrix);
-        gl.uniform1f(this.renderLocations.uniforms.lineWidth, lineWidth);
+        gl.uniform1f(this.renderLocations.uniforms.lineWidth, this.lineWidth);
         gl.uniform1f(this.renderLocations.uniforms.textureSize, this.particleTexSize);
 
         // Enable blending

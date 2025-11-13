@@ -112,13 +112,13 @@ export class ParticleSystem {
     /**
      * Render directly to provided GL context (fast path)
      */
-    public renderDirect(gl: WebGLRenderingContext, viewport: [number, number]): void {
+    public renderDirect(gl: WebGLRenderingContext): void {
         if (!this.canRenderDirect()) {
             throw new Error('ParticleSystem not ready for direct rendering');
         }
 
         this.webglParticleSystem!.evolve();
-        this.webglParticleSystem!.render(gl, viewport, PARTICLE_LINE_WIDTH / 2);
+        this.webglParticleSystem!.render(gl);
     }
 
     /**
@@ -226,8 +226,15 @@ export class ParticleSystem {
                 return false;
             }
 
-            // Setup WebGL particle system with data
-            if (!this.webglParticleSystem.setup(this.particleCount, this.windData, this.windBounds)) {
+            // Setup WebGL particle system with data and viewport configuration
+            if (!this.webglParticleSystem.setup(
+                this.particleCount, 
+                this.windData, 
+                this.windBounds,
+                view.width,
+                view.height,
+                PARTICLE_LINE_WIDTH / 2
+            )) {
                 debugLog('PARTICLES', 'WebGL setup failed');
                 return false;
             }
