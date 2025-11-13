@@ -119,6 +119,28 @@ void main() {
 }
 `;
 
+// ===== BLIT SHADERS (copy trail texture to main canvas) =====
+
+const BLIT_VERTEX_SHADER = `
+attribute vec2 a_position;
+varying vec2 v_texCoord;
+
+void main() {
+    v_texCoord = a_position * 0.5 + 0.5;
+    gl_Position = vec4(a_position, 0.0, 1.0);
+}
+`;
+
+const BLIT_FRAGMENT_SHADER = `
+precision highp float;
+uniform sampler2D u_texture;
+varying vec2 v_texCoord;
+
+void main() {
+    gl_FragColor = texture2D(u_texture, v_texCoord);
+}
+`;
+
 // ===== SIMULATION SHADERS =====
 
 // Vertex shader - evolves particle positions
@@ -356,6 +378,14 @@ export class WebGLParticleSystem {
     private fadeProgram: WebGLProgram | null = null;
     private fadeQuadBuffer: WebGLBuffer | null = null;
     private fadeLocations: any = null;
+    
+    // Internal framebuffer for particle trails
+    private trailFramebuffer: WebGLFramebuffer | null = null;
+    private trailTexture: WebGLTexture | null = null;
+    
+    // Blit program to copy trail texture to main canvas
+    private blitProgram: WebGLProgram | null = null;
+    private blitLocations: any = null;
 
     // Previous frame data for merging old + new positions
     private previousFrameData: Float32Array | null = null;
@@ -457,6 +487,15 @@ export class WebGLParticleSystem {
             console.error('[WebGLParticleSystem] Failed to create fade quad buffer');
             return false;
         }
+        
+        // Create blit shader program
+        if (!this.createBlitShaderProgram()) {
+            console.error('[WebGLParticleSystem] Failed to create blit shader program');
+            return false;
+        }
+        
+        // Get blit shader locations
+        this.getBlitShaderLocations();
 
         this.isInitialized = true;
         console.log('[WebGLParticleSystem] Initialized');
@@ -587,6 +626,11 @@ export class WebGLParticleSystem {
 
         // Create render vertex buffer
         if (!this.createRenderVertexBuffer()) {
+            return false;
+        }
+        
+        // Create trail framebuffer for particle trails
+        if (!this.createTrailFramebuffer(canvasWidth, canvasHeight)) {
             return false;
         }
         
@@ -1016,6 +1060,119 @@ export class WebGLParticleSystem {
 
         return true;
     }
+    
+    /**
+     * Create blit shader program
+     */
+    private createBlitShaderProgram(): boolean {
+        if (!this.gl) return false;
+
+        const vertexShader = this.createShader(this.gl.VERTEX_SHADER, BLIT_VERTEX_SHADER);
+        const fragmentShader = this.createShader(this.gl.FRAGMENT_SHADER, BLIT_FRAGMENT_SHADER);
+
+        if (!vertexShader || !fragmentShader) {
+            return false;
+        }
+
+        this.blitProgram = this.gl.createProgram();
+        if (!this.blitProgram) {
+            console.error('[WebGLParticleSystem] Failed to create blit program');
+            return false;
+        }
+
+        this.gl.attachShader(this.blitProgram, vertexShader);
+        this.gl.attachShader(this.blitProgram, fragmentShader);
+        this.gl.linkProgram(this.blitProgram);
+
+        if (!this.gl.getProgramParameter(this.blitProgram, this.gl.LINK_STATUS)) {
+            console.error('[WebGLParticleSystem] Blit program link error:', this.gl.getProgramInfoLog(this.blitProgram));
+            return false;
+        }
+
+        return true;
+    }
+    
+    /**
+     * Get blit shader locations
+     */
+    private getBlitShaderLocations(): void {
+        if (!this.gl || !this.blitProgram) return;
+
+        this.blitLocations = {
+            attributes: {
+                position: this.gl.getAttribLocation(this.blitProgram, 'a_position')
+            },
+            uniforms: {
+                texture: this.gl.getUniformLocation(this.blitProgram, 'u_texture')
+            }
+        };
+    }
+    
+    /**
+     * Create trail framebuffer for particle trails
+     */
+    private createTrailFramebuffer(width: number, height: number): boolean {
+        if (!this.gl) return false;
+
+        // Create texture
+        this.trailTexture = this.gl.createTexture();
+        if (!this.trailTexture) {
+            console.error('[WebGLParticleSystem] Failed to create trail texture');
+            return false;
+        }
+
+        this.gl.bindTexture(this.gl.TEXTURE_2D, this.trailTexture);
+        this.gl.texImage2D(
+            this.gl.TEXTURE_2D,
+            0,
+            this.gl.RGBA,
+            width,
+            height,
+            0,
+            this.gl.RGBA,
+            this.gl.UNSIGNED_BYTE,
+            null
+        );
+
+        this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_MIN_FILTER, this.gl.LINEAR);
+        this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_MAG_FILTER, this.gl.LINEAR);
+        this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_WRAP_S, this.gl.CLAMP_TO_EDGE);
+        this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_WRAP_T, this.gl.CLAMP_TO_EDGE);
+
+        // Create framebuffer
+        this.trailFramebuffer = this.gl.createFramebuffer();
+        if (!this.trailFramebuffer) {
+            console.error('[WebGLParticleSystem] Failed to create trail framebuffer');
+            return false;
+        }
+
+        this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, this.trailFramebuffer);
+        this.gl.framebufferTexture2D(
+            this.gl.FRAMEBUFFER,
+            this.gl.COLOR_ATTACHMENT0,
+            this.gl.TEXTURE_2D,
+            this.trailTexture,
+            0
+        );
+
+        // Check framebuffer status
+        const status = this.gl.checkFramebufferStatus(this.gl.FRAMEBUFFER);
+        if (status !== this.gl.FRAMEBUFFER_COMPLETE) {
+            console.error('[WebGLParticleSystem] Trail framebuffer incomplete:', status);
+            return false;
+        }
+
+        // Clear the trail texture to transparent
+        this.gl.clearColor(0.0, 0.0, 0.0, 0.0);
+        this.gl.clear(this.gl.COLOR_BUFFER_BIT);
+
+        // Unbind
+        this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, null);
+        this.gl.bindTexture(this.gl.TEXTURE_2D, null);
+
+        console.log('[WebGLParticleSystem] Created trail framebuffer:', width, 'x', height);
+        return true;
+    }
 
     /**
      * Render fade quad to create trail effect
@@ -1084,7 +1241,7 @@ export class WebGLParticleSystem {
      * Render particles - just draws with pre-configured settings
      */
     public render(gl: WebGLRenderingContext): void {
-        if (!this.renderProgram || !this.renderLocations || !this.renderVertexBuffer) {
+        if (!this.renderProgram || !this.renderLocations || !this.renderVertexBuffer || !this.trailFramebuffer) {
             console.error('[WebGLParticleSystem] Not ready to render');
             return;
         }
@@ -1092,7 +1249,8 @@ export class WebGLParticleSystem {
         const prevIndex = 1 - this.currentTextureIndex;
         const currIndex = this.currentTextureIndex;
 
-        // Set viewport to match canvas
+        // === STEP 1: Render to internal trail framebuffer ===
+        gl.bindFramebuffer(gl.FRAMEBUFFER, this.trailFramebuffer);
         gl.viewport(0, 0, this.canvasWidth, this.canvasHeight);
 
         // Render fade quad to create trails
@@ -1134,6 +1292,48 @@ export class WebGLParticleSystem {
         gl.drawArrays(gl.TRIANGLES, 0, this.particleCount * 6);
 
         // Disable blending
+        gl.disable(gl.BLEND);
+        
+        // === STEP 2: Blit trail framebuffer to main canvas ===
+        gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+        
+        this.blitTrailTexture(gl);
+    }
+    
+    /**
+     * Blit the trail texture to the main canvas
+     */
+    private blitTrailTexture(gl: WebGLRenderingContext): void {
+        if (!this.blitProgram || !this.blitLocations || !this.fadeQuadBuffer || !this.trailTexture) {
+            return;
+        }
+        
+        gl.useProgram(this.blitProgram);
+        
+        // Bind quad buffer
+        gl.bindBuffer(gl.ARRAY_BUFFER, this.fadeQuadBuffer);
+        gl.enableVertexAttribArray(this.blitLocations.attributes.position);
+        gl.vertexAttribPointer(
+            this.blitLocations.attributes.position,
+            2,
+            gl.FLOAT,
+            false,
+            0,
+            0
+        );
+        
+        // Bind trail texture
+        gl.activeTexture(gl.TEXTURE0);
+        gl.bindTexture(gl.TEXTURE_2D, this.trailTexture);
+        gl.uniform1i(this.blitLocations.uniforms.texture, 0);
+        
+        // Enable blending to composite with existing canvas content
+        gl.enable(gl.BLEND);
+        gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+        
+        // Draw fullscreen quad
+        gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+        
         gl.disable(gl.BLEND);
     }
 
@@ -1202,6 +1402,21 @@ export class WebGLParticleSystem {
         if (this.fadeQuadBuffer) {
             this.gl.deleteBuffer(this.fadeQuadBuffer);
             this.fadeQuadBuffer = null;
+        }
+        
+        if (this.blitProgram) {
+            this.gl.deleteProgram(this.blitProgram);
+            this.blitProgram = null;
+        }
+        
+        if (this.trailTexture) {
+            this.gl.deleteTexture(this.trailTexture);
+            this.trailTexture = null;
+        }
+        
+        if (this.trailFramebuffer) {
+            this.gl.deleteFramebuffer(this.trailFramebuffer);
+            this.trailFramebuffer = null;
         }
 
         // Clear previous frame data
