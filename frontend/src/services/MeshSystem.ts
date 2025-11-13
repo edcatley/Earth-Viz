@@ -94,6 +94,29 @@ export class MeshSystem {
         this.webglMeshRenderer!.render(gl, globe, [view.width, view.height]);
     }
 
+    /**
+     * Render directly to provided 2D context (2D path)
+     */
+    public render2DDirect(ctx: CanvasRenderingContext2D, canvas: HTMLCanvasElement, globe: any): boolean {
+        if (!this.renderer2D) {
+            debugLog('MESH', '2D render failed - no renderer');
+            return false;
+        }
+
+        if (!globe) {
+            debugLog('MESH', '2D render failed - missing state');
+            return false;
+        }
+
+        try {
+            // Delegate to 2D renderer with provided context
+            return this.renderer2D.render(ctx, canvas, globe);
+        } catch (error) {
+            debugLog('MESH', '2D render error:', error);
+            return false;
+        }
+    }
+
     // ===== MAIN PATTERN METHODS =====
 
     /**
@@ -180,40 +203,6 @@ export class MeshSystem {
         debugLog('MESH', '2D setup complete');
     }
 
-    /**
-     * Generate frame using 2D rendering (for fallback compositing)
-     */
-    public generateFrame(globe: any): HTMLCanvasElement | null {
-        debugLog('MESH', 'Generating frame using 2D');
-        return this.render2D(globe) ? this.canvas2D : null;
-    }
-
-    // ===== RENDERING IMPLEMENTATIONS =====
-
-    /**
-     * Render using 2D system - delegates to MeshRenderer2D
-     */
-    private render2D(globe: any): boolean {
-        if (!this.ctx2D || !this.renderer2D) {
-            debugLog('MESH', '2D render failed - no renderer');
-            return false;
-        }
-
-        if (!globe) {
-            debugLog('MESH', '2D render failed - missing state');
-            return false;
-        }
-
-        try {
-            // Delegate to 2D renderer
-            return this.renderer2D.render(this.ctx2D, this.canvas2D, globe);
-
-        } catch (error) {
-            debugLog('MESH', '2D render error:', error);
-            return false;
-        }
-    }
-
     // ===== UTILITY METHODS =====
 
     /**
@@ -253,14 +242,11 @@ export class MeshSystem {
     }
 
     /**
-     * Generate mesh and emit result
+     * Emit ready signal for mesh
      */
     public regenerateMesh(globe: any): void {
-        // Generate frame with explicit parameters
-        const canvas = this.generateFrame(globe);
-
         const result: MeshResult = {
-            canvas: canvas,
+            canvas: null,  // No longer generating canvases
             meshType: 'standard'
         };
 
