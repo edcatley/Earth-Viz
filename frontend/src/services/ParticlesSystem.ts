@@ -30,6 +30,7 @@ export interface ParticleResult {
 
 export class ParticleSystem {
     // Common rendering system properties
+    private webglCanvas: HTMLCanvasElement;
     private canvas2D: HTMLCanvasElement;
     private ctx2D: CanvasRenderingContext2D | null = null;
     private useWebGL: boolean = false;
@@ -58,7 +59,8 @@ export class ParticleSystem {
     private boundAnimate: (() => void) | null = null;
 
     constructor() {
-        // Create canvas for 2D fallback
+        // Create canvases
+        this.webglCanvas = document.createElement("canvas");
         this.canvas2D = document.createElement("canvas");
 
         const ctx = this.canvas2D.getContext("2d");
@@ -67,6 +69,21 @@ export class ParticleSystem {
         }
         this.ctx2D = ctx;
 
+        // Initialize renderers once - check what's available
+        debugLog('PARTICLES', 'Initializing renderers');
+
+        // Try to initialize WebGL renderer
+        this.webglParticleSystem = new WebGLParticleSystem();
+        const webglAvailable = this.webglParticleSystem.initialize(this.webglCanvas);
+
+        if (!webglAvailable) {
+            debugLog('PARTICLES', 'WebGL not available on this system');
+            this.webglParticleSystem.dispose();
+            this.webglParticleSystem = null;
+        } else {
+            debugLog('PARTICLES', 'WebGL renderer initialized');
+        }
+
         // Create 2D renderer (always available)
         this.renderer2D = new ParticleRenderer2D();
         debugLog('PARTICLES', '2D renderer created');
@@ -74,51 +91,7 @@ export class ParticleSystem {
         // Bind animate once to avoid creating new closures every frame
         this.boundAnimate = this.animateFrame.bind(this);
 
-        // webglParticleSystem will be created in initializeGL()
         debugLog('PARTICLES', 'ParticleSystem created');
-    }
-
-    /**
-     * Initialize WebGL renderer with shared GL context
-     */
-    public initializeGL(gl: WebGLRenderingContext): void {
-        if (this.webglParticleSystem) {
-            debugLog('PARTICLES', 'WebGL renderer already initialized');
-            return;
-        }
-
-        debugLog('PARTICLES', 'Initializing WebGL renderer with shared context');
-        this.webglParticleSystem = new WebGLParticleSystem();
-        const success = this.webglParticleSystem.initialize(gl);
-
-        if (!success) {
-            debugLog('PARTICLES', 'WebGL initialization failed');
-            this.webglParticleSystem.dispose();
-            this.webglParticleSystem = null;
-            this.useWebGL = false;
-        } else {
-            debugLog('PARTICLES', 'WebGL renderer initialized successfully');
-            // useWebGL will be set to true in setup() when data is ready
-        }
-    }
-
-    /**
-     * Check if this system can render directly to a shared GL context
-     */
-    public canRenderDirect(): boolean {
-        return this.useWebGL && this.webglParticleSystem !== null;
-    }
-
-    /**
-     * Render directly to provided GL context (fast path)
-     */
-    public renderDirect(gl: WebGLRenderingContext, viewport: [number, number]): void {
-        if (!this.canRenderDirect()) {
-            throw new Error('ParticleSystem not ready for direct rendering');
-        }
-
-        this.webglParticleSystem!.evolve();
-        this.webglParticleSystem!.render(gl, viewport, PARTICLE_LINE_WIDTH / 2);
     }
 
     // ===== MAIN PATTERN METHODS =====
@@ -202,6 +175,10 @@ export class ParticleSystem {
                 return false;
             }
 
+            // Ensure canvas is properly sized
+            this.webglCanvas.width = view.width;
+            this.webglCanvas.height = view.height;
+
             // Setup WebGL particle system with data
             if (!this.webglParticleSystem.setup(this.particleCount, this.windData, this.windBounds)) {
                 debugLog('PARTICLES', 'WebGL setup failed');
@@ -244,12 +221,16 @@ export class ParticleSystem {
     }
 
     /**
-     * Generate frame using 2D rendering (for fallback compositing)
+     * Generate frame using appropriate rendering system
      */
     public generateFrame(globe: Globe, view: ViewportSize): HTMLCanvasElement | null {
-        debugLog('PARTICLES', 'Generating frame using 2D');
-        
-        if (this.renderer2D) {
+        if (this.useWebGL && this.webglParticleSystem) {
+            // WebGL path - pure GPU rendering
+            this.webglParticleSystem.evolve();
+            this.renderWebGL();
+            return this.webglCanvas;
+        } else if (this.renderer2D) {
+            // CPU path - evolve and render on CPU
             this.renderer2D.evolve();
             this.render2D(globe, view);
             return this.canvas2D;
@@ -258,6 +239,20 @@ export class ParticleSystem {
     }
 
     // ===== RENDERING IMPLEMENTATIONS =====
+
+    /**
+     * Render particles using WebGL (no ReadPixels!)
+     */
+    private renderWebGL(): boolean {
+        if (!this.webglParticleSystem) {
+            debugLog('PARTICLES', 'WebGL render failed - no system');
+            return false;
+        }
+
+        // Render particles (pass half width for quad rendering)
+        this.webglParticleSystem.render(PARTICLE_LINE_WIDTH / 2);
+        return true;
+    }
 
     /**
      * Render particles using 2D canvas (CPU)
@@ -368,7 +363,7 @@ export class ParticleSystem {
 
 
     /**
-     * Clear the particle canvas
+     * Clear the particle canvases
      */
     private clearCanvas(): void {
         debugLog('PARTICLES', 'Clearing particle canvas');
@@ -376,6 +371,15 @@ export class ParticleSystem {
         // Clear 2D canvas
         if (this.ctx2D) {
             this.ctx2D.clearRect(0, 0, this.canvas2D.width, this.canvas2D.height);
+        }
+
+        // Clear WebGL canvas
+        if (this.webglCanvas) {
+            const ctx = this.webglCanvas.getContext('webgl') || this.webglCanvas.getContext('webgl2');
+            if (ctx) {
+                ctx.clearColor(0.0, 0.0, 0.0, 0.0);
+                ctx.clear(ctx.COLOR_BUFFER_BIT | ctx.DEPTH_BUFFER_BIT);
+            }
         }
     }
 
