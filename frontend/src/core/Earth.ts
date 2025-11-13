@@ -308,14 +308,20 @@ class EarthModernApp {
     private performRender(): void {
         console.log('[EARTH] performRender called');
         
-        if (!this.globe) {
-            console.log('[EARTH] No globe, skipping render');
+        if (!this.globe || !this.mask) {
+            console.log('[EARTH] No globe/mask, skipping render');
             return;
         }
 
         // Get config properties
         const mode = this.configManager.get('mode') || 'air';
         console.log('[EARTH] Rendering with mode:', mode);
+        
+        // Decide what to draw
+        const drawPlanet = mode === 'planet';
+        const drawMesh = !drawPlanet;
+        const drawOverlay = mode === 'air' || mode === 'ocean';
+        const drawParticles = !drawPlanet; // Draw particles unless in planet mode
         
         // Get overlay scale/units if available
         let overlayScale = null;
@@ -325,16 +331,17 @@ class EarthModernApp {
             overlayUnits = this.overlayProduct.units;
         }
 
-        // Call RenderSystem with new signature
-        if (this.globe && this.mask) {
-            this.renderSystem.render(
-                this.globe,
-                this.mask,
-                mode,
-                overlayScale,
-                overlayUnits
-            );
-        }
+        // Call RenderSystem
+        this.renderSystem.render(
+            this.globe,
+            this.mask,
+            drawPlanet,
+            drawMesh,
+            drawOverlay,
+            drawParticles,
+            overlayScale,
+            overlayUnits
+        );
     }
 
     // Simple event emitter for visual state changes
@@ -487,12 +494,21 @@ class EarthModernApp {
         // Stop particle animation during rotation
         this.stopParticleAnimation();
         
-        // Trigger render with updated rotation
+        // Trigger render with updated rotation (NO PARTICLES during rotation)
         if (globe && mask) {
+            const mode = config.mode || 'planet';
+            const drawPlanet = mode === 'planet';
+            const drawMesh = !drawPlanet;
+            const drawOverlay = mode === 'air' || mode === 'ocean';
+            const drawParticles = false; // Never draw particles during rotation
+            
             this.renderSystem.render(
                 globe,
                 mask,
-                config.mode || 'planet',
+                drawPlanet,
+                drawMesh,
+                drawOverlay,
+                drawParticles,
                 overlayProduct?.scale,
                 overlayProduct?.units
             );
@@ -519,10 +535,19 @@ class EarthModernApp {
             const overlayProduct = this.overlayProduct;
             
             if (globe && mask) {
+                const mode = config.mode || 'planet';
+                const drawPlanet = mode === 'planet';
+                const drawMesh = !drawPlanet;
+                const drawOverlay = mode === 'air' || mode === 'ocean';
+                const drawParticles = true; // Always draw particles in animation loop
+                
                 this.renderSystem.render(
                     globe,
                     mask,
-                    config.mode || 'planet',
+                    drawPlanet,
+                    drawMesh,
+                    drawOverlay,
+                    drawParticles,
                     overlayProduct?.scale,
                     overlayProduct?.units
                 );

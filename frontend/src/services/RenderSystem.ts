@@ -152,24 +152,21 @@ export class RenderSystem {
 
 
     /**
-     * Main rendering method - decides what to draw and delegates to WebGL or 2D
+     * Main rendering method - draws what it's told to draw
      */
     public render(
         globe: Globe,
         mask: any,
-        mode: string,
+        drawPlanet: boolean,
+        drawMesh: boolean,
+        drawOverlay: boolean,
+        drawParticles: boolean,
         overlayScale: any,
         overlayUnits: any
     ): void {
         if (!globe) return;
 
         const view = { width: this.display.width, height: this.display.height };
-        
-        // Decide what to draw based on mode
-        const drawPlanet = mode === 'planet';
-        const drawMesh = !drawPlanet;
-        const drawOverlay = mode === 'air' || mode === 'ocean';
-        const drawParticles = !drawPlanet;
         
         // Decide: WebGL or 2D?
         const canUseWebGL = this.gl && 
@@ -358,11 +355,18 @@ export class RenderSystem {
             const mask = this.stateProvider.getMask();
             const config = this.stateProvider.getConfig();
             const mode = config?.mode || 'planet';
+            
+            // Decide what to draw based on mode
+            const drawPlanet = mode === 'planet';
+            const drawMesh = !drawPlanet;
+            const drawOverlay = mode === 'air' || mode === 'ocean';
+            const drawParticles = !drawPlanet;
+            
             const overlayScale = overlayProduct?.scale;
             const overlayUnits = overlayProduct?.units;
             
             if (globe && mask) {
-                this.render(globe, mask, mode, overlayScale, overlayUnits);
+                this.render(globe, mask, drawPlanet, drawMesh, drawOverlay, drawParticles, overlayScale, overlayUnits);
             }
         }
     }
