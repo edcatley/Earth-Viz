@@ -9,7 +9,7 @@ import { Globe, DisplayOptions, Point, GeoPoint } from '../core/Globes';
 
 // Debug logging - enabled
 function debugLog(section: string, message: string, data?: any): void {
-    console.log(`[${section}] ${message}`, data || '');
+    console.debug(`[${section}] ${message}`, data || '');
 }
 
 // Constants from original
@@ -24,15 +24,6 @@ export class RenderSystem {
     private overlayContext: CanvasRenderingContext2D | null = null;
     private scaleCanvas: HTMLCanvasElement | null = null;
     private scaleContext: CanvasRenderingContext2D | null = null;
-    
-    // WebGL context (shared across all systems)
-    private gl: WebGLRenderingContext | null = null;
-    
-    // System references (not owned - just references for rendering)
-    private planetSystem: any = null;
-    private overlaySystem: any = null;
-    private meshSystem: any = null;
-    private particleSystem: any = null;
     
     // Scale listener tracking
     private scaleListenerSetup: boolean = false;
@@ -69,19 +60,10 @@ export class RenderSystem {
             }
         }
 
-        // Setup overlay canvas - now used for WebGL rendering
+        // Setup overlay canvas
         this.overlayCanvas = d3.select("#overlay").node() as HTMLCanvasElement;
         if (this.overlayCanvas) {
-            // Try to get WebGL context first
-            this.gl = this.overlayCanvas.getContext("webgl") || this.overlayCanvas.getContext("experimental-webgl") as WebGLRenderingContext;
-            
-            if (this.gl) {
-                debugLog('RENDER', 'WebGL context created successfully');
-            } else {
-                debugLog('RENDER', 'WebGL not available, falling back to 2D');
-                this.overlayContext = this.overlayCanvas.getContext("2d");
-            }
-            
+            this.overlayContext = this.overlayCanvas.getContext("2d");
             this.overlayCanvas.width = this.display.width;
             this.overlayCanvas.height = this.display.height;
         }
@@ -93,36 +75,6 @@ export class RenderSystem {
 
             // Set scale canvas dimensions dynamically
             this.setSizeScale();
-        }
-    }
-
-    /**
-     * Initialize systems with shared WebGL context
-     * Called by Earth after systems are created
-     */
-    public initializeSystems(
-        planetSystem: any,
-        overlaySystem: any,
-        meshSystem: any,
-        particleSystem: any
-    ): void {
-        debugLog('RENDER', 'Initializing systems with shared WebGL context');
-        
-        // Store references to systems
-        this.planetSystem = planetSystem;
-        this.overlaySystem = overlaySystem;
-        this.meshSystem = meshSystem;
-        this.particleSystem = particleSystem;
-        
-        // Initialize systems with shared GL context (if available)
-        if (this.gl) {
-            planetSystem.initializeGL(this.gl);
-            overlaySystem.initializeGL(this.gl);
-            meshSystem.initializeGL(this.gl);
-            particleSystem.initializeGL(this.gl);
-            debugLog('RENDER', 'Systems initialized with WebGL');
-        } else {
-            debugLog('RENDER', 'Systems will use 2D fallback');
         }
     }
 
@@ -153,102 +105,61 @@ export class RenderSystem {
 
     /**
      * Main rendering method - renders the complete frame
-     * Uses direct WebGL rendering when available, falls back to 2D compositing
+     * Uses direct parameters to avoid object allocation in hot path
      */
     public renderFrame(
         globe: Globe,
-        mode: string,
+        planetCanvas: HTMLCanvasElement | null,
+        overlayCanvas: HTMLCanvasElement | null,
+        meshCanvas: HTMLCanvasElement | null,
+        particleCanvas: HTMLCanvasElement | null,
         overlayScale: any,
         overlayUnits: any
     ): void {
-        console.log('[RENDER] renderFrame called, mode:', mode);
-        
         if (!globe) {
-            console.log('[RENDER] No globe, skipping render');
             return;
         }
 
         try {
-            const view = { width: this.display.width, height: this.display.height };
-            
-            // Check if we can use WebGL direct rendering
-            console.log('[RENDER] Checking WebGL availability:', {
-                hasGL: !!this.gl,
-                planetReady: this.planetSystem?.canRenderDirect(),
-                overlayReady: this.overlaySystem?.canRenderDirect(),
-                meshReady: this.meshSystem?.canRenderDirect(),
-                particleReady: this.particleSystem?.canRenderDirect()
-            });
-            
-            const canUseWebGL = this.gl && 
-                this.planetSystem?.canRenderDirect() &&
-                this.overlaySystem?.canRenderDirect() &&
-                this.meshSystem?.canRenderDirect() &&
-                this.particleSystem?.canRenderDirect();
-            
-            console.log('[RENDER] Can use WebGL:', canUseWebGL);
-            
-            if (canUseWebGL && this.gl) {
-                // WebGL path: direct rendering to shared context
-                console.log('[RENDER] Using WebGL direct rendering');
-                
-                // Clear WebGL canvas
-                this.gl.clearColor(0.0, 0.0, 0.0, 0.0);
-                this.gl.clear(this.gl.COLOR_BUFFER_BIT | this.gl.DEPTH_BUFFER_BIT);
-                
-                // Render based on mode
-                if (mode === 'planet') {
-                    // Planet mode: only render planet
-                    this.planetSystem.renderDirect(this.gl, globe, view);
-                } else {
-                    // Air/Ocean modes: render mesh, overlay, particles
-                    this.meshSystem.renderDirect(this.gl, globe, view);
-                    
-                    if (mode === 'air' || mode === 'ocean') {
-                        this.overlaySystem.renderDirect(this.gl, globe, view);
-                    }
-                    
-                    this.particleSystem.renderDirect(this.gl, [view.width, view.height]);
-                }
-                
-            } else {
-                // 2D fallback path: direct rendering to 2D context
-                console.log('[RENDER] Using 2D direct rendering');
-                
-                if (!this.overlayContext) {
-                    console.error('[RENDER] No 2D context available');
-                    return;
-                }
-                
-                // Clear canvas
-                this.overlayContext.clearRect(0, 0, this.display.width, this.display.height);
-                
-                // Get mask from state provider
-                const mask = this.stateProvider?.getMask();
-                if (!mask) {
-                    console.error('[RENDER] No mask available for 2D rendering');
-                    return;
-                }
-                
-                // Render based on mode - systems draw directly to context
-                if (mode === 'planet') {
-                    // Planet mode: only render planet
-                    this.planetSystem.render2DDirect(this.overlayContext, globe, mask, view);
-                } else {
-                    // Air/Ocean modes: render mesh, overlay, particles
-                    this.meshSystem.render2DDirect(this.overlayContext, this.overlayCanvas!, globe);
-                    
-                    if (mode === 'air' || mode === 'ocean') {
-                        this.overlaySystem.render2DDirect(this.overlayContext, globe, mask, view);
-                    }
-                    
-                    this.particleSystem.render2DDirect(this.overlayContext, globe, view);
-                }
+            // 1. Clear all canvases
+            if (this.context) {
+                this.context.clearRect(0, 0, this.display.width, this.display.height);
             }
-            
-            // Draw color scale (if provided)
-            if (overlayScale && this.scaleContext && this.scaleCanvas) {
+            if (this.overlayContext) {
+                this.overlayContext.clearRect(0, 0, this.display.width, this.display.height);
+            }
+            if (this.scaleContext && this.scaleCanvas) {
                 this.scaleContext.clearRect(0, 0, this.scaleCanvas.width, this.scaleCanvas.height);
+            }
+
+            // SVG map structure is now handled by Earth.ts lifecycle
+
+            // 2. Draw planet canvas (if provided)
+            if (planetCanvas) {
+                this.overlayContext!.drawImage(planetCanvas, 0, 0);
+            }
+
+            // 3. Draw overlay canvas (if provided)
+            if (overlayCanvas) {
+                this.overlayContext!.drawImage(overlayCanvas, 0, 0);
+            }
+
+            // 4. Draw mesh canvas (if provided)
+            if (meshCanvas) {
+                this.overlayContext!.drawImage(meshCanvas, 0, 0);
+            }
+
+            // 5. Draw particle canvas (if provided) with special blending
+            if (particleCanvas) {
+                // Use "lighter" blending for particles to create glowing effect
+                const prevCompositeOperation = this.overlayContext!.globalCompositeOperation;
+                this.overlayContext!.globalCompositeOperation = "lighter";
+                this.overlayContext!.drawImage(particleCanvas, 0, 0);
+                this.overlayContext!.globalCompositeOperation = prevCompositeOperation;
+            }
+
+            // 6. Draw color scale (if provided)
+            if (overlayScale) {
                 this.drawColorScale(overlayScale, overlayUnits);
             }
 

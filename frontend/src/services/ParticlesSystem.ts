@@ -121,30 +121,6 @@ export class ParticleSystem {
         this.webglParticleSystem!.render(gl, viewport, PARTICLE_LINE_WIDTH / 2);
     }
 
-    /**
-     * Render directly to provided 2D context (2D path)
-     */
-    public render2DDirect(ctx: CanvasRenderingContext2D, globe: any, view: any): boolean {
-        if (!this.renderer2D) {
-            debugLog('PARTICLES', '2D render failed - no renderer');
-            return false;
-        }
-
-        if (!globe || !view) {
-            debugLog('PARTICLES', '2D render failed - missing state');
-            return false;
-        }
-
-        try {
-            // Evolve particles and render to provided context
-            this.renderer2D.evolve();
-            return this.renderer2D.render(ctx, globe, view);
-        } catch (error) {
-            debugLog('PARTICLES', '2D render error:', error);
-            return false;
-        }
-    }
-
     // ===== MAIN PATTERN METHODS =====
 
     /**
@@ -265,6 +241,40 @@ export class ParticleSystem {
         this.renderer2D.initialize(this.particleCount, this.windData, this.windBounds, validPositions);
 
         debugLog('PARTICLES', '2D setup complete');
+    }
+
+    /**
+     * Generate frame using 2D rendering (for fallback compositing)
+     */
+    public generateFrame(globe: Globe, view: ViewportSize): HTMLCanvasElement | null {
+        debugLog('PARTICLES', 'Generating frame using 2D');
+        
+        if (this.renderer2D) {
+            this.renderer2D.evolve();
+            this.render2D(globe, view);
+            return this.canvas2D;
+        }
+        return null;
+    }
+
+    // ===== RENDERING IMPLEMENTATIONS =====
+
+    /**
+     * Render particles using 2D canvas (CPU)
+     */
+    private render2D(globe: Globe, view: ViewportSize): boolean {
+        if (!this.renderer2D || !this.ctx2D) {
+            debugLog('PARTICLES', '2D render failed - no renderer');
+            return false;
+        }
+
+        if (!globe || !view) {
+            debugLog('PARTICLES', '2D render failed - missing state');
+            return false;
+        }
+
+        // Delegate to 2D renderer
+        return this.renderer2D.render(this.ctx2D, globe, view);
     }
 
     // ===== PARTICLE SYSTEM IMPLEMENTATION =====
@@ -439,11 +449,13 @@ export class ParticleSystem {
 
 
     /**
-     * Emit ready signal for particles
+     * Generate particles and emit result
      */
     private regenerateParticles(globe: Globe, view: ViewportSize): void {
+        const canvas = this.generateFrame(globe, view);
+
         const result: ParticleResult = {
-            canvas: null,  // No longer generating canvases
+            canvas: canvas,
             particleType: this.cachedParticleType
         };
 
@@ -499,16 +511,21 @@ export class ParticleSystem {
         if (!this.boundAnimate || !this.cachedGlobe || !this.cachedView) return;
         
         try {
-            // Emit ready signal (RenderSystem will call render2DDirect or renderDirect)
-            const result: ParticleResult = {
-                canvas: null,  // No longer generating canvases
-                particleType: this.cachedParticleType
-            };
+            // Generate new frame (evolve particles and draw to canvas)
+            const canvas = this.generateFrame(this.cachedGlobe, this.cachedView);
 
-            this.emit('particlesChanged', result);
+            if (canvas) {
+                // Use cached particleType instead of calling getConfig() every frame
+                const result: ParticleResult = {
+                    canvas: canvas,
+                    particleType: this.cachedParticleType
+                };
+
+                this.emit('particlesChanged', result);
+            }
 
             // Schedule next frame using pre-bound function (no new closure)
-            this.animationId = setTimeout(this.boundAnimate, 1000) as any;
+            this.animationId = setTimeout(this.boundAnimate, 40) as any;
 
         } catch (error) {
             debugLog('PARTICLES', 'Animation error:', error);

@@ -119,29 +119,6 @@ export class PlanetSystem {
         this.webglRenderer!.render(gl, globe, view);
     }
 
-    /**
-     * Render directly to provided 2D context (2D path)
-     */
-    public render2DDirect(ctx: CanvasRenderingContext2D, globe: Globe, mask: any, view: ViewportSize): boolean {
-        if (!this.renderer2D) {
-            debugLog('PLANET', '2D render failed - no renderer');
-            return false;
-        }
-
-        if (!globe || !mask || !view) {
-            debugLog('PLANET', '2D render failed - missing state');
-            return false;
-        }
-
-        try {
-            // Delegate to 2D renderer with provided context
-            return this.renderer2D.render(ctx, globe, mask, view);
-        } catch (error) {
-            debugLog('PLANET', '2D render error:', error);
-            return false;
-        }
-    }
-
     // ===== MAIN PATTERN METHODS =====
 
     /**
@@ -245,6 +222,40 @@ export class PlanetSystem {
         debugLog('PLANET', '2D setup complete');
     }
 
+    /**
+     * Generate frame using 2D rendering (for fallback compositing)
+     */
+    public generateFrame(globe: Globe, mask: any, view: ViewportSize): HTMLCanvasElement | null {
+        debugLog('PLANET', 'Generating frame using 2D');
+        return this.render2D(globe, mask, view) ? this.canvas2D : null;
+    }
+
+    // ===== RENDERING IMPLEMENTATIONS =====
+
+    /**
+     * Render using 2D system - delegates to PlanetRenderer2D
+     */
+    private render2D(globe: Globe, mask: any, view: ViewportSize): boolean {
+        if (!this.ctx2D || !this.renderer2D) {
+            debugLog('PLANET', '2D render failed - no renderer');
+            return false;
+        }
+
+        try {
+            if (!globe || !mask || !view) {
+                debugLog('PLANET', '2D render failed - missing state');
+                return false;
+            }
+
+            // Delegate to 2D renderer
+            return this.renderer2D.render(this.ctx2D, globe, mask, view);
+
+        } catch (error) {
+            debugLog('PLANET', '2D render error:', error);
+            return false;
+        }
+    }
+
     // ===== UTILITY METHODS =====
 
     /**
@@ -293,11 +304,13 @@ export class PlanetSystem {
     }
 
     /**
-     * Emit ready signal for planet
+     * Generate planet and emit result
      */
     private regeneratePlanet(globe: Globe, mask: any, view: ViewportSize, planetType: string): void {
+        const canvas = this.generateFrame(globe, mask, view);
+
         const result: PlanetResult = {
-            canvas: null,  // No longer generating canvases
+            canvas: canvas,
             planetType: planetType
         };
 

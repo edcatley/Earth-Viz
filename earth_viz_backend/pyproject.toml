@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "earth_viz"
-version = "0.0.339"
+version = "0.0.334"
 authors = [
     {name = "Edward Catley", email = "edward.catley@catley.com"},
 ]

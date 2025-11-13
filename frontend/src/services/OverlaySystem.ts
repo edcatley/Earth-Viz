@@ -96,29 +96,6 @@ export class OverlaySystem {
         this.webglRenderer!.render(gl, globe, view);
     }
 
-    /**
-     * Render directly to provided 2D context (2D path)
-     */
-    public render2DDirect(ctx: CanvasRenderingContext2D, globe: any, mask: any, view: any): boolean {
-        if (!this.renderer2D) {
-            debugLog('OVERLAY', '2D render failed - no renderer');
-            return false;
-        }
-
-        if (!globe || !mask || !view) {
-            debugLog('OVERLAY', '2D render failed - missing state');
-            return false;
-        }
-
-        try {
-            // Delegate to 2D renderer with provided context
-            return this.renderer2D.render(ctx, globe, mask, view);
-        } catch (error) {
-            debugLog('OVERLAY', '2D render error:', error);
-            return false;
-        }
-    }
-
     // ===== MAIN PATTERN METHODS =====
 
     /**
@@ -204,6 +181,40 @@ export class OverlaySystem {
         debugLog('OVERLAY', '2D setup complete');
     }
 
+    /**
+     * Generate frame using 2D rendering (for fallback compositing)
+     */
+    public generateFrame(globe: any, mask: any, view: any): HTMLCanvasElement | null {
+        debugLog('OVERLAY', 'Generating frame using 2D');
+        return this.render2D(globe, mask, view) ? this.canvas2D : null;
+    }
+
+    // ===== RENDERING IMPLEMENTATIONS =====
+
+    /**
+     * Render using 2D system - delegates to OverlayRenderer2D
+     */
+    private render2D(globe: any, mask: any, view: any): boolean {
+        if (!this.ctx2D || !this.renderer2D) {
+            debugLog('OVERLAY', '2D render failed - no renderer');
+            return false;
+        }
+
+        if (!globe || !mask || !view) {
+            debugLog('OVERLAY', '2D render failed - missing state');
+            return false;
+        }
+
+        try {
+            // Delegate to 2D renderer
+            return this.renderer2D.render(this.ctx2D, globe, mask, view);
+
+        } catch (error) {
+            debugLog('OVERLAY', '2D render error:', error);
+            return false;
+        }
+    }
+
     // ===== UTILITY METHODS =====
 
     /**
@@ -261,11 +272,14 @@ export class OverlaySystem {
     }
 
     /**
-     * Emit ready signal for overlay
+     * Generate overlay and emit result
      */
     private regenerateOverlay(globe: any, mask: any, view: any, config: any, overlayProduct: any): void {
+        // Generate frame with explicit parameters
+        const canvas = this.generateFrame(globe, mask, view);
+
         const result: OverlayResult = {
-            canvas: null,  // No longer generating canvases
+            canvas: canvas,
             overlayType: config?.overlayType || 'off',
             overlayProduct: overlayProduct
         };
