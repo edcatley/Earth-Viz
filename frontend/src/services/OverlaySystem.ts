@@ -17,40 +17,15 @@ function debugLog(category: string, message: string, data?: any): void {
     console.log(`[${category}] ${message}`, data || '');
 }
 
-export interface OverlayResult {
-    canvas: HTMLCanvasElement | null;  // Single canvas output
-    overlayType: string;
-    overlayProduct: any;
-}
+
 
 export class OverlaySystem {
-    // Common rendering system properties
-    private canvas2D: HTMLCanvasElement;
-    private ctx2D: CanvasRenderingContext2D | null = null;
     private useWebGL: boolean = false;
-
-    // Renderer delegates
     private webglRenderer: WebGLRenderer | null = null;
-    private renderer2D: OverlayRenderer2D | null = null;
-
-    // Event callbacks
-    private eventHandlers: { [key: string]: Function[] } = {};
+    private renderer2D: OverlayRenderer2D;
 
     constructor() {
-        // Create canvas for 2D fallback
-        this.canvas2D = document.createElement("canvas");
-
-        const ctx = this.canvas2D.getContext("2d");
-        if (!ctx) {
-            throw new Error("Failed to create 2D canvas context for OverlaySystem");
-        }
-        this.ctx2D = ctx;
-
-        // Create 2D renderer (always available)
         this.renderer2D = new OverlayRenderer2D();
-        debugLog('OVERLAY', '2D renderer created');
-
-        // webglRenderer will be created in initializeGL()
         debugLog('OVERLAY', 'OverlaySystem created');
     }
 
@@ -105,23 +80,9 @@ export class OverlaySystem {
      * Render directly to provided 2D context (2D path)
      */
     public render2DDirect(ctx: CanvasRenderingContext2D, globe: any, mask: any, view: any): boolean {
-        if (!this.renderer2D) {
-            debugLog('OVERLAY', '2D render failed - no renderer');
-            return false;
-        }
-
-        if (!globe || !mask || !view) {
-            debugLog('OVERLAY', '2D render failed - missing state');
-            return false;
-        }
-
-        try {
-            // Delegate to 2D renderer with provided context
-            return this.renderer2D.render(ctx, globe, mask, view);
-        } catch (error) {
-            debugLog('OVERLAY', '2D render error:', error);
-            return false;
-        }
+        if (this.useWebGL) return false;
+        ctx.drawImage(this.renderer2D.getCanvas(), 0, 0);
+        return true;
     }
 
     // ===== MAIN PATTERN METHODS =====
@@ -192,21 +153,8 @@ export class OverlaySystem {
      * Setup 2D rendering system
      */
     private setup2D(overlayProduct: any, view: any): void {
-        debugLog('OVERLAY', 'Setting up 2D rendering system');
-
-        if (!this.ctx2D || !this.renderer2D) {
-            return;
-        }
-
-        // Size canvas
-        this.canvas2D.width = view.width;
-        this.canvas2D.height = view.height;
-
-        // Setup 2D renderer
-        this.renderer2D.initialize(this.ctx2D, view);
+        this.renderer2D.initialize(view);
         this.renderer2D.setup(overlayProduct);
-
-        debugLog('OVERLAY', '2D setup complete');
     }
 
     // ===== UTILITY METHODS =====
@@ -215,14 +163,7 @@ export class OverlaySystem {
      * Clear current setup (but don't dispose renderers)
      */
     private clearSetup(): void {
-        debugLog('OVERLAY', 'Clearing current setup');
-
-        // Clear 2D canvas
-        if (this.renderer2D && this.ctx2D) {
-            this.renderer2D.clear(this.ctx2D, this.canvas2D);
-        }
-
-        // Reset state
+        this.renderer2D.clear();
         this.useWebGL = false;
     }
 
@@ -238,62 +179,27 @@ export class OverlaySystem {
             this.webglRenderer = null;
         }
 
-        if (this.renderer2D) {
-            this.renderer2D.dispose();
-            this.renderer2D = null;
-        }
+        this.renderer2D.dispose();
     }
 
     // ===== PUBLIC API =====
 
     /**
-     * Handle rotation changes that require re-rendering (not re-initialization)
-     * Now called directly from Earth.ts centralized functions
+     * Handle rotation changes - updates 2D canvas
      */
     public handleRotation(globe: any, mask: any, view: any, config: any, overlayProduct: any): void {
-        debugLog('OVERLAY', 'Handling rotation change - regenerating frame');
-        this.regenerateOverlay(globe, mask, view, config, overlayProduct);
+        if (!this.useWebGL) {
+            this.renderer2D.render(globe, mask, view);
+        }
     }
 
     /**
-     * Handle data changes that require re-setup
-     * Now called directly from Earth.ts centralized functions
+     * Handle data changes - re-setup and update 2D canvas
      */
     public handleDataChange(overlayProduct: any, globe: any, view: any, mask: any, config: any): void {
-        debugLog('OVERLAY', 'Handling data change - re-setting up system');
         this.setup(overlayProduct, globe, view);
-        this.regenerateOverlay(globe, mask, view, config, overlayProduct);
-    }
-
-    /**
-     * Emit ready signal for overlay
-     */
-    private regenerateOverlay(globe: any, mask: any, view: any, config: any, overlayProduct: any): void {
-        const result: OverlayResult = {
-            canvas: null,  // No longer generating canvases
-            overlayType: config?.overlayType || 'off',
-            overlayProduct: overlayProduct
-        };
-
-        this.emit('overlayChanged', result);
-    }
-
-    /**
-     * Subscribe to overlay change events
-     */
-    on(event: string, handler: Function): void {
-        if (!this.eventHandlers[event]) {
-            this.eventHandlers[event] = [];
-        }
-        this.eventHandlers[event].push(handler);
-    }
-
-    /**
-     * Emit events to subscribers
-     */
-    private emit(event: string, ...args: any[]): void {
-        if (this.eventHandlers[event]) {
-            this.eventHandlers[event].forEach(handler => handler(...args));
+        if (!this.useWebGL) {
+            this.renderer2D.render(globe, mask, view);
         }
     }
 }

@@ -7,19 +7,30 @@ import { Globe, ViewportSize } from '../core/Globes';
 const OVERLAY_ALPHA = Math.floor(0.4 * 255); // overlay transparency (on scale [0, 255])
 
 export class OverlayRenderer2D {
+    private canvas: HTMLCanvasElement;
+    private ctx: CanvasRenderingContext2D;
     private overlayImageData: ImageData | null = null;
     private overlayProduct: any = null;
 
     constructor() {
-        // Lightweight constructor
+        this.canvas = document.createElement("canvas");
+        this.ctx = this.canvas.getContext("2d")!;
     }
 
     /**
-     * Initialize the renderer with canvas context and viewport
+     * Initialize the renderer with viewport size
      */
-    public initialize(ctx: CanvasRenderingContext2D, view: ViewportSize): void {
-        // Create ImageData for the current viewport size
-        this.overlayImageData = ctx.createImageData(view.width, view.height);
+    public initialize(view: ViewportSize): void {
+        this.canvas.width = view.width;
+        this.canvas.height = view.height;
+        this.overlayImageData = this.ctx.createImageData(view.width, view.height);
+    }
+    
+    /**
+     * Get the canvas for blitting
+     */
+    public getCanvas(): HTMLCanvasElement {
+        return this.canvas;
     }
 
     /**
@@ -30,43 +41,28 @@ export class OverlayRenderer2D {
     }
 
     /**
-     * Render overlay data to the canvas
+     * Render overlay data to internal canvas
      */
-    public render(
-        ctx: CanvasRenderingContext2D,
-        globe: Globe,
-        mask: any,
-        view: ViewportSize
-    ): boolean {
-        if (!this.overlayProduct) {
-            console.error('[2D_OVERLAY] Render failed - no overlay product setup');
-            return false;
+    public render(globe: Globe, mask: any, view: ViewportSize): void {
+        if (!this.overlayProduct) return;
+
+        // Recreate ImageData if size changed
+        if (!this.overlayImageData || 
+            this.overlayImageData.width !== view.width || 
+            this.overlayImageData.height !== view.height) {
+            this.canvas.width = view.width;
+            this.canvas.height = view.height;
+            this.overlayImageData = this.ctx.createImageData(view.width, view.height);
         }
 
-        try {
-            // Recreate ImageData if size changed
-            if (!this.overlayImageData || 
-                this.overlayImageData.width !== view.width || 
-                this.overlayImageData.height !== view.height) {
-                this.overlayImageData = ctx.createImageData(view.width, view.height);
-            }
-
-            // Clear ImageData
-            const overlayData = this.overlayImageData.data;
-            overlayData.fill(0);
-
-            // Generate overlay data
-            const bounds = globe.bounds(view);
-            this.generateOverlayData(this.overlayProduct, globe, view, mask, bounds, overlayData);
-
-            // Put ImageData onto canvas
-            ctx.putImageData(this.overlayImageData, 0, 0);
-
-            return true;
-        } catch (error) {
-            console.error('[2D_OVERLAY] Render error:', error);
-            return false;
-        }
+        // Clear and generate
+        const overlayData = this.overlayImageData.data;
+        overlayData.fill(0);
+        const bounds = globe.bounds(view);
+        this.generateOverlayData(this.overlayProduct, globe, view, mask, bounds, overlayData);
+        
+        // Put onto internal canvas
+        this.ctx.putImageData(this.overlayImageData, 0, 0);
     }
 
     /**
@@ -142,8 +138,8 @@ export class OverlayRenderer2D {
     /**
      * Clear the canvas
      */
-    public clear(ctx: CanvasRenderingContext2D, canvas: HTMLCanvasElement): void {
-        ctx.clearRect(0, 0, canvas.width, canvas.height);
+    public clear(): void {
+        this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
     }
 
     /**
