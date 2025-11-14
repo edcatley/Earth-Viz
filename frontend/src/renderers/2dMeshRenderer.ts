@@ -10,6 +10,8 @@ export interface MeshStyle {
 }
 
 export class MeshRenderer2D {
+    private canvas: HTMLCanvasElement;
+    private ctx: CanvasRenderingContext2D;
     private meshStyles = {
         coastlines: { color: [0.98, 0.98, 0.98] as [number, number, number], lineWidth: 8.0, opacity: 0.65 },
         lakes: { color: [0.86, 0.86, 0.86] as [number, number, number], lineWidth: 6.0, opacity: 0.65 },
@@ -19,14 +21,23 @@ export class MeshRenderer2D {
     private mesh: any = null;
 
     constructor() {
-        // Lightweight constructor
+        this.canvas = document.createElement("canvas");
+        this.ctx = this.canvas.getContext("2d")!;
     }
 
     /**
-     * Initialize the renderer (currently no-op for 2D mesh)
+     * Initialize the renderer
      */
-    public initialize(): void {
-        // 2D mesh rendering doesn't need initialization
+    public initialize(view: any): void {
+        this.canvas.width = view.width;
+        this.canvas.height = view.height;
+    }
+
+    /**
+     * Get the canvas for blitting
+     */
+    public getCanvas(): HTMLCanvasElement {
+        return this.canvas;
     }
 
     /**
@@ -37,63 +48,49 @@ export class MeshRenderer2D {
     }
 
     /**
-     * Render mesh data to the canvas
+     * Render mesh data to internal canvas
      */
-    public render(
-        ctx: CanvasRenderingContext2D,
-        canvas: HTMLCanvasElement,
-        globe: any
-    ): boolean {
-        if (!this.mesh) {
-            console.error('[2D_MESH] Render failed - no mesh data setup');
-            return false;
+    public render(globe: any): void {
+        if (!this.mesh) return;
+
+        // Clear the canvas
+        this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+
+        // Create a path renderer that draws to 2D canvas
+        const path = d3.geoPath(globe.projection).context(this.ctx);
+
+        // Render coastlines
+        if (this.mesh.coastLo) {
+            this.ctx.beginPath();
+            this.ctx.strokeStyle = this.rgbToString(this.meshStyles.coastlines.color);
+            this.ctx.lineWidth = this.meshStyles.coastlines.lineWidth / 8; // Scale down for 2D
+            this.ctx.globalAlpha = this.meshStyles.coastlines.opacity;
+            path(this.mesh.coastLo);
+            this.ctx.stroke();
         }
 
-        try {
-            // Clear the canvas
-            ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-            // Create a path renderer that draws to 2D canvas
-            const path = d3.geoPath(globe.projection).context(ctx);
-
-            // Render coastlines
-            if (this.mesh.coastLo) {
-                ctx.beginPath();
-                ctx.strokeStyle = this.rgbToString(this.meshStyles.coastlines.color);
-                ctx.lineWidth = this.meshStyles.coastlines.lineWidth / 8; // Scale down for 2D
-                ctx.globalAlpha = this.meshStyles.coastlines.opacity;
-                path(this.mesh.coastLo);
-                ctx.stroke();
-            }
-
-            // Render lakes
-            if (this.mesh.lakesLo) {
-                ctx.beginPath();
-                ctx.strokeStyle = this.rgbToString(this.meshStyles.lakes.color);
-                ctx.lineWidth = this.meshStyles.lakes.lineWidth / 8; // Scale down for 2D
-                ctx.globalAlpha = this.meshStyles.lakes.opacity;
-                path(this.mesh.lakesLo);
-                ctx.stroke();
-            }
-
-            // Render rivers
-            if (this.mesh.riversLo) {
-                ctx.beginPath();
-                ctx.strokeStyle = this.rgbToString(this.meshStyles.rivers.color);
-                ctx.lineWidth = this.meshStyles.rivers.lineWidth / 8; // Scale down for 2D
-                ctx.globalAlpha = this.meshStyles.rivers.opacity;
-                path(this.mesh.riversLo);
-                ctx.stroke();
-            }
-
-            // Reset alpha
-            ctx.globalAlpha = 1.0;
-
-            return true;
-        } catch (error) {
-            console.error('[2D_MESH] Render error:', error);
-            return false;
+        // Render lakes
+        if (this.mesh.lakesLo) {
+            this.ctx.beginPath();
+            this.ctx.strokeStyle = this.rgbToString(this.meshStyles.lakes.color);
+            this.ctx.lineWidth = this.meshStyles.lakes.lineWidth / 8; // Scale down for 2D
+            this.ctx.globalAlpha = this.meshStyles.lakes.opacity;
+            path(this.mesh.lakesLo);
+            this.ctx.stroke();
         }
+
+        // Render rivers
+        if (this.mesh.riversLo) {
+            this.ctx.beginPath();
+            this.ctx.strokeStyle = this.rgbToString(this.meshStyles.rivers.color);
+            this.ctx.lineWidth = this.meshStyles.rivers.lineWidth / 8; // Scale down for 2D
+            this.ctx.globalAlpha = this.meshStyles.rivers.opacity;
+            path(this.mesh.riversLo);
+            this.ctx.stroke();
+        }
+
+        // Reset alpha
+        this.ctx.globalAlpha = 1.0;
     }
 
     /**
@@ -106,8 +103,8 @@ export class MeshRenderer2D {
     /**
      * Clear the canvas
      */
-    public clear(ctx: CanvasRenderingContext2D, canvas: HTMLCanvasElement): void {
-        ctx.clearRect(0, 0, canvas.width, canvas.height);
+    public clear(): void {
+        this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
     }
 
     /**

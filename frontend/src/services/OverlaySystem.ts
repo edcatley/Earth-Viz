@@ -79,10 +79,8 @@ export class OverlaySystem {
     /**
      * Render directly to provided 2D context (2D path)
      */
-    public render2DDirect(ctx: CanvasRenderingContext2D, globe: any, mask: any, view: any): boolean {
-        if (this.useWebGL) return false;
+    public render2DDirect(ctx: CanvasRenderingContext2D): void {
         ctx.drawImage(this.renderer2D.getCanvas(), 0, 0);
-        return true;
     }
 
     // ===== MAIN PATTERN METHODS =====

@@ -22,33 +22,12 @@ export interface MeshResult {
 }
 
 export class MeshSystem {
-    // Common rendering system properties
-    private canvas2D: HTMLCanvasElement;
-    private ctx2D: CanvasRenderingContext2D | null = null;
     private useWebGL: boolean = false;
-
-    // Renderer delegates
     private webglMeshRenderer: WebGLMeshRenderer | null = null;
-    private renderer2D: MeshRenderer2D | null = null;
-
-    // Event callbacks
-    private eventHandlers: { [key: string]: Function[] } = {};
+    private renderer2D: MeshRenderer2D;
 
     constructor() {
-        // Create canvas for 2D fallback
-        this.canvas2D = document.createElement("canvas");
-
-        const ctx = this.canvas2D.getContext("2d");
-        if (!ctx) {
-            throw new Error("Failed to create 2D canvas context for MeshSystem");
-        }
-        this.ctx2D = ctx;
-
-        // Create 2D renderer (always available)
         this.renderer2D = new MeshRenderer2D();
-        debugLog('MESH', '2D renderer created');
-
-        // webglMeshRenderer will be created in initializeGL()
         debugLog('MESH', 'MeshSystem created');
     }
 
@@ -102,24 +81,8 @@ export class MeshSystem {
     /**
      * Render directly to provided 2D context (2D path)
      */
-    public render2DDirect(ctx: CanvasRenderingContext2D, canvas: HTMLCanvasElement, globe: any): boolean {
-        if (!this.renderer2D) {
-            debugLog('MESH', '2D render failed - no renderer');
-            return false;
-        }
-
-        if (!globe) {
-            debugLog('MESH', '2D render failed - missing state');
-            return false;
-        }
-
-        try {
-            // Delegate to 2D renderer with provided context
-            return this.renderer2D.render(ctx, canvas, globe);
-        } catch (error) {
-            debugLog('MESH', '2D render error:', error);
-            return false;
-        }
+    public render2DDirect(ctx: CanvasRenderingContext2D): void {
+        ctx.drawImage(this.renderer2D.getCanvas(), 0, 0);
     }
 
     // ===== MAIN PATTERN METHODS =====
@@ -193,16 +156,7 @@ export class MeshSystem {
     private setup2D(mesh: any, view: any): void {
         debugLog('MESH', 'Setting up 2D rendering system');
 
-        if (!this.ctx2D || !this.renderer2D) {
-            return;
-        }
-
-        // Size canvas
-        this.canvas2D.width = view.width;
-        this.canvas2D.height = view.height;
-
-        // Setup 2D renderer
-        this.renderer2D.initialize();
+        this.renderer2D.initialize(view);
         this.renderer2D.setup(mesh);
 
         debugLog('MESH', '2D setup complete');
@@ -216,69 +170,31 @@ export class MeshSystem {
     private clearSetup(): void {
         debugLog('MESH', 'Clearing current setup');
 
-        // Clear 2D canvas only
-        if (this.renderer2D && this.ctx2D) {
-            this.renderer2D.clear(this.ctx2D, this.canvas2D);
-        }
-
-        // Reset state
+        this.renderer2D.clear();
         this.useWebGL = false;
     }
 
     // ===== PUBLIC API =====
 
     /**
-     * Handle rotation changes that require re-rendering (not re-initialization)
-     * Now called directly from Earth.ts centralized functions
+     * Handle rotation changes - updates 2D canvas
      */
     public handleRotation(globe: any): void {
-        debugLog('MESH', 'Handling rotation change - regenerating frame');
-        this.regenerateMesh(globe);
+        if (!this.useWebGL) {
+            this.renderer2D.render(globe);
+        }
     }
 
     /**
-     * Handle data changes that require re-setup
-     * Now called directly from Earth.ts centralized functions
+     * Handle data changes - re-setup and update 2D canvas
      */
     public handleDataChange(globe: any, mesh: any, view: any): void {
         debugLog('MESH', 'Handling data change - re-setting up system');
         this.setup(globe, mesh, view);
-        this.regenerateMesh(globe);
-    }
-
-    /**
-     * Emit ready signal for mesh
-     */
-    public regenerateMesh(globe: any): void {
-        const result: MeshResult = {
-            canvas: null,  // No longer generating canvases
-            meshType: 'standard'
-        };
-
-        this.emit('meshChanged', result);
-    }
-
-    /**
-     * Subscribe to mesh change events
-     */
-    on(event: string, handler: Function): void {
-        if (!this.eventHandlers[event]) {
-            this.eventHandlers[event] = [];
-        }
-        this.eventHandlers[event].push(handler);
-    }
-
-    /**
-     * Emit events to subscribers
-     */
-    private emit(event: string, ...args: any[]): void {
-        if (this.eventHandlers[event]) {
-            this.eventHandlers[event].forEach(handler => handler(...args));
+        if (!this.useWebGL) {
+            this.renderer2D.render(globe);
         }
     }
-
-
-
 
     /**
      * Dispose of all resources (called on destruction)
@@ -286,17 +202,11 @@ export class MeshSystem {
     public dispose(): void {
         debugLog('MESH', 'Disposing MeshSystem');
 
-        // Dispose renderers
         if (this.webglMeshRenderer) {
             this.webglMeshRenderer.dispose();
             this.webglMeshRenderer = null;
         }
 
-        if (this.renderer2D) {
-            this.renderer2D.dispose();
-            this.renderer2D = null;
-        }
-
-        this.eventHandlers = {};
+        this.renderer2D.dispose();
     }
 }

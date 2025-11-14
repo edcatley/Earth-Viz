@@ -22,6 +22,9 @@ export interface Field {
 }
 
 export class ParticleRenderer2D {
+    private canvas: HTMLCanvasElement;
+    private ctx: CanvasRenderingContext2D;
+    
     // Particle system data
     private field: Field | null = null;
     private particleData: Float32Array | null = null; // [x, y, age, xt, yt, magnitude, ...]
@@ -32,7 +35,23 @@ export class ParticleRenderer2D {
     private windBounds: { x: number; y: number; width: number; height: number; spacing: number } | null = null;
 
     constructor() {
-        // Lightweight constructor
+        this.canvas = document.createElement("canvas");
+        this.ctx = this.canvas.getContext("2d")!;
+    }
+
+    /**
+     * Initialize canvas size
+     */
+    public initializeCanvas(view: ViewportSize): void {
+        this.canvas.width = view.width;
+        this.canvas.height = view.height;
+    }
+
+    /**
+     * Get the canvas for blitting
+     */
+    public getCanvas(): HTMLCanvasElement {
+        return this.canvas;
     }
 
     /**
@@ -163,43 +182,33 @@ export class ParticleRenderer2D {
     }
 
     /**
-     * Render particles to the 2D canvas
+     * Render particles to internal canvas
      */
-    public render(ctx: CanvasRenderingContext2D, globe: Globe, view: ViewportSize): boolean {
-        if (!this.particleData) {
-            console.error('[2D_PARTICLES] Render failed - no particle data');
-            return false;
-        }
+    public render(globe: Globe, view: ViewportSize): void {
+        if (!this.particleData) return;
 
-        try {
-            // Fade existing particle trails
-            const bounds = globe.bounds(view);
-            const prev = ctx.globalCompositeOperation;
-            ctx.globalCompositeOperation = "destination-in";
-            ctx.fillStyle = "rgba(0, 0, 0, 0.95)";
-            ctx.fillRect(bounds.x, bounds.y, bounds.width, bounds.height);
-            ctx.globalCompositeOperation = prev;
+        // Fade existing particle trails
+        const bounds = globe.bounds(view);
+        const prev = this.ctx.globalCompositeOperation;
+        this.ctx.globalCompositeOperation = "destination-in";
+        this.ctx.fillStyle = "rgba(0, 0, 0, 0.95)";
+        this.ctx.fillRect(bounds.x, bounds.y, bounds.width, bounds.height);
+        this.ctx.globalCompositeOperation = prev;
 
-            // Draw particles
-            this.drawParticles(ctx);
-
-            return true;
-        } catch (error) {
-            console.error('[2D_PARTICLES] Render error:', error);
-            return false;
-        }
+        // Draw particles
+        this.drawParticles();
     }
 
     /**
-     * Draw particles to the 2D canvas
+     * Draw particles to internal canvas
      */
-    private drawParticles(ctx: CanvasRenderingContext2D): void {
+    private drawParticles(): void {
         // Draw all particles with single color
-        ctx.lineWidth = PARTICLE_LINE_WIDTH;
-        ctx.globalAlpha = 0.9;
-        ctx.strokeStyle = 'white';
+        this.ctx.lineWidth = PARTICLE_LINE_WIDTH;
+        this.ctx.globalAlpha = 0.9;
+        this.ctx.strokeStyle = 'white';
 
-        ctx.beginPath();
+        this.ctx.beginPath();
 
         for (let i = 0; i < this.particleCount; i++) {
             const idx = i * 6;
@@ -216,25 +225,25 @@ export class ParticleRenderer2D {
             }
 
             // Draw line from current to next position
-            ctx.moveTo(x, y);
-            ctx.lineTo(xt, yt);
+            this.ctx.moveTo(x, y);
+            this.ctx.lineTo(xt, yt);
 
             // Update position for next frame
             this.particleData![idx] = xt;
             this.particleData![idx + 1] = yt;
         }
 
-        ctx.stroke();
+        this.ctx.stroke();
 
         // Reset alpha
-        ctx.globalAlpha = 1.0;
+        this.ctx.globalAlpha = 1.0;
     }
 
     /**
      * Clear the canvas
      */
-    public clear(ctx: CanvasRenderingContext2D, canvas: HTMLCanvasElement): void {
-        ctx.clearRect(0, 0, canvas.width, canvas.height);
+    public clear(): void {
+        this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
     }
 
     /**

@@ -29,14 +29,9 @@ export interface ParticleResult {
 }
 
 export class ParticleSystem {
-    // Common rendering system properties
-    private canvas2D: HTMLCanvasElement;
-    private ctx2D: CanvasRenderingContext2D | null = null;
     private useWebGL: boolean = false;
-
-    // Renderer delegates
     private webglParticleSystem: WebGLParticleSystem | null = null;
-    private renderer2D: ParticleRenderer2D | null = null;
+    private renderer2D: ParticleRenderer2D;
 
     // Particle count
     private particleCount = 0;
@@ -45,25 +40,8 @@ export class ParticleSystem {
     private windData: Float32Array | null = null;
     private windBounds: { x: number; y: number; width: number; height: number; spacing: number } | null = null;
 
-
-
-
-
     constructor() {
-        // Create canvas for 2D fallback
-        this.canvas2D = document.createElement("canvas");
-
-        const ctx = this.canvas2D.getContext("2d");
-        if (!ctx) {
-            throw new Error("Failed to create 2D canvas context for particles");
-        }
-        this.ctx2D = ctx;
-
-        // Create 2D renderer (always available)
         this.renderer2D = new ParticleRenderer2D();
-        debugLog('PARTICLES', '2D renderer created');
-
-        // webglParticleSystem will be created in initializeGL()
         debugLog('PARTICLES', 'ParticleSystem created');
     }
 
@@ -119,25 +97,10 @@ export class ParticleSystem {
     /**
      * Render directly to provided 2D context (2D path)
      */
-    public render2DDirect(ctx: CanvasRenderingContext2D, globe: any, view: any): boolean {
-        if (!this.renderer2D) {
-            debugLog('PARTICLES', '2D render failed - no renderer');
-            return false;
-        }
-
-        if (!globe || !view) {
-            debugLog('PARTICLES', '2D render failed - missing state');
-            return false;
-        }
-
-        try {
-            // Evolve particles and render to provided context
-            this.renderer2D.evolve();
-            return this.renderer2D.render(ctx, globe, view);
-        } catch (error) {
-            debugLog('PARTICLES', '2D render error:', error);
-            return false;
-        }
+    public render2DDirect(ctx: CanvasRenderingContext2D, globe: any, view: any): void {
+        this.renderer2D.evolve();
+        this.renderer2D.render(globe, view);
+        ctx.drawImage(this.renderer2D.getCanvas(), 0, 0);
     }
 
     // ===== MAIN PATTERN METHODS =====
@@ -249,16 +212,12 @@ export class ParticleSystem {
     private setup2D(view: ViewportSize, validPositions: Array<[number, number]>): void {
         debugLog('PARTICLES', 'Setting up 2D rendering system');
 
-        if (!this.renderer2D || !this.windData || !this.windBounds) {
-            debugLog('PARTICLES', '2D setup failed - missing renderer or wind data');
+        if (!this.windData || !this.windBounds) {
+            debugLog('PARTICLES', '2D setup failed - missing wind data');
             return;
         }
 
-        // Ensure canvas is properly sized
-        this.canvas2D.width = view.width;
-        this.canvas2D.height = view.height;
-
-        // Delegate to 2D renderer
+        this.renderer2D.initializeCanvas(view);
         this.renderer2D.initialize(this.particleCount, this.windData, this.windBounds, validPositions);
 
         debugLog('PARTICLES', '2D setup complete');
@@ -355,54 +314,35 @@ export class ParticleSystem {
 
 
     /**
-     * Clear the particle canvas
-     */
-    private clearCanvas(): void {
-        debugLog('PARTICLES', 'Clearing particle canvas');
-
-        // Clear 2D canvas
-        if (this.ctx2D) {
-            this.ctx2D.clearRect(0, 0, this.canvas2D.width, this.canvas2D.height);
-        }
-    }
-
-    /**
      * Clear current setup (but don't dispose renderers)
      */
     private clearSetup(): void {
         debugLog('PARTICLES', 'Clearing current setup');
 
-        // Clear canvases
-        this.clearCanvas();
-
-        // Clear 2D renderer state
-        if (this.renderer2D) {
-            this.renderer2D.dispose();
-        }
+        this.renderer2D.clear();
+        this.renderer2D.dispose();
 
         // Clear particle data
         this.particleCount = 0;
         this.windData = null;
         this.windBounds = null;
 
-        // Reset state
         this.useWebGL = false;
     }
 
 
 
     /**
-     * Handle rotation changes that require re-rendering (not re-setup)
-     * Now called directly from Earth.ts centralized functions
+     * Handle rotation changes - clears 2D canvas
      */
     public handleRotation(): void {
-        debugLog('PARTICLES', 'Handling rotation change');
-        this.clearCanvas();
+        if (!this.useWebGL) {
+            this.renderer2D.clear();
+        }
     }
 
     /**
-     * Handle data changes that require re-setup
-     * Now called directly from Earth.ts centralized functions
+     * Handle data changes - re-setup system
      */
     public handleDataChange(
         globe: Globe,
@@ -412,27 +352,21 @@ export class ParticleSystem {
         particleType: string
     ): void {
         debugLog('PARTICLES', 'Handling data change - re-setting up system');
-
         this.setup(globe, mask, view, particleProduct, particleType);
     }
-
-
-
-
 
     /**
      * Clean up resources
      */
     dispose(): void {
+        debugLog('PARTICLES', 'Disposing ParticleSystem');
+
         if (this.webglParticleSystem) {
             this.webglParticleSystem.dispose();
             this.webglParticleSystem = null;
         }
 
-        if (this.renderer2D) {
-            this.renderer2D.dispose();
-            this.renderer2D = null;
-        }
+        this.renderer2D.dispose();
 
         this.windData = null;
         this.windBounds = null;

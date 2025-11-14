@@ -41,39 +41,14 @@ export interface PlanetResult {
 }
 
 export class PlanetSystem {
-    // Common rendering system properties
-    private canvas2D: HTMLCanvasElement;
-    private ctx2D: CanvasRenderingContext2D | null = null;
     private useWebGL: boolean = false;
-
-    // Renderer delegates
     private webglRenderer: WebGLRenderer | null = null;
-    private renderer2D: PlanetRenderer2D | null = null;
-
-    // Event callbacks
-    private eventHandlers: { [key: string]: Function[] } = {};
-
-    // Planet image cache
+    private renderer2D: PlanetRenderer2D;
     private imageCache: { [key: string]: HTMLImageElement } = {};
-
-    // Day/night blender (lazy initialized)
     private dayNightBlender: DayNightBlender | null = null;
 
     constructor() {
-        // Create canvas for 2D fallback
-        this.canvas2D = document.createElement("canvas");
-
-        const ctx = this.canvas2D.getContext("2d");
-        if (!ctx) {
-            throw new Error("Failed to create 2D canvas context for PlanetSystem");
-        }
-        this.ctx2D = ctx;
-
-        // Create 2D renderer (always available)
         this.renderer2D = new PlanetRenderer2D();
-        debugLog('PLANET', '2D renderer created');
-
-        // webglRenderer will be created in initializeGL()
         debugLog('PLANET', 'PlanetSystem created');
     }
 
@@ -127,24 +102,8 @@ export class PlanetSystem {
     /**
      * Render directly to provided 2D context (2D path)
      */
-    public render2DDirect(ctx: CanvasRenderingContext2D, globe: Globe, mask: any, view: ViewportSize): boolean {
-        if (!this.renderer2D) {
-            debugLog('PLANET', '2D render failed - no renderer');
-            return false;
-        }
-
-        if (!globe || !mask || !view) {
-            debugLog('PLANET', '2D render failed - missing state');
-            return false;
-        }
-
-        try {
-            // Delegate to 2D renderer with provided context
-            return this.renderer2D.render(ctx, globe, mask, view);
-        } catch (error) {
-            debugLog('PLANET', '2D render error:', error);
-            return false;
-        }
+    public render2DDirect(ctx: CanvasRenderingContext2D): void {
+        ctx.drawImage(this.renderer2D.getCanvas(), 0, 0);
     }
 
     // ===== MAIN PATTERN METHODS =====
@@ -224,16 +183,8 @@ export class PlanetSystem {
     private setup2D(view: ViewportSize, planetType: string, useDayNight: boolean): void {
         debugLog('PLANET', 'Setting up 2D rendering system');
 
-        if (!view || !this.ctx2D || !this.renderer2D) {
-            return;
-        }
-
-        // Size canvas
-        this.canvas2D.width = view.width;
-        this.canvas2D.height = view.height;
-
         // Initialize 2D renderer
-        this.renderer2D.initialize(this.ctx2D, view);
+        this.renderer2D.initialize(view);
 
         // Load the appropriate planet image for 2D rendering
         const cacheKey = useDayNight ? `${planetType}_daynight` : planetType;
@@ -259,9 +210,7 @@ export class PlanetSystem {
         debugLog('PLANET', 'Clearing current setup');
 
         // Clear 2D canvas
-        if (this.renderer2D && this.ctx2D) {
-            this.renderer2D.clear(this.ctx2D, this.canvas2D);
-        }
+        this.renderer2D.clear();
 
         // Reset state
         this.useWebGL = false;
@@ -270,17 +219,16 @@ export class PlanetSystem {
     // ===== PUBLIC API =====
 
     /**
-     * Handle rotation changes that require re-rendering (not re-initialization)
-     * Now called directly from Earth.ts centralized functions
+     * Handle rotation changes - updates 2D canvas
      */
-    public handleRotation(globe: Globe, mask: any, view: ViewportSize, planetType: string): void {
-        debugLog('PLANET', 'Handling rotation change - regenerating frame');
-        this.regeneratePlanet(globe, mask, view, planetType);
+    public handleRotation(globe: Globe, mask: any, view: ViewportSize): void {
+        if (!this.useWebGL) {
+            this.renderer2D.render(globe, mask, view);
+        }
     }
 
     /**
-     * Handle data changes that require re-initialization
-     * Now called directly from Earth.ts centralized functions
+     * Handle data changes - re-setup and update 2D canvas
      */
     public handleDataChange(globe: Globe, mask: any, view: ViewportSize, planetType: string, useDayNight: boolean): void {
         debugLog('PLANET', 'Handling data change - re-setting up system');
@@ -288,25 +236,17 @@ export class PlanetSystem {
         // Load planet image first, then setup
         this.loadPlanetImage(planetType, useDayNight).then(() => {
             this.setup(globe, view, planetType, useDayNight);
-            this.regeneratePlanet(globe, mask, view, planetType);
+            if (!this.useWebGL) {
+                this.renderer2D.render(globe, mask, view);
+            }
         }).catch(error => {
             debugLog('PLANET', 'Failed to load planet image:', error);
             // Still setup without image
             this.setup(globe, view, planetType, useDayNight);
-            this.regeneratePlanet(globe, mask, view, planetType);
+            if (!this.useWebGL) {
+                this.renderer2D.render(globe, mask, view);
+            }
         });
-    }
-
-    /**
-     * Emit ready signal for planet
-     */
-    private regeneratePlanet(globe: Globe, mask: any, view: ViewportSize, planetType: string): void {
-        const result: PlanetResult = {
-            canvas: null,  // No longer generating canvases
-            planetType: planetType
-        };
-
-        this.emit('planetChanged', result);
     }
 
     /**
@@ -408,37 +348,19 @@ export class PlanetSystem {
     }
 
     /**
-     * Subscribe to planet change events
-     */
-    on(event: string, handler: Function): void {
-        if (!this.eventHandlers[event]) {
-            this.eventHandlers[event] = [];
-        }
-        this.eventHandlers[event].push(handler);
-    }
-
-    /**
-     * Emit events to subscribers
-     */
-    private emit(event: string, ...args: any[]): void {
-        if (this.eventHandlers[event]) {
-            this.eventHandlers[event].forEach(handler => handler(...args));
-        }
-    }
-
-
-    /**
      * Clean up resources
      */
     dispose(): void {
+        debugLog('PLANET', 'Disposing PlanetSystem');
+
         if (this.webglRenderer) {
             this.webglRenderer.dispose();
             this.webglRenderer = null;
         }
 
+        this.renderer2D.dispose();
+
         // Clear image cache
         this.imageCache = {};
-
-        this.eventHandlers = {};
     }
 }

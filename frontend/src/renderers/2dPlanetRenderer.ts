@@ -4,18 +4,30 @@
 import { Globe, ViewportSize } from '../core/Globes';
 
 export class PlanetRenderer2D {
+    private canvas: HTMLCanvasElement;
+    private ctx: CanvasRenderingContext2D;
     private planetImage: HTMLImageElement | null = null;
     private planetImageData: ImageData | null = null;
 
     constructor() {
-        // Lightweight constructor
+        this.canvas = document.createElement("canvas");
+        this.ctx = this.canvas.getContext("2d")!;
     }
 
     /**
      * Initialize the renderer
      */
-    public initialize(ctx: CanvasRenderingContext2D, view: ViewportSize): void {
-        this.planetImageData = ctx.createImageData(view.width, view.height);
+    public initialize(view: ViewportSize): void {
+        this.canvas.width = view.width;
+        this.canvas.height = view.height;
+        this.planetImageData = this.ctx.createImageData(view.width, view.height);
+    }
+    
+    /**
+     * Get the canvas for blitting
+     */
+    public getCanvas(): HTMLCanvasElement {
+        return this.canvas;
     }
 
     /**
@@ -26,43 +38,28 @@ export class PlanetRenderer2D {
     }
 
     /**
-     * Render planet image to the canvas
+     * Render planet image to internal canvas
      */
-    public render(
-        ctx: CanvasRenderingContext2D,
-        globe: Globe,
-        mask: any,
-        view: ViewportSize
-    ): boolean {
-        if (!this.planetImage) {
-            console.error('[2D_PLANET] Render failed - no planet image setup');
-            return false;
+    public render(globe: Globe, mask: any, view: ViewportSize): void {
+        if (!this.planetImage) return;
+
+        // Recreate ImageData if size changed
+        if (!this.planetImageData || 
+            this.planetImageData.width !== view.width || 
+            this.planetImageData.height !== view.height) {
+            this.canvas.width = view.width;
+            this.canvas.height = view.height;
+            this.planetImageData = this.ctx.createImageData(view.width, view.height);
         }
 
-        try {
-            // Recreate ImageData if size changed
-            if (!this.planetImageData || 
-                this.planetImageData.width !== view.width || 
-                this.planetImageData.height !== view.height) {
-                this.planetImageData = ctx.createImageData(view.width, view.height);
-            }
-
-            // Clear ImageData
-            const planetData = this.planetImageData.data;
-            planetData.fill(0);
-
-            // Generate planet data
-            const bounds = globe.bounds(view);
-            this.generatePlanetData(this.planetImage, globe, view, mask, bounds, planetData);
-
-            // Put ImageData onto canvas
-            ctx.putImageData(this.planetImageData, 0, 0);
-
-            return true;
-        } catch (error) {
-            console.error('[2D_PLANET] Render error:', error);
-            return false;
-        }
+        // Clear and generate
+        const planetData = this.planetImageData.data;
+        planetData.fill(0);
+        const bounds = globe.bounds(view);
+        this.generatePlanetData(this.planetImage, globe, view, mask, bounds, planetData);
+        
+        // Put onto internal canvas
+        this.ctx.putImageData(this.planetImageData, 0, 0);
     }
 
     /**
@@ -141,8 +138,9 @@ export class PlanetRenderer2D {
     /**
      * Clear the canvas
      */
-    public clear(ctx: CanvasRenderingContext2D, canvas: HTMLCanvasElement): void {
-        ctx.clearRect(0, 0, canvas.width, canvas.height);
+    public clear(): void {
+        this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+        this.planetImageData = null;
     }
 
     /**
