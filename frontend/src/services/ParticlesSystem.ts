@@ -75,12 +75,12 @@ export class ParticleSystem {
 
     /**
      * Render directly to provided GL context (fast path)
-     * Note: render() before evolve() to avoid drawing teleport lines when particles respawn
+     * Note: evolve() before render() to show current frame positions
      */
     public renderDirect(gl: WebGLRenderingContext): void {
         if (!this.webglParticleSystem) return;
-        this.webglParticleSystem.render(gl);
         this.webglParticleSystem.evolve();
+        this.webglParticleSystem.render(gl);
     }
 
     /**

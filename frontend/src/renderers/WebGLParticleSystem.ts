@@ -387,9 +387,6 @@ export class WebGLParticleSystem {
     private blitProgram: WebGLProgram | null = null;
     private blitLocations: any = null;
 
-    // Previous frame data for merging old + new positions
-    private previousFrameData: Float32Array | null = null;
-
     // Cached projection matrix to avoid allocation every frame
     private projectionMatrix: Float32Array = new Float32Array(16);
     
@@ -455,115 +452,12 @@ export class WebGLParticleSystem {
         console.log('  - Vertex highp:', vertexPrecision ? `${vertexPrecision.precision} bits` : 'not supported');
         console.log('  - Fragment highp:', fragmentPrecision ? `${fragmentPrecision.precision} bits` : 'not supported');
 
-        // Create shader program
-        if (!this.createShaderProgram()) {
-            console.error('[WebGLParticleSystem] Failed to create shader program');
-            return false;
-        }
-
-        // Get shader locations
-        this.getShaderLocations();
-
-        // Create render shader program
-        if (!this.createRenderShaderProgram()) {
-            console.error('[WebGLParticleSystem] Failed to create render shader program');
-            return false;
-        }
-
-        // Get render shader locations
-        this.getRenderShaderLocations();
-
-        // Create fade shader program
-        if (!this.createFadeShaderProgram()) {
-            console.error('[WebGLParticleSystem] Failed to create fade shader program');
-            return false;
-        }
-
-        // Get fade shader locations
-        this.getFadeShaderLocations();
-
-        // Create fade quad buffer
-        if (!this.createFadeQuadBuffer()) {
-            console.error('[WebGLParticleSystem] Failed to create fade quad buffer');
-            return false;
-        }
+        // Create evolution shader program
+        this.program = this.createProgram(VERTEX_SHADER, FRAGMENT_SHADER);
+        if (!this.program) return false;
         
-        // Create blit shader program
-        if (!this.createBlitShaderProgram()) {
-            console.error('[WebGLParticleSystem] Failed to create blit shader program');
-            return false;
-        }
-        
-        // Get blit shader locations
-        this.getBlitShaderLocations();
-
-        this.isInitialized = true;
-        console.log('[WebGLParticleSystem] Initialized');
-        return true;
-    }
-
-    /**
-     * Create and compile shader program
-     */
-    private createShaderProgram(): boolean {
-        if (!this.gl) return false;
-
-        const vertexShader = this.createShader(this.gl.VERTEX_SHADER, VERTEX_SHADER);
-        const fragmentShader = this.createShader(this.gl.FRAGMENT_SHADER, FRAGMENT_SHADER);
-
-        if (!vertexShader || !fragmentShader) {
-            return false;
-        }
-
-        this.program = this.gl.createProgram();
-        if (!this.program) {
-            console.error('[WebGLParticleSystem] Failed to create program');
-            return false;
-        }
-
-        this.gl.attachShader(this.program, vertexShader);
-        this.gl.attachShader(this.program, fragmentShader);
-        this.gl.linkProgram(this.program);
-
-        if (!this.gl.getProgramParameter(this.program, this.gl.LINK_STATUS)) {
-            console.error('[WebGLParticleSystem] Program link error:', this.gl.getProgramInfoLog(this.program));
-            return false;
-        }
-
-        return true;
-    }
-
-    /**
-     * Create and compile a shader
-     */
-    private createShader(type: number, source: string): WebGLShader | null {
-        if (!this.gl) return null;
-
-        const shader = this.gl.createShader(type);
-        if (!shader) return null;
-
-        this.gl.shaderSource(shader, source);
-        this.gl.compileShader(shader);
-
-        if (!this.gl.getShaderParameter(shader, this.gl.COMPILE_STATUS)) {
-            console.error('[WebGLParticleSystem] Shader compile error:', this.gl.getShaderInfoLog(shader));
-            this.gl.deleteShader(shader);
-            return null;
-        }
-
-        return shader;
-    }
-
-    /**
-     * Get shader attribute and uniform locations
-     */
-    private getShaderLocations(): void {
-        if (!this.gl || !this.program) return;
-
         this.locations = {
-            attributes: {
-                position: this.gl.getAttribLocation(this.program, 'a_position')
-            },
+            attributes: { position: this.gl.getAttribLocation(this.program, 'a_position') },
             uniforms: {
                 particleState: this.gl.getUniformLocation(this.program, 'u_particleState'),
                 windField: this.gl.getUniformLocation(this.program, 'u_windField'),
@@ -574,6 +468,87 @@ export class WebGLParticleSystem {
                 textureSize: this.gl.getUniformLocation(this.program, 'u_textureSize')
             }
         };
+
+        // Create render shader program
+        this.renderProgram = this.createProgram(RENDER_VERTEX_SHADER, RENDER_FRAGMENT_SHADER);
+        if (!this.renderProgram) return false;
+        
+        this.renderLocations = {
+            attributes: { particleCorner: this.gl.getAttribLocation(this.renderProgram, 'a_particleCorner') },
+            uniforms: {
+                prevPos: this.gl.getUniformLocation(this.renderProgram, 'u_prevPos'),
+                currPos: this.gl.getUniformLocation(this.renderProgram, 'u_currPos'),
+                projection: this.gl.getUniformLocation(this.renderProgram, 'u_projection'),
+                lineWidth: this.gl.getUniformLocation(this.renderProgram, 'u_lineWidth'),
+                textureSize: this.gl.getUniformLocation(this.renderProgram, 'u_textureSize')
+            }
+        };
+
+        // Create fade shader program
+        this.fadeProgram = this.createProgram(FADE_VERTEX_SHADER, FADE_FRAGMENT_SHADER);
+        if (!this.fadeProgram) return false;
+        
+        this.fadeLocations = {
+            attributes: { position: this.gl.getAttribLocation(this.fadeProgram, 'a_position') }
+        };
+        
+        // Create fade quad buffer
+        this.fadeQuadBuffer = this.gl.createBuffer();
+        if (!this.fadeQuadBuffer) return false;
+        this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.fadeQuadBuffer);
+        this.gl.bufferData(this.gl.ARRAY_BUFFER, FULLSCREEN_QUAD_VERTICES, this.gl.STATIC_DRAW);
+        
+        // Create blit shader program
+        this.blitProgram = this.createProgram(BLIT_VERTEX_SHADER, BLIT_FRAGMENT_SHADER);
+        if (!this.blitProgram) return false;
+        
+        this.blitLocations = {
+            attributes: { position: this.gl.getAttribLocation(this.blitProgram, 'a_position') },
+            uniforms: { texture: this.gl.getUniformLocation(this.blitProgram, 'u_texture') }
+        };
+
+        this.isInitialized = true;
+        console.log('[WebGLParticleSystem] Initialized');
+        return true;
+    }
+
+    /**
+     * Create and compile shader program
+     */
+    private createProgram(vertexSource: string, fragmentSource: string): WebGLProgram | null {
+        if (!this.gl) return null;
+
+        const vs = this.gl.createShader(this.gl.VERTEX_SHADER);
+        const fs = this.gl.createShader(this.gl.FRAGMENT_SHADER);
+        if (!vs || !fs) return null;
+
+        this.gl.shaderSource(vs, vertexSource);
+        this.gl.compileShader(vs);
+        if (!this.gl.getShaderParameter(vs, this.gl.COMPILE_STATUS)) {
+            console.error('[WebGLParticleSystem] Vertex shader error:', this.gl.getShaderInfoLog(vs));
+            return null;
+        }
+
+        this.gl.shaderSource(fs, fragmentSource);
+        this.gl.compileShader(fs);
+        if (!this.gl.getShaderParameter(fs, this.gl.COMPILE_STATUS)) {
+            console.error('[WebGLParticleSystem] Fragment shader error:', this.gl.getShaderInfoLog(fs));
+            return null;
+        }
+
+        const program = this.gl.createProgram();
+        if (!program) return null;
+
+        this.gl.attachShader(program, vs);
+        this.gl.attachShader(program, fs);
+        this.gl.linkProgram(program);
+
+        if (!this.gl.getProgramParameter(program, this.gl.LINK_STATUS)) {
+            console.error('[WebGLParticleSystem] Program link error:', this.gl.getProgramInfoLog(program));
+            return null;
+        }
+
+        return program;
     }
 
     /**
@@ -888,7 +863,7 @@ export class WebGLParticleSystem {
             console.error('[WebGLParticleSystem] Not ready to evolve');
             return;
         }
-
+        console.log('[WEBGLRENDERER] Evolve called');
         // Determine read and write textures
         const readIndex = this.currentTextureIndex;
         const writeIndex = 1 - this.currentTextureIndex;
@@ -940,6 +915,17 @@ export class WebGLParticleSystem {
 
         // Unbind framebuffer
         this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, null);
+        
+        // Force GPU to complete the write to the texture before we try to read from it
+        this.gl.finish();
+
+        // Clean up GL state to avoid interfering with render()
+        this.gl.activeTexture(this.gl.TEXTURE0);
+        this.gl.bindTexture(this.gl.TEXTURE_2D, null);
+        this.gl.activeTexture(this.gl.TEXTURE1);
+        this.gl.bindTexture(this.gl.TEXTURE_2D, null);
+        this.gl.bindBuffer(this.gl.ARRAY_BUFFER, null);
+        this.gl.disableVertexAttribArray(this.locations.attributes.position);
 
         // Swap textures for next frame
         this.currentTextureIndex = writeIndex;
@@ -947,166 +933,6 @@ export class WebGLParticleSystem {
         //console.log('[WebGLParticleSystem] Evolved particles, swapped to texture', writeIndex);
     }
 
-
-    /**
-     * Create render shader program
-     */
-    private createRenderShaderProgram(): boolean {
-        if (!this.gl) return false;
-
-        const vertexShader = this.createShader(this.gl.VERTEX_SHADER, RENDER_VERTEX_SHADER);
-        const fragmentShader = this.createShader(this.gl.FRAGMENT_SHADER, RENDER_FRAGMENT_SHADER);
-
-        if (!vertexShader || !fragmentShader) {
-            return false;
-        }
-
-        this.renderProgram = this.gl.createProgram();
-        if (!this.renderProgram) {
-            console.error('[WebGLParticleSystem] Failed to create render program');
-            return false;
-        }
-
-        this.gl.attachShader(this.renderProgram, vertexShader);
-        this.gl.attachShader(this.renderProgram, fragmentShader);
-        this.gl.linkProgram(this.renderProgram);
-
-        if (!this.gl.getProgramParameter(this.renderProgram, this.gl.LINK_STATUS)) {
-            console.error('[WebGLParticleSystem] Render program link error:', this.gl.getProgramInfoLog(this.renderProgram));
-            return false;
-        }
-
-        return true;
-    }
-
-    /**
-     * Get render shader locations
-     */
-    private getRenderShaderLocations(): void {
-        if (!this.gl || !this.renderProgram) return;
-
-        this.renderLocations = {
-            attributes: {
-                particleCorner: this.gl.getAttribLocation(this.renderProgram, 'a_particleCorner')
-            },
-            uniforms: {
-                prevPos: this.gl.getUniformLocation(this.renderProgram, 'u_prevPos'),
-                currPos: this.gl.getUniformLocation(this.renderProgram, 'u_currPos'),
-                projection: this.gl.getUniformLocation(this.renderProgram, 'u_projection'),
-                lineWidth: this.gl.getUniformLocation(this.renderProgram, 'u_lineWidth'),
-                textureSize: this.gl.getUniformLocation(this.renderProgram, 'u_textureSize')
-            }
-        };
-    }
-
-    /**
-     * Create fade shader program
-     */
-    private createFadeShaderProgram(): boolean {
-        if (!this.gl) return false;
-
-        const vertexShader = this.createShader(this.gl.VERTEX_SHADER, FADE_VERTEX_SHADER);
-        const fragmentShader = this.createShader(this.gl.FRAGMENT_SHADER, FADE_FRAGMENT_SHADER);
-
-        if (!vertexShader || !fragmentShader) {
-            return false;
-        }
-
-        this.fadeProgram = this.gl.createProgram();
-        if (!this.fadeProgram) {
-            console.error('[WebGLParticleSystem] Failed to create fade program');
-            return false;
-        }
-
-        this.gl.attachShader(this.fadeProgram, vertexShader);
-        this.gl.attachShader(this.fadeProgram, fragmentShader);
-        this.gl.linkProgram(this.fadeProgram);
-
-        if (!this.gl.getProgramParameter(this.fadeProgram, this.gl.LINK_STATUS)) {
-            console.error('[WebGLParticleSystem] Fade program link error:', this.gl.getProgramInfoLog(this.fadeProgram));
-            return false;
-        }
-
-        return true;
-    }
-
-    /**
-     * Get fade shader locations
-     */
-    private getFadeShaderLocations(): void {
-        if (!this.gl || !this.fadeProgram) return;
-
-        this.fadeLocations = {
-            attributes: {
-                position: this.gl.getAttribLocation(this.fadeProgram, 'a_position')
-            }
-        };
-    }
-
-    /**
-     * Create fade quad buffer
-     */
-    private createFadeQuadBuffer(): boolean {
-        if (!this.gl) return false;
-
-        this.fadeQuadBuffer = this.gl.createBuffer();
-        if (!this.fadeQuadBuffer) {
-            console.error('[WebGLParticleSystem] Failed to create fade quad buffer');
-            return false;
-        }
-
-        this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.fadeQuadBuffer);
-        this.gl.bufferData(this.gl.ARRAY_BUFFER, FULLSCREEN_QUAD_VERTICES, this.gl.STATIC_DRAW);
-
-        return true;
-    }
-    
-    /**
-     * Create blit shader program
-     */
-    private createBlitShaderProgram(): boolean {
-        if (!this.gl) return false;
-
-        const vertexShader = this.createShader(this.gl.VERTEX_SHADER, BLIT_VERTEX_SHADER);
-        const fragmentShader = this.createShader(this.gl.FRAGMENT_SHADER, BLIT_FRAGMENT_SHADER);
-
-        if (!vertexShader || !fragmentShader) {
-            return false;
-        }
-
-        this.blitProgram = this.gl.createProgram();
-        if (!this.blitProgram) {
-            console.error('[WebGLParticleSystem] Failed to create blit program');
-            return false;
-        }
-
-        this.gl.attachShader(this.blitProgram, vertexShader);
-        this.gl.attachShader(this.blitProgram, fragmentShader);
-        this.gl.linkProgram(this.blitProgram);
-
-        if (!this.gl.getProgramParameter(this.blitProgram, this.gl.LINK_STATUS)) {
-            console.error('[WebGLParticleSystem] Blit program link error:', this.gl.getProgramInfoLog(this.blitProgram));
-            return false;
-        }
-
-        return true;
-    }
-    
-    /**
-     * Get blit shader locations
-     */
-    private getBlitShaderLocations(): void {
-        if (!this.gl || !this.blitProgram) return;
-
-        this.blitLocations = {
-            attributes: {
-                position: this.gl.getAttribLocation(this.blitProgram, 'a_position')
-            },
-            uniforms: {
-                texture: this.gl.getUniformLocation(this.blitProgram, 'u_texture')
-            }
-        };
-    }
     
     /**
      * Create trail framebuffer for particle trails
@@ -1248,6 +1074,8 @@ export class WebGLParticleSystem {
 
         const prevIndex = 1 - this.currentTextureIndex;
         const currIndex = this.currentTextureIndex;
+        
+        console.log('[RENDER] currentTextureIndex:', this.currentTextureIndex, 'prevIndex:', prevIndex, 'currIndex:', currIndex);
 
         // === STEP 1: Render to internal trail framebuffer ===
         gl.bindFramebuffer(gl.FRAMEBUFFER, this.trailFramebuffer);
@@ -1296,6 +1124,7 @@ export class WebGLParticleSystem {
         
         // === STEP 2: Blit trail framebuffer to main canvas ===
         gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+        gl.viewport(0, 0, this.canvasWidth, this.canvasHeight);
         
         this.blitTrailTexture(gl);
     }
@@ -1418,9 +1247,6 @@ export class WebGLParticleSystem {
             this.gl.deleteFramebuffer(this.trailFramebuffer);
             this.trailFramebuffer = null;
         }
-
-        // Clear previous frame data
-        this.previousFrameData = null;
 
         this.isInitialized = false;
     }
