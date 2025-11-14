@@ -234,24 +234,6 @@ class EarthModernApp {
             }
         });
 
-        // 3. OverlaySystem → Listen for ready signals
-        this.overlaySystem.on('overlayChanged', (result: any) => {
-            this.overlayProduct = result.overlayProduct;
-            this.emit('overlayChanged');
-        });
-
-        // 4. PlanetSystem → Listen for ready signals
-        this.planetSystem.on('planetChanged', () => {
-            this.emit('planetChanged');
-        });
-
-
-
-        // 6. MeshSystem → Listen for ready signals
-        this.meshSystem.on('meshChanged', () => {
-            this.emit('meshChanged');
-        });
-
 
 
         // 7. Subscribe RenderSystem to actual visual state changes
@@ -485,7 +467,7 @@ class EarthModernApp {
         }
 
         if (globe && mask && view && config.planetType !== undefined) {
-            this.planetSystem.handleRotation(globe, mask, view, config.planetType);
+            this.planetSystem.handleRotation(globe, mask, view);
         }
 
         // Particle system doesn't need parameters for rotation - just stops/clears animation

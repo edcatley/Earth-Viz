@@ -41,7 +41,6 @@ export interface PlanetResult {
 }
 
 export class PlanetSystem {
-    private useWebGL: boolean = false;
     private webglRenderer: WebGLRenderer | null = null;
     private renderer2D: PlanetRenderer2D;
     private imageCache: { [key: string]: HTMLImageElement } = {};
@@ -69,10 +68,8 @@ export class PlanetSystem {
             debugLog('PLANET', 'WebGL initialization failed');
             this.webglRenderer.dispose();
             this.webglRenderer = null;
-            this.useWebGL = false;
         } else {
             debugLog('PLANET', 'WebGL renderer initialized successfully');
-            // useWebGL will be set to true in setup() when data is ready
         }
     }
 
@@ -85,17 +82,9 @@ export class PlanetSystem {
 
     /**
      * Render directly to provided GL context (fast path)
-     * No-op if no data has been setup yet
      */
     public renderDirect(gl: WebGLRenderingContext, globe: Globe, view: ViewportSize): void {
-        if (!this.webglRenderer) {
-            return; // No WebGL renderer
-        }
-        
-        if (!this.useWebGL) {
-            return; // No data setup yet
-        }
-
+        if (!this.webglRenderer) return;
         this.webglRenderer.render(gl, globe, view);
     }
 
@@ -115,35 +104,24 @@ export class PlanetSystem {
     public setup(globe: Globe, view: ViewportSize, planetType: string, useDayNight: boolean): void {
         debugLog('PLANET', 'Starting setup');
 
-        // Clear any existing setup
         this.clearSetup();
 
         // Try WebGL first (if available)
-        if (this.webglRenderer) {
-            debugLog('PLANET', 'Attempting WebGL setup');
-            if (this.setupWebGL(globe, view, planetType, useDayNight)) {
-                this.useWebGL = true;
-                debugLog('PLANET', 'WebGL setup successful');
-                return;
-            }
-            debugLog('PLANET', 'WebGL setup failed, falling back to 2D');
-        } else {
-            debugLog('PLANET', 'WebGL not available, using 2D');
+        if (this.webglRenderer && this.setupWebGL(globe, view, planetType, useDayNight)) {
+            debugLog('PLANET', 'WebGL setup successful');
+            return;
         }
 
         // Fallback to 2D
+        debugLog('PLANET', this.webglRenderer ? 'WebGL setup failed, using 2D' : 'WebGL not available, using 2D');
         this.setup2D(view, planetType, useDayNight);
-        this.useWebGL = false;
-        debugLog('PLANET', '2D setup complete');
     }
 
     /**
      * Attempt WebGL setup - returns true if successful
      */
     private setupWebGL(globe: Globe, view: ViewportSize, planetType: string, useDayNight: boolean): boolean {
-        if (!this.webglRenderer) {
-            return false;
-        }
+        if (!this.webglRenderer) return false;
 
         try {
             if (!globe || !view) {
@@ -152,13 +130,12 @@ export class PlanetSystem {
             }
 
             // Load planet image and setup WebGL
-            // Use same cache key logic as loadPlanetImage
             const cacheKey = useDayNight ? `${planetType}_daynight` : planetType;
             const planetImage = this.imageCache[cacheKey];
             debugLog('PLANET', `Looking for cached image with key: ${cacheKey}, found: ${!!planetImage}, type: ${planetImage instanceof HTMLCanvasElement ? 'Canvas' : 'Image'}`);
+            
             if (planetImage) {
                 const setupSuccess = this.webglRenderer.setup('planet', planetImage, globe);
-
                 if (!setupSuccess) {
                     debugLog('PLANET', 'WebGL planet setup failed');
                     return false;
@@ -207,13 +184,7 @@ export class PlanetSystem {
      * Clear current setup (but don't dispose renderers)
      */
     private clearSetup(): void {
-        debugLog('PLANET', 'Clearing current setup');
-
-        // Clear 2D canvas
         this.renderer2D.clear();
-
-        // Reset state
-        this.useWebGL = false;
     }
 
     // ===== PUBLIC API =====
@@ -222,9 +193,7 @@ export class PlanetSystem {
      * Handle rotation changes - updates 2D canvas
      */
     public handleRotation(globe: Globe, mask: any, view: ViewportSize): void {
-        if (!this.useWebGL) {
-            this.renderer2D.render(globe, mask, view);
-        }
+        this.renderer2D.render(globe, mask, view);
     }
 
     /**
@@ -236,16 +205,11 @@ export class PlanetSystem {
         // Load planet image first, then setup
         this.loadPlanetImage(planetType, useDayNight).then(() => {
             this.setup(globe, view, planetType, useDayNight);
-            if (!this.useWebGL) {
-                this.renderer2D.render(globe, mask, view);
-            }
+            this.renderer2D.render(globe, mask, view);
         }).catch(error => {
             debugLog('PLANET', 'Failed to load planet image:', error);
-            // Still setup without image
             this.setup(globe, view, planetType, useDayNight);
-            if (!this.useWebGL) {
-                this.renderer2D.render(globe, mask, view);
-            }
+            this.renderer2D.render(globe, mask, view);
         });
     }
 

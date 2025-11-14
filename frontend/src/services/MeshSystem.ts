@@ -22,7 +22,6 @@ export interface MeshResult {
 }
 
 export class MeshSystem {
-    private useWebGL: boolean = false;
     private webglMeshRenderer: WebGLMeshRenderer | null = null;
     private renderer2D: MeshRenderer2D;
 
@@ -48,10 +47,8 @@ export class MeshSystem {
             debugLog('MESH', 'WebGL initialization failed');
             this.webglMeshRenderer.dispose();
             this.webglMeshRenderer = null;
-            this.useWebGL = false;
         } else {
             debugLog('MESH', 'WebGL renderer initialized successfully');
-            // useWebGL will be set to true in setup() when data is ready
         }
     }
 
@@ -64,17 +61,9 @@ export class MeshSystem {
 
     /**
      * Render directly to provided GL context (fast path)
-     * No-op if no data has been setup yet
      */
     public renderDirect(gl: WebGLRenderingContext, globe: any, view: any): void {
-        if (!this.webglMeshRenderer) {
-            return; // No WebGL renderer
-        }
-        
-        if (!this.useWebGL) {
-            return; // No data setup yet
-        }
-
+        if (!this.webglMeshRenderer) return;
         this.webglMeshRenderer.render(gl, globe, [view.width, view.height]);
     }
 
@@ -94,46 +83,31 @@ export class MeshSystem {
     public setup(globe: any, mesh: any, view: any): void {
         debugLog('MESH', 'Starting setup');
 
-        // Clear any existing setup
         this.clearSetup();
 
-        // Check if we have required data
         if (!globe || !mesh || !view) {
             debugLog('MESH', 'Setup skipped - missing required data');
             return;
         }
 
-        // Try WebGL first (if available) - let the renderer decide if it can handle the projection
-        if (this.webglMeshRenderer) {
-            debugLog('MESH', 'Attempting WebGL setup');
-            if (this.setupWebGL(globe, mesh)) {
-                this.useWebGL = true;
-                debugLog('MESH', 'WebGL setup successful');
-                return;
-            }
-            debugLog('MESH', 'WebGL setup failed, falling back to 2D');
-        } else {
-            debugLog('MESH', 'WebGL not available, using 2D');
+        // Try WebGL first (if available)
+        if (this.webglMeshRenderer && this.setupWebGL(globe, mesh)) {
+            debugLog('MESH', 'WebGL setup successful');
+            return;
         }
 
         // Fallback to 2D
+        debugLog('MESH', this.webglMeshRenderer ? 'WebGL setup failed, using 2D' : 'WebGL not available, using 2D');
         this.setup2D(mesh, view);
-        this.useWebGL = false;
-        debugLog('MESH', '2D setup complete');
     }
 
     /**
      * Attempt WebGL setup - returns true if successful
      */
     private setupWebGL(globe: any, mesh: any): boolean {
-        if (!this.webglMeshRenderer) {
-            return false;
-        }
+        if (!this.webglMeshRenderer) return false;
 
         try {
-            debugLog('MESH', 'Attempting WebGL setup');
-            
-            // Setup WebGL renderer with mesh data (includes shader compilation)
             const setupSuccess = this.webglMeshRenderer.setup(mesh, globe);
 
             if (!setupSuccess) {
@@ -141,7 +115,6 @@ export class MeshSystem {
                 return false;
             }
 
-            debugLog('MESH', 'WebGL setup successful');
             return true;
 
         } catch (error) {
@@ -168,10 +141,7 @@ export class MeshSystem {
      * Clear current setup (but don't dispose renderers)
      */
     private clearSetup(): void {
-        debugLog('MESH', 'Clearing current setup');
-
         this.renderer2D.clear();
-        this.useWebGL = false;
     }
 
     // ===== PUBLIC API =====
@@ -180,9 +150,7 @@ export class MeshSystem {
      * Handle rotation changes - updates 2D canvas
      */
     public handleRotation(globe: any): void {
-        if (!this.useWebGL) {
-            this.renderer2D.render(globe);
-        }
+        this.renderer2D.render(globe);
     }
 
     /**
@@ -191,9 +159,7 @@ export class MeshSystem {
     public handleDataChange(globe: any, mesh: any, view: any): void {
         debugLog('MESH', 'Handling data change - re-setting up system');
         this.setup(globe, mesh, view);
-        if (!this.useWebGL) {
-            this.renderer2D.render(globe);
-        }
+        this.renderer2D.render(globe);
     }
 
     /**

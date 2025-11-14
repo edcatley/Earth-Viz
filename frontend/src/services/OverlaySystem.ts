@@ -20,7 +20,6 @@ function debugLog(category: string, message: string, data?: any): void {
 
 
 export class OverlaySystem {
-    private useWebGL: boolean = false;
     private webglRenderer: WebGLRenderer | null = null;
     private renderer2D: OverlayRenderer2D;
 
@@ -46,10 +45,8 @@ export class OverlaySystem {
             debugLog('OVERLAY', 'WebGL initialization failed');
             this.webglRenderer.dispose();
             this.webglRenderer = null;
-            this.useWebGL = false;
         } else {
             debugLog('OVERLAY', 'WebGL renderer initialized successfully');
-            // useWebGL will be set to true in setup() when data is ready
         }
     }
 
@@ -62,17 +59,9 @@ export class OverlaySystem {
 
     /**
      * Render directly to provided GL context (fast path)
-     * No-op if no data has been setup yet
      */
     public renderDirect(gl: WebGLRenderingContext, globe: any, view: any): void {
-        if (!this.webglRenderer) {
-            return; // No WebGL renderer
-        }
-        
-        if (!this.useWebGL) {
-            return; // No data setup yet
-        }
-
+        if (!this.webglRenderer) return;
         this.webglRenderer.render(gl, globe, view);
     }
 
@@ -92,44 +81,31 @@ export class OverlaySystem {
     public setup(overlayProduct: any, globe: any, view: any): void {
         debugLog('OVERLAY', 'Starting setup');
 
-        // Clear any existing setup
         this.clearSetup();
 
-        // Check if we have required data
         if (!overlayProduct || !globe || !view) {
             debugLog('OVERLAY', 'Setup skipped - missing required data');
             return;
         }
 
         // Try WebGL first (if available)
-        if (this.webglRenderer) {
-            debugLog('OVERLAY', 'Attempting WebGL setup');
-            if (this.setupWebGL(overlayProduct, globe, view)) {
-                this.useWebGL = true;
-                debugLog('OVERLAY', 'WebGL setup successful');
-                return;
-            }
-            debugLog('OVERLAY', 'WebGL setup failed, falling back to 2D');
-        } else {
-            debugLog('OVERLAY', 'WebGL not available, using 2D');
+        if (this.webglRenderer && this.setupWebGL(overlayProduct, globe, view)) {
+            debugLog('OVERLAY', 'WebGL setup successful');
+            return;
         }
 
         // Fallback to 2D
+        debugLog('OVERLAY', this.webglRenderer ? 'WebGL setup failed, using 2D' : 'WebGL not available, using 2D');
         this.setup2D(overlayProduct, view);
-        this.useWebGL = false;
-        debugLog('OVERLAY', '2D setup complete');
     }
 
     /**
      * Attempt WebGL setup - returns true if successful
      */
     private setupWebGL(overlayProduct: any, globe: any, view: any): boolean {
-        if (!this.webglRenderer) {
-            return false;
-        }
+        if (!this.webglRenderer) return false;
 
         try {
-            // Setup overlay with current data
             const useInterpolatedLookup = true;
             const setupSuccess = this.webglRenderer.setup('overlay', overlayProduct, globe, useInterpolatedLookup);
 
@@ -138,7 +114,6 @@ export class OverlaySystem {
                 return false;
             }
 
-            debugLog('OVERLAY', 'WebGL setup successful');
             return true;
 
         } catch (error) {
@@ -162,7 +137,6 @@ export class OverlaySystem {
      */
     private clearSetup(): void {
         this.renderer2D.clear();
-        this.useWebGL = false;
     }
 
     /**
@@ -186,9 +160,7 @@ export class OverlaySystem {
      * Handle rotation changes - updates 2D canvas
      */
     public handleRotation(globe: any, mask: any, view: any, config: any, overlayProduct: any): void {
-        if (!this.useWebGL) {
-            this.renderer2D.render(globe, mask, view);
-        }
+        this.renderer2D.render(globe, mask, view);
     }
 
     /**
@@ -196,8 +168,6 @@ export class OverlaySystem {
      */
     public handleDataChange(overlayProduct: any, globe: any, view: any, mask: any, config: any): void {
         this.setup(overlayProduct, globe, view);
-        if (!this.useWebGL) {
-            this.renderer2D.render(globe, mask, view);
-        }
+        this.renderer2D.render(globe, mask, view);
     }
 }

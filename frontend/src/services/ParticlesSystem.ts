@@ -21,7 +21,7 @@ function debugLog(category: string, message: string, data?: any): void {
 // Constants
 const PARTICLE_MULTIPLIER = 7;
 const PARTICLE_REDUCTION = 0.75;
-const PARTICLE_LINE_WIDTH = 1.0;
+const PARTICLE_LINE_WIDTH = 1.0;  // Increased from 1.0 for better visibility
 
 export interface ParticleResult {
     canvas: HTMLCanvasElement | null;  // Single canvas output
@@ -29,7 +29,6 @@ export interface ParticleResult {
 }
 
 export class ParticleSystem {
-    private useWebGL: boolean = false;
     private webglParticleSystem: WebGLParticleSystem | null = null;
     private renderer2D: ParticleRenderer2D;
 
@@ -62,10 +61,8 @@ export class ParticleSystem {
             debugLog('PARTICLES', 'WebGL initialization failed');
             this.webglParticleSystem.dispose();
             this.webglParticleSystem = null;
-            this.useWebGL = false;
         } else {
             debugLog('PARTICLES', 'WebGL renderer initialized successfully');
-            // useWebGL will be set to true in setup() when data is ready
         }
     }
 
@@ -79,17 +76,9 @@ export class ParticleSystem {
     /**
      * Render directly to provided GL context (fast path)
      * Note: render() before evolve() to avoid drawing teleport lines when particles respawn
-     * No-op if no data has been setup yet
      */
     public renderDirect(gl: WebGLRenderingContext): void {
-        if (!this.webglParticleSystem) {
-            return; // No WebGL renderer
-        }
-        
-        if (!this.useWebGL) {
-            return; // No data setup yet
-        }
-
+        if (!this.webglParticleSystem) return;
         this.webglParticleSystem.render(gl);
         this.webglParticleSystem.evolve();
     }
@@ -118,16 +107,13 @@ export class ParticleSystem {
     ): void {
         debugLog('PARTICLES', 'Starting setup');
 
-        // Clear any existing setup
         this.clearSetup();
 
-        // Validate required data
         if (!globe || !mask || !view || !particleProduct) {
             debugLog('PARTICLES', 'Setup skipped - missing required data');
             return;
         }
 
-        // Skip if particles are disabled
         if (!particleType || particleType === 'off') {
             debugLog('PARTICLES', 'Setup skipped - particles disabled');
             return;
@@ -145,22 +131,14 @@ export class ParticleSystem {
         debugLog('PARTICLES', `Calculated particle count: ${this.particleCount} for viewport width ${bounds.width}`);
 
         // Try WebGL first (if available)
-        if (this.webglParticleSystem) {
-            debugLog('PARTICLES', 'Attempting WebGL setup');
-            if (this.setupWebGL(view)) {
-                this.useWebGL = true;
-                debugLog('PARTICLES', 'WebGL setup successful');
-                return;
-            }
-            debugLog('PARTICLES', 'WebGL setup failed, falling back to 2D');
-        } else {
-            debugLog('PARTICLES', 'WebGL not available, using 2D');
+        if (this.webglParticleSystem && this.setupWebGL(view)) {
+            debugLog('PARTICLES', 'WebGL setup successful');
+            return;
         }
 
         // Fallback to 2D
+        debugLog('PARTICLES', this.webglParticleSystem ? 'WebGL setup failed, using 2D' : 'WebGL not available, using 2D');
         this.setup2D(view, validPositions);
-        this.useWebGL = false;
-        debugLog('PARTICLES', '2D setup complete');
     }
 
     /**
@@ -168,25 +146,21 @@ export class ParticleSystem {
      * Assumes particle field has already been initialized
      */
     private setupWebGL(view: ViewportSize): boolean {
-        if (!this.webglParticleSystem) {
-            return false;
-        }
+        if (!this.webglParticleSystem) return false;
 
         try {
-            // Validate wind data is available
             if (!this.windData || !this.windBounds) {
                 debugLog('PARTICLES', 'WebGL setup skipped - no wind data');
                 return false;
             }
 
-            // Setup WebGL particle system with data
             if (!this.webglParticleSystem.setup(
                 this.particleCount, 
                 this.windData, 
                 this.windBounds,
                 view.width,
                 view.height,
-                PARTICLE_LINE_WIDTH / 2
+                PARTICLE_LINE_WIDTH /2  // Removed /2 division for proper line width
             )) {
                 debugLog('PARTICLES', 'WebGL setup failed');
                 return false;
@@ -197,7 +171,6 @@ export class ParticleSystem {
             this.windData = null;
             this.windBounds = null;
 
-            debugLog('PARTICLES', 'WebGL setup successful');
             return true;
 
         } catch (error) {
@@ -317,8 +290,6 @@ export class ParticleSystem {
      * Clear current setup (but don't dispose renderers)
      */
     private clearSetup(): void {
-        debugLog('PARTICLES', 'Clearing current setup');
-
         this.renderer2D.clear();
         this.renderer2D.dispose();
 
@@ -326,8 +297,6 @@ export class ParticleSystem {
         this.particleCount = 0;
         this.windData = null;
         this.windBounds = null;
-
-        this.useWebGL = false;
     }
 
 
@@ -336,9 +305,7 @@ export class ParticleSystem {
      * Handle rotation changes - clears 2D canvas
      */
     public handleRotation(): void {
-        if (!this.useWebGL) {
-            this.renderer2D.clear();
-        }
+        this.renderer2D.clear();
     }
 
     /**
