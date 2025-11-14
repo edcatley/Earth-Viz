@@ -18,8 +18,6 @@ export class RenderSystem {
     private display: DisplayOptions;
 
     // Canvas elements and contexts
-    private canvas: HTMLCanvasElement | null = null;
-    private context: CanvasRenderingContext2D | null = null;
     private overlayCanvas: HTMLCanvasElement | null = null;
     private overlayContext: CanvasRenderingContext2D | null = null;
     private scaleCanvas: HTMLCanvasElement | null = null;
@@ -56,42 +54,27 @@ export class RenderSystem {
      * Initialize all canvas elements and contexts
      */
     public setupCanvases(): void {
-        // Setup animation canvas
-        this.canvas = d3.select("#animation").node() as HTMLCanvasElement;
-        if (this.canvas) {
-            this.context = this.canvas.getContext("2d");
-            this.canvas.width = this.display.width;
-            this.canvas.height = this.display.height;
-
-            // Set up canvas properties like the original
-            if (this.context) {
-                this.context.fillStyle = Utils.isFF() ? "rgba(0, 0, 0, 0.95)" : "rgba(0, 0, 0, 0.97)";  // FF Mac alpha behaves oddly
-            }
-        }
-
-        // Setup overlay canvas - now used for WebGL rendering
+        // Setup overlay canvas - used for all rendering (WebGL or 2D)
         this.overlayCanvas = d3.select("#overlay").node() as HTMLCanvasElement;
         if (this.overlayCanvas) {
-            // Try to get WebGL context first
-            this.gl = this.overlayCanvas.getContext("webgl") || this.overlayCanvas.getContext("experimental-webgl") as WebGLRenderingContext;
-            
-            if (this.gl) {
-                debugLog('RENDER', 'WebGL context created successfully');
-            } else {
-                debugLog('RENDER', 'WebGL not available, falling back to 2D');
-                this.overlayContext = this.overlayCanvas.getContext("2d");
-            }
-            
             this.overlayCanvas.width = this.display.width;
             this.overlayCanvas.height = this.display.height;
+            
+            // Try WebGL first, fall back to 2D if not available
+            this.gl = this.overlayCanvas.getContext("webgl") as WebGLRenderingContext;
+            
+            if (this.gl) {
+                debugLog('RENDER', 'WebGL context created');
+            } else {
+                debugLog('RENDER', 'WebGL not available, using 2D fallback');
+                this.overlayContext = this.overlayCanvas.getContext("2d");
+            }
         }
 
-        // Setup scale canvas
+        // Setup scale canvas for color legend
         this.scaleCanvas = d3.select("#scale").node() as HTMLCanvasElement;
         if (this.scaleCanvas) {
             this.scaleContext = this.scaleCanvas.getContext("2d");
-
-            // Set scale canvas dimensions dynamically
             this.setSizeScale();
         }
     }
@@ -164,21 +147,22 @@ export class RenderSystem {
         overlayScale: any,
         overlayUnits: any
     ): void {
+        debugLog('RENDER', 'Render called');
         if (!globe) return;
 
         const view = { width: this.display.width, height: this.display.height };
-        
         // Decide: WebGL or 2D?
         const canUseWebGL = this.gl && 
             this.planetSystem?.canRenderDirect() &&
             this.overlaySystem?.canRenderDirect() &&
             this.meshSystem?.canRenderDirect() &&
             this.particleSystem?.canRenderDirect();
-        
+             debugLog('RENDER', 'Attempting to render');
         if (canUseWebGL && this.gl) {
             this.renderWebGL(globe, view, drawPlanet, drawMesh, drawOverlay, drawParticles);
         } else if (this.overlayContext) {
             this.render2D(globe, mask, view, drawPlanet, drawMesh, drawOverlay, drawParticles);
+            debugLog('RENDER', 'Calling Render2d');
         }
         
         // Draw color scale
@@ -236,7 +220,7 @@ export class RenderSystem {
         drawParticles: boolean
     ): void {
         if (!this.overlayContext) return;
-        
+        debugLog('RENDER', 'Render2d calling systems');
         // Clear
         this.overlayContext.clearRect(0, 0, this.display.width, this.display.height);
         
@@ -314,11 +298,7 @@ export class RenderSystem {
     public updateDisplay(display: DisplayOptions): void {
         this.display = display;
 
-        // Update canvas dimensions
-        if (this.canvas) {
-            this.canvas.width = display.width;
-            this.canvas.height = display.height;
-        }
+
 
         if (this.overlayCanvas) {
             this.overlayCanvas.width = display.width;
