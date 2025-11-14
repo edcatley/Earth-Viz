@@ -589,7 +589,7 @@ export class WebGLParticleSystem {
         windBounds: WindBounds,
         canvasWidth: number,
         canvasHeight: number,
-        lineWidth: number = 10.0
+        lineWidth: number = 1.0
     ): boolean {
         if (!this.gl || !this.isInitialized) {
             console.error('[WebGLParticleSystem] Not initialized');

@@ -21,7 +21,7 @@ function debugLog(category: string, message: string, data?: any): void {
 // Constants
 const PARTICLE_MULTIPLIER = 7;
 const PARTICLE_REDUCTION = 0.75;
-const PARTICLE_LINE_WIDTH = 1.0;  // Increased from 1.0 for better visibility
+const PARTICLE_LINE_WIDTH = 2.0;  // Increased from 1.0 for better visibility
 
 export interface ParticleResult {
     canvas: HTMLCanvasElement | null;  // Single canvas output

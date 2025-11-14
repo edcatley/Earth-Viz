@@ -147,7 +147,7 @@ export class RenderSystem {
         overlayScale: any,
         overlayUnits: any
     ): void {
-        debugLog('RENDER', 'Render called');
+
         if (!globe) return;
 
         const view = { width: this.display.width, height: this.display.height };
@@ -157,12 +157,10 @@ export class RenderSystem {
             this.overlaySystem?.canRenderDirect() &&
             this.meshSystem?.canRenderDirect() &&
             this.particleSystem?.canRenderDirect();
-             debugLog('RENDER', 'Attempting to render');
         if (canUseWebGL && this.gl) {
             this.renderWebGL(globe, view, drawPlanet, drawMesh, drawOverlay, drawParticles);
         } else if (this.overlayContext) {
             this.render2D(globe, mask, view, drawPlanet, drawMesh, drawOverlay, drawParticles);
-            debugLog('RENDER', 'Calling Render2d');
         }
         
         // Draw color scale
@@ -184,7 +182,6 @@ export class RenderSystem {
         drawParticles: boolean
     ): void {
         if (!this.gl) return;
-        debugLog('RENDER', 'Render webgl calling systems');
         // Clear
         this.gl.clearColor(0.0, 0.0, 0.0, 0.0);
         this.gl.clear(this.gl.COLOR_BUFFER_BIT | this.gl.DEPTH_BUFFER_BIT);
@@ -220,7 +217,6 @@ export class RenderSystem {
         drawParticles: boolean
     ): void {
         if (!this.overlayContext) return;
-        debugLog('RENDER', 'Render2d calling systems');
         // Clear
         this.overlayContext.clearRect(0, 0, this.display.width, this.display.height);
         
@@ -335,11 +331,12 @@ export class RenderSystem {
             const mask = this.stateProvider.getMask();
             const config = this.stateProvider.getConfig();
             const mode = config?.mode || 'planet';
+            const overlayType = config?.overlayType || 'off';
             
             // Decide what to draw based on mode
             const drawPlanet = mode === 'planet';
             const drawMesh = !drawPlanet;
-            const drawOverlay = mode === 'air' || mode === 'ocean';
+            const drawOverlay = overlayType !== 'off' && overlayType !== 'default';
             const drawParticles = !drawPlanet;
             
             const overlayScale = overlayProduct?.scale;

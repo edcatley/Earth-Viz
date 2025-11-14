@@ -297,12 +297,13 @@ class EarthModernApp {
 
         // Get config properties
         const mode = this.configManager.get('mode') || 'air';
+        const overlayType = this.configManager.get('overlayType') || 'off';
         console.log('[EARTH] Rendering with mode:', mode);
         
         // Decide what to draw
         const drawPlanet = mode === 'planet';
         const drawMesh = !drawPlanet;
-        const drawOverlay = mode === 'air' || mode === 'ocean';
+        const drawOverlay = overlayType !== 'off' && overlayType !== 'default';
         const drawParticles = !drawPlanet; // Draw particles unless in planet mode
         
         // Get overlay scale/units if available
@@ -479,9 +480,10 @@ class EarthModernApp {
         // Trigger render with updated rotation (NO PARTICLES during rotation)
         if (globe && mask) {
             const mode = config.mode || 'planet';
+            const overlayType = config.overlayType || 'off';
             const drawPlanet = mode === 'planet';
             const drawMesh = !drawPlanet;
-            const drawOverlay = mode === 'air' || mode === 'ocean';
+            const drawOverlay = overlayType !== 'off' && overlayType !== 'default';
             const drawParticles = false; // Never draw particles during rotation
             
             this.renderSystem.render(
@@ -518,11 +520,11 @@ class EarthModernApp {
             
             if (globe && mask) {
                 const mode = config.mode || 'planet';
+                const overlayType = config.overlayType || 'off';
                 const drawPlanet = mode === 'planet';
                 const drawMesh = !drawPlanet;
-                const drawOverlay = mode === 'air' || mode === 'ocean';
+                const drawOverlay = overlayType !== 'off' && overlayType !== 'default';
                 const drawParticles = true; // Always draw particles in animation loop
-                
                 this.renderSystem.render(
                     globe,
                     mask,
@@ -743,7 +745,7 @@ class EarthModernApp {
             mode: "air",
             particleType: "wind",
             level: "1000hPa",
-            overlayType: "off",
+            overlayType: "wind",
             planetType: "earth",
             useDayNight: false,   // Day/night blending off by default
             showGridPoints: false,
