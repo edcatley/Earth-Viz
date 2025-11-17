@@ -420,7 +420,7 @@ export class WebGLMeshRenderer {
         }
 
         // Clean up: disable blending so we don't affect other systems
-        gl.disable(gl.BLEND);
+        //gl.disable(gl.BLEND);
 
         return rendered > 0;
     }

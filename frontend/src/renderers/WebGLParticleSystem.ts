@@ -872,6 +872,9 @@ export class WebGLParticleSystem {
         this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, this.framebuffers[writeIndex]);
         this.gl.viewport(0, 0, this.particleTexSize, this.particleTexSize);
 
+        // Disable blending - we're writing data, not rendering visuals
+        this.gl.disable(this.gl.BLEND);
+
         // Use shader program
         this.gl.useProgram(this.program);
 
