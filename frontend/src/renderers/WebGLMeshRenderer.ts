@@ -419,6 +419,9 @@ export class WebGLMeshRenderer {
             rendered++;
         }
 
+        // Clean up: disable blending so we don't affect other systems
+        gl.disable(gl.BLEND);
+
         return rendered > 0;
     }
 

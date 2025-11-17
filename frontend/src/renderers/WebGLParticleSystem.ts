@@ -863,7 +863,7 @@ export class WebGLParticleSystem {
             console.error('[WebGLParticleSystem] Not ready to evolve');
             return;
         }
-        console.log('[WEBGLRENDERER] Evolve called');
+
         // Determine read and write textures
         const readIndex = this.currentTextureIndex;
         const writeIndex = 1 - this.currentTextureIndex;
@@ -915,22 +915,9 @@ export class WebGLParticleSystem {
 
         // Unbind framebuffer
         this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, null);
-        
-        // Force GPU to complete the write to the texture before we try to read from it
-        this.gl.finish();
-
-        // Clean up GL state to avoid interfering with render()
-        this.gl.activeTexture(this.gl.TEXTURE0);
-        this.gl.bindTexture(this.gl.TEXTURE_2D, null);
-        this.gl.activeTexture(this.gl.TEXTURE1);
-        this.gl.bindTexture(this.gl.TEXTURE_2D, null);
-        this.gl.bindBuffer(this.gl.ARRAY_BUFFER, null);
-        this.gl.disableVertexAttribArray(this.locations.attributes.position);
 
         // Swap textures for next frame
         this.currentTextureIndex = writeIndex;
-
-        //console.log('[WebGLParticleSystem] Evolved particles, swapped to texture', writeIndex);
     }
 
     
@@ -1074,8 +1061,6 @@ export class WebGLParticleSystem {
 
         const prevIndex = 1 - this.currentTextureIndex;
         const currIndex = this.currentTextureIndex;
-        
-        console.log('[RENDER] currentTextureIndex:', this.currentTextureIndex, 'prevIndex:', prevIndex, 'currIndex:', currIndex);
 
         // === STEP 1: Render to internal trail framebuffer ===
         gl.bindFramebuffer(gl.FRAMEBUFFER, this.trailFramebuffer);
