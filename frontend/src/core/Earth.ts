@@ -247,26 +247,6 @@ class EarthModernApp {
         // Any visual state change triggers a render of current state
         console.log('[EARTH-MODERN] Setting up render subscriptions for all visual systems');
 
-        // // Listen for all visual system events and render when any system updates
-        // this.on('overlayChanged', () => {
-        //     console.log('[EARTH-MODERN] Overlay changed, triggering render');
-        //     this.performRender();
-        // });
-
-        // this.on('planetChanged', () => {
-        //     console.log('[EARTH-MODERN] Planet changed, triggering render');
-        //     this.performRender();
-        // });
-
-        // this.on('meshChanged', () => {
-        //     console.log('[EARTH-MODERN] Mesh changed, triggering render');
-        //     this.performRender();
-        // });
-
-        // this.on('particlesChanged', () => {
-        //     //console.log('[EARTH-MODERN] Particles changed, triggering render');
-        //     this.performRender();
-        // });
 
         // Only regenerate mask on zoom end (scale changes)
         this.on('zoomEnd', () => {
