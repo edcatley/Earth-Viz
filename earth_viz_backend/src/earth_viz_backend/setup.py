@@ -32,7 +32,8 @@ def download_static_files():
         return
     
     # TODO: Update this URL when you create the GitHub release
-    url = "https://github.com/edcatley/earth/releases/download/latest/static_images.tar.gz"
+    url = "https://github.com/edcatley/earth/releases/latest/download/static_images.tar.gz"
+
     
     print("Downloading static files archive...")
     print("This may take a few minutes depending on your connection.\n")
