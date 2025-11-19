@@ -25,23 +25,25 @@
 
 export class DayNightBlender {
     private canvas: HTMLCanvasElement;
-    private gl: WebGL2RenderingContext | null = null;
+    private gl: WebGLRenderingContext | null = null;
     private ctx2d: CanvasRenderingContext2D | null = null;
     private program: WebGLProgram | null = null;
     private vertexBuffer: WebGLBuffer | null = null;
     private dayTexture: WebGLTexture | null = null;
     private nightTexture: WebGLTexture | null = null;
+    private framebuffer: WebGLFramebuffer | null = null;
+    private renderTexture: WebGLTexture | null = null;
     private mode: 'webgl' | 'cpu' = 'cpu';
 
-    constructor(width: number = 2048, height: number = 1024) {
+    constructor(sharedGL: WebGLRenderingContext | null, width: number = 2048, height: number = 1024) {
         this.canvas = document.createElement('canvas');
         this.canvas.width = width;
         this.canvas.height = height;
         
-        // Try to initialize WebGL
-        if (this.initializeWebGL()) {
+        // Try to initialize WebGL with shared context
+        if (sharedGL && this.initializeWebGL(sharedGL)) {
             this.mode = 'webgl';
-            console.log('DayNightBlender: Using WebGL mode');
+            console.log('DayNightBlender: Using shared WebGL context');
         } else {
             // Fall back to CPU mode
             this.initializeCPU();
@@ -50,20 +52,43 @@ export class DayNightBlender {
         }
     }
 
-    private initializeWebGL(): boolean {
+    private initializeWebGL(gl: WebGLRenderingContext): boolean {
         try {
-            // Try WebGL2 first
-            let gl = this.canvas.getContext('webgl2');
-            if (!gl) {
-                // Try WebGL1
-                gl = this.canvas.getContext('webgl') as WebGL2RenderingContext | null;
+            this.gl = gl;
+            
+            // Create framebuffer for offscreen rendering
+            this.framebuffer = gl.createFramebuffer();
+            if (!this.framebuffer) {
+                throw new Error('Failed to create framebuffer');
             }
             
-            if (!gl) {
-                return false;
+            // Create texture to render into
+            this.renderTexture = gl.createTexture();
+            if (!this.renderTexture) {
+                throw new Error('Failed to create render texture');
             }
             
-            this.gl = gl as WebGL2RenderingContext;
+            gl.bindTexture(gl.TEXTURE_2D, this.renderTexture);
+            gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, this.canvas.width, this.canvas.height, 
+                          0, gl.RGBA, gl.UNSIGNED_BYTE, null);
+            gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+            gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+            gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+            gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+            
+            // Attach texture to framebuffer
+            gl.bindFramebuffer(gl.FRAMEBUFFER, this.framebuffer);
+            gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, 
+                                    gl.TEXTURE_2D, this.renderTexture, 0);
+            
+            // Check framebuffer status
+            const status = gl.checkFramebufferStatus(gl.FRAMEBUFFER);
+            if (status !== gl.FRAMEBUFFER_COMPLETE) {
+                throw new Error(`Framebuffer incomplete: ${status}`);
+            }
+            
+            // Unbind framebuffer
+            gl.bindFramebuffer(gl.FRAMEBUFFER, null);
 
         // Vertex shader - simple fullscreen quad (WebGL1 compatible)
         const vertexShaderSource = `
@@ -165,7 +190,7 @@ export class DayNightBlender {
         this.ctx2d = ctx;
     }
 
-    private compileShader(gl: WebGL2RenderingContext, type: number, source: string): WebGLShader | null {
+    private compileShader(gl: WebGLRenderingContext, type: number, source: string): WebGLShader | null {
         const shader = gl.createShader(type);
         if (!shader) return null;
 
@@ -181,7 +206,7 @@ export class DayNightBlender {
         return shader;
     }
 
-    private createTextureFromImage(gl: WebGL2RenderingContext, image: HTMLImageElement | HTMLCanvasElement): WebGLTexture | null {
+    private createTextureFromImage(gl: WebGLRenderingContext, image: HTMLImageElement | HTMLCanvasElement): WebGLTexture | null {
         const texture = gl.createTexture();
         if (!texture) return null;
 
@@ -252,7 +277,7 @@ export class DayNightBlender {
     }
 
     private async blendWebGL(dayImage: HTMLImageElement | HTMLCanvasElement, nightImage: HTMLImageElement | HTMLCanvasElement, date?: Date): Promise<HTMLImageElement> {
-        if (!this.gl || !this.program) {
+        if (!this.gl || !this.program || !this.framebuffer) {
             throw new Error('WebGL not initialized');
         }
 
@@ -275,7 +300,8 @@ export class DayNightBlender {
         const solar = this.calculateSolarPosition(currentDate);
         console.log(`Solar position: ${(solar.lat * 180 / Math.PI).toFixed(2)}° lat, ${(solar.lon * 180 / Math.PI).toFixed(2)}° lon`);
 
-        // Render
+        // Render to framebuffer
+        gl.bindFramebuffer(gl.FRAMEBUFFER, this.framebuffer);
         gl.useProgram(this.program);
 
         // Set up vertex attributes
@@ -301,13 +327,41 @@ export class DayNightBlender {
         gl.uniform1f(solarLatLoc, solar.lat);
         gl.uniform1f(solarLonLoc, solar.lon);
 
-        // Draw
+        // Draw to framebuffer
         gl.viewport(0, 0, this.canvas.width, this.canvas.height);
         gl.clearColor(0, 0, 0, 1);
         gl.clear(gl.COLOR_BUFFER_BIT);
         gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
 
-        console.log('Day/night blend complete (WebGL)');
+        // Read pixels from framebuffer
+        const pixels = new Uint8Array(this.canvas.width * this.canvas.height * 4);
+        gl.readPixels(0, 0, this.canvas.width, this.canvas.height, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
+        
+        // Unbind framebuffer
+        gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+
+        // Flip pixels vertically (WebGL Y=0 is bottom, Canvas Y=0 is top)
+        const flippedPixels = new Uint8Array(pixels.length);
+        const width = this.canvas.width;
+        const height = this.canvas.height;
+        const rowSize = width * 4;
+        
+        for (let y = 0; y < height; y++) {
+            const srcRow = (height - 1 - y) * rowSize;
+            const dstRow = y * rowSize;
+            flippedPixels.set(pixels.subarray(srcRow, srcRow + rowSize), dstRow);
+        }
+
+        // Put flipped pixels on canvas for toDataURL conversion
+        const ctx = this.canvas.getContext('2d', { willReadFrequently: true });
+        if (!ctx) {
+            throw new Error('Failed to get 2D context for pixel transfer');
+        }
+        
+        const imageData = new ImageData(new Uint8ClampedArray(flippedPixels.buffer), this.canvas.width, this.canvas.height);
+        ctx.putImageData(imageData, 0, 0);
+
+        console.log('Day/night blend complete (WebGL with shared context)');
         
         // Convert canvas to image
         return new Promise<HTMLImageElement>((resolve, reject) => {
@@ -424,6 +478,8 @@ export class DayNightBlender {
 
         if (this.dayTexture) this.gl.deleteTexture(this.dayTexture);
         if (this.nightTexture) this.gl.deleteTexture(this.nightTexture);
+        if (this.renderTexture) this.gl.deleteTexture(this.renderTexture);
+        if (this.framebuffer) this.gl.deleteFramebuffer(this.framebuffer);
         if (this.vertexBuffer) this.gl.deleteBuffer(this.vertexBuffer);
         if (this.program) this.gl.deleteProgram(this.program);
 

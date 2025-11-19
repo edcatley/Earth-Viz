@@ -45,6 +45,7 @@ export class PlanetSystem {
     private renderer2D: PlanetRenderer2D;
     private imageCache: { [key: string]: HTMLImageElement } = {};
     private dayNightBlender: DayNightBlender | null = null;
+    private sharedGLContext: WebGLRenderingContext | null = null;
 
     constructor() {
         this.renderer2D = new PlanetRenderer2D();
@@ -61,6 +62,10 @@ export class PlanetSystem {
         }
 
         debugLog('PLANET', 'Initializing WebGL renderer with shared context');
+        
+        // Store shared context for DayNightBlender
+        this.sharedGLContext = gl;
+        
         this.webglRenderer = new WebGLRenderer();
         const success = this.webglRenderer.initialize(gl);
 
@@ -269,12 +274,12 @@ export class PlanetSystem {
             this.loadSingleImage(nightUrl, `${planetType} (night)`)
         ]);
 
-        // Initialize blender if needed
+        // Initialize blender if needed (with shared GL context)
         if (!this.dayNightBlender) {
             const width = dayImg.naturalWidth;
             const height = dayImg.naturalHeight;
-            this.dayNightBlender = new DayNightBlender(width, height);
-            debugLog('PLANET', `Initialized DayNightBlender at ${width}x${height}`);
+            this.dayNightBlender = new DayNightBlender(this.sharedGLContext, width, height);
+            debugLog('PLANET', `Initialized DayNightBlender at ${width}x${height} with ${this.sharedGLContext ? 'shared GL context' : 'CPU fallback'}`);
         }
 
         // Blend the images and return
