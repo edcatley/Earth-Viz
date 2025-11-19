@@ -396,7 +396,7 @@ class EarthModernApp {
      * Centralized function to call handleDataChange on all systems
      * This replaces scattered calls from data providers
      */
-    private updateSystemsOnDataChange(): void {
+    private async updateSystemsOnDataChange(): Promise<void> {
         console.log('[EARTH-MODERN] Updating all systems on data change');
 
         // Gather all required state in one place
@@ -416,8 +416,9 @@ class EarthModernApp {
             this.meshSystem.handleDataChange(globe, mesh, view);
         }
 
+        // Await planet system since it loads images asynchronously
         if (globe && mask && view && config.planetType !== undefined && config.useDayNight !== undefined) {
-            this.planetSystem.handleDataChange(globe, mask, view, config.planetType, config.useDayNight);
+            await this.planetSystem.handleDataChange(globe, mask, view, config.planetType, config.useDayNight);
         }
 
         const particleProduct = this.particleProduct;

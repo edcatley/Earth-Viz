@@ -204,18 +204,19 @@ export class PlanetSystem {
     /**
      * Handle data changes - re-setup and update 2D canvas
      */
-    public handleDataChange(globe: Globe, mask: any, view: ViewportSize, planetType: string, useDayNight: boolean): void {
+    public async handleDataChange(globe: Globe, mask: any, view: ViewportSize, planetType: string, useDayNight: boolean): Promise<void> {
         debugLog('PLANET', 'Handling data change - re-setting up system');
 
-        // Load planet image first, then setup
-        this.loadPlanetImage(planetType, useDayNight).then(() => {
+        try {
+            // Load planet image first, then setup
+            await this.loadPlanetImage(planetType, useDayNight);
             this.setup(globe, view, planetType, useDayNight);
             this.renderer2D.render(globe, mask, view);
-        }).catch(error => {
+        } catch (error) {
             debugLog('PLANET', 'Failed to load planet image:', error);
             this.setup(globe, view, planetType, useDayNight);
             this.renderer2D.render(globe, mask, view);
-        });
+        }
     }
 
     /**
