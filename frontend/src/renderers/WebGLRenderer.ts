@@ -267,7 +267,6 @@ void main() {
 export class WebGLRenderer {
     private gl: WebGL2RenderingContext | WebGLRenderingContext | null = null;
     private context: WebGLContext | null = null;
-    private canvas: HTMLCanvasElement | null = null;
     private isInitialized = false;
 
     // Current render item (only one at a time)
@@ -278,11 +277,9 @@ export class WebGLRenderer {
 
     constructor() { }
 
-    public initialize(canvas: HTMLCanvasElement): boolean {
-        this.canvas = canvas;
-
+    public initialize(gl: WebGL2RenderingContext | WebGLRenderingContext): boolean {
         try {
-            this.gl = canvas.getContext('webgl2') || canvas.getContext('webgl');
+            this.gl = gl;
             if (!this.gl) return false;
 
             this.context = {
@@ -416,8 +413,8 @@ export class WebGLRenderer {
     public render(gl: WebGL2RenderingContext | WebGLRenderingContext, globe: any, view: any): boolean {
 
 
-        if (!this.gl || !this.isInitialized) {
-            console.log(`[WebGLRenderer] Render failed: gl=${!!this.gl}, initialized=${this.isInitialized}`);
+        if (!this.isInitialized) {
+            console.log(`[WebGLRenderer] Render failed: initialized=${this.isInitialized}`);
             return false;
         }
 
@@ -429,59 +426,57 @@ export class WebGLRenderer {
         const item = this.currentItem;
 
         try {
-            // Setup viewport and clear
-            this.gl.viewport(0, 0, view.width, view.height);
-            this.gl.clearColor(0, 0, 0, 0);
-            this.gl.clear(this.gl.COLOR_BUFFER_BIT);
+            // Setup viewport (don't clear - RenderSystem handles that)
+            gl.viewport(0, 0, view.width, view.height);
 
             // Use shader
-            this.gl.useProgram(item.shader);
+            gl.useProgram(item.shader);
 
             // Setup vertex attributes
-            this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.vertexBuffer);
+            gl.bindBuffer(gl.ARRAY_BUFFER, this.vertexBuffer);
 
-            const posLoc = this.gl.getAttribLocation(item.shader, 'a_position');
+            const posLoc = gl.getAttribLocation(item.shader, 'a_position');
             if (posLoc >= 0) {
-                this.gl.enableVertexAttribArray(posLoc);
-                this.gl.vertexAttribPointer(posLoc, 2, this.gl.FLOAT, false, 16, 0);
+                gl.enableVertexAttribArray(posLoc);
+                gl.vertexAttribPointer(posLoc, 2, gl.FLOAT, false, 16, 0);
             }
 
-            const texLoc = this.gl.getAttribLocation(item.shader, 'a_texCoord');
+            const texLoc = gl.getAttribLocation(item.shader, 'a_texCoord');
             if (texLoc >= 0) {
-                this.gl.enableVertexAttribArray(texLoc);
-                this.gl.vertexAttribPointer(texLoc, 2, this.gl.FLOAT, false, 16, 8);
+                gl.enableVertexAttribArray(texLoc);
+                gl.vertexAttribPointer(texLoc, 2, gl.FLOAT, false, 16, 8);
             }
 
             // Set projection uniforms
-            this.setProjectionUniforms(item.shader, globe, view);
+            this.setProjectionUniforms(gl, item.shader, globe, view);
 
             // Set grid uniforms
-            this.setGridUniforms(item.shader, item.type);
+            this.setGridUniforms(gl, item.shader, item.type);
 
             // Set type-specific uniforms
             if (item.type === 'overlay' && item.scaleBounds) {
-                this.setOverlayUniforms(item.shader, item.scaleBounds, item.textureSize);
+                this.setOverlayUniforms(gl, item.shader, item.scaleBounds, item.textureSize);
             }
 
             // Bind textures
             let textureUnit = 0;
             for (const [name, texture] of item.textures) {
-                this.gl.activeTexture(this.gl.TEXTURE0 + textureUnit);
-                this.gl.bindTexture(this.gl.TEXTURE_2D, texture);
+                gl.activeTexture(gl.TEXTURE0 + textureUnit);
+                gl.bindTexture(gl.TEXTURE_2D, texture);
 
-                const loc = this.gl.getUniformLocation(item.shader, name);
+                const loc = gl.getUniformLocation(item.shader, name);
                 if (loc) {
-                    this.gl.uniform1i(loc, textureUnit);
+                    gl.uniform1i(loc, textureUnit);
                 }
                 textureUnit++;
             }
 
             // Draw screen quad
-            this.gl.drawArrays(this.gl.TRIANGLE_STRIP, 0, 4);
+            gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
 
             // Check for WebGL errors
-            const error = this.gl.getError();
-            if (error !== this.gl.NO_ERROR) {
+            const error = gl.getError();
+            if (error !== gl.NO_ERROR) {
                 console.log(`[WebGLRenderer] WebGL error during render: ${error}`);
                 return false;
             }
@@ -739,16 +734,16 @@ export class WebGLRenderer {
         return normalized < 0 ? normalized + range : normalized;
     }
 
-    private setProjectionUniforms(program: WebGLProgram, globe: any, view: any): void {
-        if (!this.gl || !globe.projection) return;
+    private setProjectionUniforms(gl: WebGL2RenderingContext | WebGLRenderingContext, program: WebGLProgram, globe: any, view: any): void {
+        if (!globe.projection) return;
 
         const rotate = globe.projection.rotate() || [0, 0, 0];
         const scale = globe.projection.scale() || 150;
         const translate = globe.projection.translate() || [view.width / 2, view.height / 2];
         const projectionType = this.getProjectionType(globe);
 
-        this.setUniform(program, 'u_canvasSize', [view.width, view.height]);
-        this.setUniform(program, 'u_translate', translate);
+        this.setUniform(gl, program, 'u_canvasSize', [view.width, view.height]);
+        this.setUniform(gl, program, 'u_translate', translate);
 
         if (projectionType === 'orthographic') {
             // Orthographic projection with pole-crossing logic
@@ -771,12 +766,12 @@ export class WebGLRenderer {
             const sinlat0 = Math.sin(-φ0);
             const coslat0 = Math.cos(-φ0);
 
-            this.setUniform(program, 'u_R2', scale * scale);
-            this.setUniform(program, 'u_lon0', -λ0);
-            this.setUniform(program, 'u_sinlat0', sinlat0);
-            this.setUniform(program, 'u_Rcoslat0', scale * coslat0);
-            this.setUniform(program, 'u_coslat0dR', coslat0 / scale);
-            this.setUniform(program, 'u_flip', flip);
+            this.setUniform(gl, program, 'u_R2', scale * scale);
+            this.setUniform(gl, program, 'u_lon0', -λ0);
+            this.setUniform(gl, program, 'u_sinlat0', sinlat0);
+            this.setUniform(gl, program, 'u_Rcoslat0', scale * coslat0);
+            this.setUniform(gl, program, 'u_coslat0dR', coslat0 / scale);
+            this.setUniform(gl, program, 'u_flip', flip);
 
         } else if (projectionType === 'equirectangular') {
             // Equirectangular projection (rotated orthographic) - match old WebGLSystem
@@ -784,59 +779,53 @@ export class WebGLRenderer {
             const φ0 = rotate[1] * Math.PI / 180;  // latitude rotation
             const γ0 = rotate[2] * Math.PI / 180;  // gamma rotation
 
-            this.setUniform(program, 'u_R', scale);
-            this.setUniform(program, 'u_lon0', λ0);  // Try positive for equirectangular
-            this.setUniform(program, 'u_sinlat0', Math.sin(φ0));
-            this.setUniform(program, 'u_coslat0', Math.cos(φ0));
-            this.setUniform(program, 'u_singam0', Math.sin(γ0));
-            this.setUniform(program, 'u_cosgam0', Math.cos(γ0));
+            this.setUniform(gl, program, 'u_R', scale);
+            this.setUniform(gl, program, 'u_lon0', λ0);  // Try positive for equirectangular
+            this.setUniform(gl, program, 'u_sinlat0', Math.sin(φ0));
+            this.setUniform(gl, program, 'u_coslat0', Math.cos(φ0));
+            this.setUniform(gl, program, 'u_singam0', Math.sin(γ0));
+            this.setUniform(gl, program, 'u_cosgam0', Math.cos(γ0));
 
         }
     }
 
-    private setGridUniforms(program: WebGLProgram, type?: string): void {
-        if (!this.gl) return;
-
+    private setGridUniforms(gl: WebGL2RenderingContext | WebGLRenderingContext, program: WebGLProgram, type?: string): void {
         // Grid uniforms - different for planet vs overlay due to longitude conventions
         if (type === 'overlay') {
             // Overlay data: shift longitude by 180° to match planet
-            this.setUniform(program, 'u_Low', [0.0, -90.0]);
-            this.setUniform(program, 'u_Size', [360.0, 180.0]);
+            this.setUniform(gl, program, 'u_Low', [0.0, -90.0]);
+            this.setUniform(gl, program, 'u_Size', [360.0, 180.0]);
         } else {
             // Planet: standard grid
-            this.setUniform(program, 'u_Low', [-180.0, -90.0]);
-            this.setUniform(program, 'u_Size', [360.0, 180.0]);
+            this.setUniform(gl, program, 'u_Low', [-180.0, -90.0]);
+            this.setUniform(gl, program, 'u_Size', [360.0, 180.0]);
         }
     }
 
-    private setOverlayUniforms(program: WebGLProgram, scaleBounds: [number, number], textureSize?: [number, number]): void {
-        if (!this.gl) return;
-
-        this.setUniform(program, 'u_Range', [scaleBounds[0], scaleBounds[1] - scaleBounds[0]]);
-        this.setUniform(program, 'u_Alpha', 0.6);
+    private setOverlayUniforms(gl: WebGL2RenderingContext | WebGLRenderingContext, program: WebGLProgram, scaleBounds: [number, number], textureSize?: [number, number]): void {
+        this.setUniform(gl, program, 'u_Range', [scaleBounds[0], scaleBounds[1] - scaleBounds[0]]);
+        this.setUniform(gl, program, 'u_Alpha', 0.6);
 
         // Set texture size for interpolated lookup
         if (textureSize) {
-            this.setUniform(program, 'u_TextureSize', textureSize);
+            this.setUniform(gl, program, 'u_TextureSize', textureSize);
         }
     }
 
-    private setUniform(program: WebGLProgram, name: string, value: number | number[]): void {
-        if (!this.gl) return;
-
-        const location = this.gl.getUniformLocation(program, name);
+    private setUniform(gl: WebGL2RenderingContext | WebGLRenderingContext, program: WebGLProgram, name: string, value: number | number[]): void {
+        const location = gl.getUniformLocation(program, name);
         if (!location) return;
 
         if (Array.isArray(value)) {
             if (value.length === 2) {
-                this.gl.uniform2f(location, value[0], value[1]);
+                gl.uniform2f(location, value[0], value[1]);
             } else if (value.length === 3) {
-                this.gl.uniform3f(location, value[0], value[1], value[2]);
+                gl.uniform3f(location, value[0], value[1], value[2]);
             } else if (value.length === 4) {
-                this.gl.uniform4f(location, value[0], value[1], value[2], value[3]);
+                gl.uniform4f(location, value[0], value[1], value[2], value[3]);
             }
         } else {
-            this.gl.uniform1f(location, value);
+            gl.uniform1f(location, value);
         }
     }
 
@@ -871,7 +860,4 @@ export class WebGLRenderer {
         this.isInitialized = false;
     }
 
-    public getCanvas(): HTMLCanvasElement | null {
-        return this.canvas;
-    }
 } 

@@ -39,10 +39,10 @@ export class OverlaySystem {
 
         debugLog('OVERLAY', 'Initializing WebGL renderer with shared context');
         this.webglRenderer = new WebGLRenderer();
-        const webglAvailable = this.webglRenderer.initialize(this.webglCanvas);
-        
-        if (!webglAvailable) {
-            debugLog('OVERLAY', 'WebGL not available on this system');
+        const success = this.webglRenderer.initialize(gl);
+
+        if (!success) {
+            debugLog('OVERLAY', 'WebGL initialization failed');
             this.webglRenderer.dispose();
             this.webglRenderer = null;
         } else {
@@ -128,69 +128,6 @@ export class OverlaySystem {
     private setup2D(overlayProduct: any, view: any): void {
         this.renderer2D.initialize(view);
         this.renderer2D.setup(overlayProduct);
-    }
-
-    /**
-     * Generate frame using appropriate rendering system
-     */
-    public generateFrame(globe: any, mask: any, view: any): HTMLCanvasElement | null {
-        debugLog('OVERLAY', `Generating frame using ${this.useWebGL ? 'WebGL' : '2D'}`);
-
-        if (this.useWebGL) {
-            return this.renderWebGL(globe, view) ? this.webglCanvas : null;
-        } else {
-            return this.render2D(globe, mask, view) ? this.canvas2D : null;
-        }
-    }
-
-    // ===== RENDERING IMPLEMENTATIONS =====
-
-    /**
-     * Render using WebGL system
-     */
-    private renderWebGL(globe: any, view: any): boolean {
-        if (!this.webglRenderer) {
-            debugLog('OVERLAY', 'WebGL render failed - no renderer');
-            return false;
-        }
-
-        if (!globe || !view) {
-            debugLog('OVERLAY', 'WebGL render failed - missing state');
-            return false;
-        }
-
-        try {
-            // Delegate to WebGL renderer
-            return this.webglRenderer.render(globe, view);
-
-        } catch (error) {
-            debugLog('OVERLAY', 'WebGL render error:', error);
-            return false;
-        }
-    }
-
-    /**
-     * Render using 2D system - delegates to OverlayRenderer2D
-     */
-    private render2D(globe: any, mask: any, view: any): boolean {
-        if (!this.ctx2D || !this.renderer2D) {
-            debugLog('OVERLAY', '2D render failed - no renderer');
-            return false;
-        }
-
-        if (!globe || !mask || !view) {
-            debugLog('OVERLAY', '2D render failed - missing state');
-            return false;
-        }
-
-        try {
-            // Delegate to 2D renderer
-            return this.renderer2D.render(this.ctx2D, globe, mask, view);
-
-        } catch (error) {
-            debugLog('OVERLAY', '2D render error:', error);
-            return false;
-        }
     }
 
     // ===== UTILITY METHODS =====

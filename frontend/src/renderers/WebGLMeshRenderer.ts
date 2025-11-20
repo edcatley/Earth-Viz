@@ -100,14 +100,15 @@ vec2 project(in vec2 coord) {
 const BASE_VERTEX_SHADER = `
 precision mediump float;
 
-attribute vec2 a_lonlat;      // Original longitude/latitude coordinates
-attribute vec2 a_offset;      // Local geometry offset for line width
-uniform vec2 u_viewport;      // Viewport size [width, height]
-uniform float u_lineWidth;    // Line width in pixels
+attribute vec2 a_lonlat;       // This vertex's longitude/latitude coordinates
+attribute vec2 a_lonlat_other; // The other endpoint's longitude/latitude coordinates
+attribute vec2 a_offset;       // Local geometry offset for line width
+uniform vec2 u_viewport;       // Viewport size [width, height]
+uniform float u_lineWidth;     // Line width in pixels
 
-varying vec2 v_lonlat;        // Pass through for debugging
-varying float v_cosc;         // Pass horizon distance to fragment shader
-varying vec2 v_screenPos;     // Pass screen position to fragment shader
+varying vec2 v_lonlat;         // Pass through for debugging
+varying float v_cosc;          // Pass horizon distance to fragment shader
+varying vec2 v_screenPos;      // Pass screen position to fragment shader
 
 const float PI = 3.14159265;
 const float NIL = -999999.0;
@@ -128,6 +129,23 @@ void main() {
         gl_Position = vec4(0.0, 0.0, 0.0, 0.0);
         v_cosc = -1.0;
         return;
+    }
+    
+    // Project the other endpoint to detect wrapping
+    vec2 coord_other = a_lonlat_other * PI / 180.0;
+    vec2 projected_other = project(coord_other);
+    
+    // Check if line segment wraps (too long in screen space)
+    if (projected_other.x != NIL && projected_other.y != NIL) {
+        float segmentLength = distance(projected, projected_other);
+        
+        // If segment is more than half the screen width, it's wrapping
+        if (segmentLength > u_viewport.x * 0.5) {
+            // Degenerate this vertex to prevent rendering
+            gl_Position = vec4(0.0, 0.0, 0.0, 0.0);
+            v_cosc = -1.0;
+            return;
+        }
     }
     
     // Apply line width offset in screen space
@@ -192,13 +210,13 @@ interface MeshBuffer {
 export class WebGLMeshRenderer {
     private gl: WebGLRenderingContext | null = null;
     private program: WebGLProgram | null = null;
-    private canvas: HTMLCanvasElement | null = null;
     private supportsUint32Indices: boolean = false;
     
     // Attribute/uniform locations
     private locations: {
         attributes: {
             lonlat: number;
+            lonlat_other: number;
             offset: number;
         };
         uniforms: {
@@ -238,9 +256,8 @@ export class WebGLMeshRenderer {
     /**
      * Initialize WebGL context and shaders
      */
-    public initialize(canvas: HTMLCanvasElement, globe?: Globe): boolean {
-        this.canvas = canvas;
-        this.gl = canvas.getContext('webgl');
+    public initialize(gl: WebGLRenderingContext): boolean {
+        this.gl = gl;
         
         if (!this.gl) {
             console.error('[WebGLMeshRenderer] WebGL not supported');
@@ -252,32 +269,89 @@ export class WebGLMeshRenderer {
         this.supportsUint32Indices = !!ext;
         console.log('[WebGLMeshRenderer] 32-bit indices supported:', this.supportsUint32Indices);
 
-        // Determine projection type and create appropriate shader program
-        const projectionType = globe ? this.getProjectionType(globe) : 'orthographic';
-        console.log('[WebGLMeshRenderer] Projection type:', projectionType);
-        if (!this.createShaderProgram(projectionType)) {
-            console.error('[WebGLMeshRenderer] Failed to create shader program');
-            return false;
-        }
-        
-        this.currentProjectionType = projectionType;
-
-        // Get attribute and uniform locations
-        this.getShaderLocations();
-
-        // Set up WebGL state
-        this.setupWebGLState();
-
         this.isInitialized = true;
-        console.log('[WebGLMeshRenderer] Initialized with projection:', projectionType);
+        console.log('[WebGLMeshRenderer] Initialized (shaders will be compiled during setup)');
         return true;
+    }
+
+    /**
+     * Check if a projection is supported by this renderer
+     */
+    private isProjectionSupported(globe?: Globe): boolean {
+        if (!globe) return true; // Default to orthographic
+        
+        const projectionType = (globe as any).projectionType;
+        
+        // Currently only orthographic is fully supported
+        // Equirectangular has wrapping issues that need to be fixed
+        const supportedProjections = ['orthographic', 'equirectangular'];
+        
+        return supportedProjections.includes(projectionType);
     }
 
 
     /**
-     * Load GeoJSON mesh data into WebGL buffers
+     * Setup mesh renderer with data (heavy operation - done once)
+     * Loads all mesh buffers into GPU memory
      */
-    public loadMeshData(geojson: any, name: string, style: { color: [number, number, number]; lineWidth: number; opacity: number }): boolean {
+    public setup(meshData: any, globe: Globe): boolean {
+        if (!this.gl || !this.isInitialized) {
+            console.error('[WebGLMeshRenderer] Not initialized');
+            return false;
+        }
+
+        try {
+            console.log('[WebGLMeshRenderer] Setting up mesh data');
+
+            // Determine projection type and check if supported
+            const projectionType = this.getProjectionType(globe);
+            console.log('[WebGLMeshRenderer] Projection type:', projectionType);
+            
+            // Check if this projection is supported
+            if (!this.isProjectionSupported(globe)) {
+                console.log('[WebGLMeshRenderer] Projection not supported:', (globe as any).projectionType);
+                return false;
+            }
+            
+            // Compile shaders for this projection
+            if (!this.createShaderProgram(projectionType)) {
+                console.error('[WebGLMeshRenderer] Failed to create shader program');
+                return false;
+            }
+            
+            this.currentProjectionType = projectionType;
+
+            // Get attribute and uniform locations
+            this.getShaderLocations();
+
+            // Set up WebGL state
+            this.setupWebGLState();
+
+            // Get mesh styles (could be passed in or use defaults)
+            const styles = {
+                coastlines: { color: [0.98, 0.98, 0.98] as [number, number, number], lineWidth: 8.0, opacity: 0.65 },
+                lakes: { color: [0.86, 0.86, 0.86] as [number, number, number], lineWidth: 6.0, opacity: 0.65 },
+                rivers: { color: [0.86, 0.86, 0.86] as [number, number, number], lineWidth: 4.0, opacity: 0.65 }
+            };
+
+            // Load mesh data into buffers
+            if (meshData.coastLo) this.loadMeshData(meshData.coastLo, 'coastlines', styles.coastlines);
+            if (meshData.lakesLo) this.loadMeshData(meshData.lakesLo, 'lakes', styles.lakes);
+            if (meshData.riversLo) this.loadMeshData(meshData.riversLo, 'rivers', styles.rivers);
+
+            console.log('[WebGLMeshRenderer] Setup complete');
+            return true;
+
+        } catch (error) {
+            console.error('[WebGLMeshRenderer] Setup failed:', error);
+            return false;
+        }
+    }
+
+    /**
+     * Load GeoJSON mesh data into WebGL buffers (private - called by setup)
+     */
+    private loadMeshData(geojson: any, name: string, style: { color: [number, number, number]; lineWidth: number; opacity: number }): boolean {
         if (!this.gl || !this.isInitialized) {
             console.error('[WebGLMeshRenderer] Not initialized');
             return false;
@@ -285,7 +359,7 @@ export class WebGLMeshRenderer {
 
         try {
             // Convert GeoJSON to geometry
-            const geometry = this.geojsonToGeometry(geojson, style.lineWidth);
+            const geometry = this.geojsonToGeometry(geojson);
             
             // Create WebGL buffers
             const buffer = this.createMeshBuffer(geometry, name, style);
@@ -312,10 +386,10 @@ export class WebGLMeshRenderer {
     }
 
     /**
-     * Render all loaded meshes
+     * Render all loaded meshes (lightweight operation - done every frame)
      */
-    public render(globe: Globe, viewport: [number, number]): boolean {
-        if (!this.gl || !this.program || !this.locations || !this.isInitialized) {
+    public render(gl: WebGLRenderingContext, globe: Globe, viewport: [number, number]): boolean {
+        if (!this.program || !this.locations || !this.isInitialized) {
             console.error('[WebGLMeshRenderer] Not properly initialized');
             return false;
         }
@@ -326,22 +400,22 @@ export class WebGLMeshRenderer {
         }
 
         // Use the shader program
-        this.gl.useProgram(this.program);
+        gl.useProgram(this.program);
 
         // Set up viewport
-        this.gl.viewport(0, 0, viewport[0], viewport[1]);
+        gl.viewport(0, 0, viewport[0], viewport[1]);
 
         // Set uniforms
-        this.setUniforms(globe, viewport);
+        this.setUniforms(gl, globe, viewport);
 
         // Enable blending for transparency
-        this.gl.enable(this.gl.BLEND);
-        this.gl.blendFunc(this.gl.SRC_ALPHA, this.gl.ONE_MINUS_SRC_ALPHA);
+        gl.enable(gl.BLEND);
+        gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
 
         // Render all loaded meshes
         let rendered = 0;
         for (const buffer of this.meshBuffers.values()) {
-            this.renderMeshBuffer(buffer);
+            this.renderMeshBuffer(gl, buffer);
             rendered++;
         }
 
@@ -354,7 +428,7 @@ export class WebGLMeshRenderer {
     /**
      * Convert GeoJSON to WebGL geometry - SIMPLIFIED VERSION
      */
-    private geojsonToGeometry(geojson: any, lineWidth: number): MeshGeometry {
+    private geojsonToGeometry(geojson: any): MeshGeometry {
         const vertices: number[] = [];
         const indices: number[] = [];
         
@@ -424,7 +498,7 @@ export class WebGLMeshRenderer {
         return {
             vertices: new Float32Array(vertices),
             indices: new Uint32Array(indices),
-            vertexCount: vertices.length / 4,
+            vertexCount: vertices.length / 6,  // 6 floats per vertex now
             primitiveType: this.gl!.TRIANGLES
         };
     }
@@ -441,8 +515,6 @@ export class WebGLMeshRenderer {
             const [lon1, lat1] = coordinates[i];
             const [lon2, lat2] = coordinates[i + 1];
             
-
-
             // Calculate normalized perpendicular offset (shader will scale by u_lineWidth)
             const dx = lon2 - lon1;
             const dy = lat2 - lat1;
@@ -463,10 +535,15 @@ export class WebGLMeshRenderer {
             const baseIndex = vertexIndex;
 
             // 4 vertices per line segment (quad)
-            vertices.push(lon1, lat1, perpX, perpY);      // v0
-            vertices.push(lon1, lat1, -perpX, -perpY);    // v1  
-            vertices.push(lon2, lat2, perpX, perpY);      // v2
-            vertices.push(lon2, lat2, -perpX, -perpY);    // v3
+            // Each vertex: [lon, lat, lon_other, lat_other, offsetX, offsetY]
+            
+            // Vertices at point 1 (know about point 2)
+            vertices.push(lon1, lat1, lon2, lat2, perpX, perpY);      // v0
+            vertices.push(lon1, lat1, lon2, lat2, -perpX, -perpY);    // v1
+            
+            // Vertices at point 2 (know about point 1)
+            vertices.push(lon2, lat2, lon1, lat1, perpX, perpY);      // v2
+            vertices.push(lon2, lat2, lon1, lat1, -perpX, -perpY);    // v3
 
             // 2 triangles per quad
             indices.push(
@@ -516,30 +593,37 @@ export class WebGLMeshRenderer {
     /**
      * Render a single mesh buffer
      */
-    private renderMeshBuffer(buffer: MeshBuffer): void {
-        if (!this.gl || !this.locations) return;
+    private renderMeshBuffer(gl: WebGLRenderingContext, buffer: MeshBuffer): void {
+        if (!this.locations) return;
 
         // Bind vertex buffer
-        this.gl.bindBuffer(this.gl.ARRAY_BUFFER, buffer.vertexBuffer);
+        gl.bindBuffer(gl.ARRAY_BUFFER, buffer.vertexBuffer);
 
         // Set up vertex attributes
-        // lonlat attribute (2 floats)
-        this.gl.enableVertexAttribArray(this.locations.attributes.lonlat);
-        this.gl.vertexAttribPointer(this.locations.attributes.lonlat, 2, this.gl.FLOAT, false, 16, 0);
+        // Each vertex is now 6 floats: [lon, lat, lon_other, lat_other, offsetX, offsetY]
+        const stride = 24; // 6 floats * 4 bytes
 
-        // offset attribute (2 floats)
-        this.gl.enableVertexAttribArray(this.locations.attributes.offset);
-        this.gl.vertexAttribPointer(this.locations.attributes.offset, 2, this.gl.FLOAT, false, 16, 8);
+        // lonlat attribute (2 floats at offset 0)
+        gl.enableVertexAttribArray(this.locations.attributes.lonlat);
+        gl.vertexAttribPointer(this.locations.attributes.lonlat, 2, gl.FLOAT, false, stride, 0);
+
+        // lonlat_other attribute (2 floats at offset 8)
+        gl.enableVertexAttribArray(this.locations.attributes.lonlat_other);
+        gl.vertexAttribPointer(this.locations.attributes.lonlat_other, 2, gl.FLOAT, false, stride, 8);
+
+        // offset attribute (2 floats at offset 16)
+        gl.enableVertexAttribArray(this.locations.attributes.offset);
+        gl.vertexAttribPointer(this.locations.attributes.offset, 2, gl.FLOAT, false, stride, 16);
 
         // Set mesh-specific uniforms
-        this.setMeshUniforms(buffer);
+        this.setMeshUniforms(gl, buffer);
 
         // Draw
         if (buffer.indexBuffer && buffer.geometry.indices.length > 0) {
-            this.gl.bindBuffer(this.gl.ELEMENT_ARRAY_BUFFER, buffer.indexBuffer);
-            this.gl.drawElements(buffer.geometry.primitiveType, buffer.geometry.indices.length, this.gl.UNSIGNED_INT, 0);
+            gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, buffer.indexBuffer);
+            gl.drawElements(buffer.geometry.primitiveType, buffer.geometry.indices.length, gl.UNSIGNED_INT, 0);
         } else {
-            this.gl.drawArrays(buffer.geometry.primitiveType, 0, buffer.geometry.vertexCount);
+            gl.drawArrays(buffer.geometry.primitiveType, 0, buffer.geometry.vertexCount);
         }
     }
 
@@ -578,8 +662,8 @@ export class WebGLMeshRenderer {
         }
     }
 
-    private setUniforms(globe: Globe, viewport: [number, number]): void {
-        if (!this.gl || !this.locations || !globe.projection) return;
+    private setUniforms(gl: WebGLRenderingContext, globe: Globe, viewport: [number, number]): void {
+        if (!this.locations || !globe.projection) return;
 
         const projectionType = this.getProjectionType(globe);
         const rotate = globe.projection.rotate() || [0, 0, 0];
@@ -595,9 +679,9 @@ export class WebGLMeshRenderer {
         ]);
         
         // Set common uniforms
-        this.gl.uniformMatrix4fv(this.locations.uniforms.projection, false, identityMatrix);
-        this.gl.uniform2f(this.locations.uniforms.viewport, viewport[0], viewport[1]);
-        this.gl.uniform2f(this.locations.uniforms.translate, translate[0], translate[1]);
+        gl.uniformMatrix4fv(this.locations.uniforms.projection, false, identityMatrix);
+        gl.uniform2f(this.locations.uniforms.viewport, viewport[0], viewport[1]);
+        gl.uniform2f(this.locations.uniforms.translate, translate[0], translate[1]);
         // Projection type will be handled by setting different uniforms for each type
         
         if (projectionType === 'orthographic') {
@@ -624,12 +708,12 @@ export class WebGLMeshRenderer {
             const sinlat0 = Math.sin(-φ0);
             const coslat0 = Math.cos(-φ0);
             
-            this.gl.uniform1f(this.locations.uniforms.R2, scale * scale);
-            this.gl.uniform1f(this.locations.uniforms.lon0, -λ0);
-            this.gl.uniform1f(this.locations.uniforms.sinlat0, sinlat0);
-            this.gl.uniform1f(this.locations.uniforms.Rcoslat0, scale * coslat0);
-            this.gl.uniform1f(this.locations.uniforms.coslat0dR, coslat0 / scale);
-            this.gl.uniform1f(this.locations.uniforms.flip, flip);
+            gl.uniform1f(this.locations.uniforms.R2, scale * scale);
+            gl.uniform1f(this.locations.uniforms.lon0, -λ0);
+            gl.uniform1f(this.locations.uniforms.sinlat0, sinlat0);
+            gl.uniform1f(this.locations.uniforms.Rcoslat0, scale * coslat0);
+            gl.uniform1f(this.locations.uniforms.coslat0dR, coslat0 / scale);
+            gl.uniform1f(this.locations.uniforms.flip, flip);
             
         } else if (projectionType === 'equirectangular') {
             // Equirectangular projection - exactly like WebGLRenderer
@@ -637,27 +721,27 @@ export class WebGLMeshRenderer {
             const φ0 = rotate[1] * Math.PI / 180;  // latitude rotation
             const γ0 = rotate[2] * Math.PI / 180;  // gamma rotation
             
-            this.gl.uniform1f(this.locations.uniforms.R, scale);
-            this.gl.uniform1f(this.locations.uniforms.lon0, -λ0);
-            this.gl.uniform1f(this.locations.uniforms.sinlat0, Math.sin(-φ0));
-            this.gl.uniform1f(this.locations.uniforms.coslat0, Math.cos(-φ0));
-            this.gl.uniform1f(this.locations.uniforms.singam0, Math.sin(γ0));
-            this.gl.uniform1f(this.locations.uniforms.cosgam0, Math.cos(γ0));
+            gl.uniform1f(this.locations.uniforms.R, scale);
+            gl.uniform1f(this.locations.uniforms.lon0, -λ0);
+            gl.uniform1f(this.locations.uniforms.sinlat0, Math.sin(-φ0));
+            gl.uniform1f(this.locations.uniforms.coslat0, Math.cos(-φ0));
+            gl.uniform1f(this.locations.uniforms.singam0, Math.sin(γ0));
+            gl.uniform1f(this.locations.uniforms.cosgam0, Math.cos(γ0));
         }
     }
 
     /**
      * Set mesh-specific uniforms
      */
-    private setMeshUniforms(buffer: MeshBuffer): void {
-        if (!this.gl || !this.locations) return;
+    private setMeshUniforms(gl: WebGLRenderingContext, buffer: MeshBuffer): void {
+        if (!this.locations) return;
 
         // Use the style data stored with the buffer
         const { color, lineWidth, opacity } = buffer.style;
 
-        this.gl.uniform3f(this.locations.uniforms.color, color[0], color[1], color[2]);
-        this.gl.uniform1f(this.locations.uniforms.opacity, opacity);
-        this.gl.uniform1f(this.locations.uniforms.lineWidth, lineWidth);
+        gl.uniform3f(this.locations.uniforms.color, color[0], color[1], color[2]);
+        gl.uniform1f(this.locations.uniforms.opacity, opacity);
+        gl.uniform1f(this.locations.uniforms.lineWidth, lineWidth);
     }
 
     /**
@@ -728,6 +812,7 @@ export class WebGLMeshRenderer {
         this.locations = {
             attributes: {
                 lonlat: this.gl.getAttribLocation(this.program, 'a_lonlat'),
+                lonlat_other: this.gl.getAttribLocation(this.program, 'a_lonlat_other'),
                 offset: this.gl.getAttribLocation(this.program, 'a_offset')
             },
             uniforms: {
@@ -765,23 +850,6 @@ export class WebGLMeshRenderer {
 
         // Set clear color
         this.gl.clearColor(0.0, 0.0, 0.0, 0.0);
-    }
-
-    /**
-     * Clear the canvas
-     */
-    public clear(): void {
-        if (!this.gl) return;
-        
-        this.gl.clearColor(0.0, 0.0, 0.0, 0.0); // Transparent
-        this.gl.clear(this.gl.COLOR_BUFFER_BIT | this.gl.DEPTH_BUFFER_BIT);
-    }
-
-    /**
-     * Get the canvas element for external rendering
-     */
-    public getCanvas(): HTMLCanvasElement | null {
-        return this.canvas;
     }
 
     /**
