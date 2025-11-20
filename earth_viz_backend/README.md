@@ -1,203 +1,172 @@
 # Earth-Viz Backend
 
-A FastAPI-based backend service for the Earth-Viz weather visualization package.
+FastAPI backend server for the Earth-Viz interactive globe visualization.
 
-## Architecture
+## What It Does
 
-This backend is designed for dual usage:
-1. **Standalone development server** - For developing and testing earth-viz independently
-2. **Importable router** - For integration into larger applications as an NPM package
+- Serves the Earth-Viz web application
+- Proxies NOAA weather data requests (OpenDAP and GRIB2)
+- Generates real-time cloud imagery from satellite data
+- Provides WebSocket API for programmatic control of the visualization
+- Serves static planet textures
 
-## Features
+## Quick Start
 
-- Fetch latest GFS weather data from NOAA NOMADS
-- Convert GRIB2 binary data to JSON format
-- Support for multiple weather parameters (wind, temperature, humidity, etc.)
-- Real-time cloud generation and earth imagery
-- CORS enabled for frontend integration
-- Modular design for easy integration
-
-## Development Mode
-
-### Quick Start
-```cmd
-python standalone_server.py
+```bash
+pip install earth-viz
+earth-viz-setup    # Download static files (one-time, ~300MB)
+earth-viz-server   # Start server
 ```
 
-The development server will be available at `http://localhost:8000`
+The application will be available at `http://localhost:8000/earth-viz-app/`
 
-### Manual Setup
-```cmd
-# Install dependencies
-pip install -r requirements.txt
-
-# Start development server
-python standalone_server.py
-```
-
-## Manual Installation
+## Installation
 
 ### Prerequisites
-- Python 3.8+ installed and in PATH
+- Python 3.8+
 - pip package manager
 
-### 1. Create Virtual Environment (Recommended)
-```cmd
-python -m venv venv
-venv\Scripts\activate
-```
-
-### 2. Install Dependencies
-```cmd
-pip install -r requirements.txt
-```
-
-### 3. Install pygrib (GRIB2 Support)
-`pygrib` requires GRIB API libraries. Try these methods in order:
-
-**Method 1 - Conda (Recommended for Windows):**
-```cmd
-conda install -c conda-forge eccodes pygrib
-```
-
-**Method 2 - Pre-built wheels:**
-```cmd
-pip install --find-links https://github.com/jswhit/pygrib/releases pygrib
-```
-
-**Method 3 - Manual eccodes installation:**
-1. Download eccodes from: https://confluence.ecmwf.int/display/ECC/Releases
-2. Extract and set `ECCODES_DIR` environment variable
-3. Run: `pip install pygrib`
-
-**Method 4 - WSL (Windows Subsystem for Linux):**
+### Install Package
 ```bash
-sudo apt-get install libeccodes-dev
-pip install pygrib
+pip install earth-viz
 ```
 
-### 4. Start the Server
-```cmd
-python standalone_server.py
-```
+### Download Static Files
+The package requires high-resolution planet textures (~300MB). Download them once:
 
-## Linux/macOS Installation
-
-### Ubuntu/Debian:
 ```bash
-sudo apt-get install libeccodes-dev
-python -m venv venv
-source venv/bin/activate
-pip install -r requirements.txt
+earth-viz-setup
 ```
 
-### macOS with Homebrew:
-```bash
-brew install eccodes
-python -m venv venv
-source venv/bin/activate
-pip install -r requirements.txt
-```
+This downloads static images to `~/.earth_viz/static_images/`
 
-### Start Server:
+### Start Server
 ```bash
-python standalone_server.py
+earth-viz-server
 ```
 
 ## API Endpoints
 
-### Health Check
+### Web Application
 ```
-GET /health
-```
-
-### Weather Data
-```
-GET /api/v1/data/weather/{parameter}?level={level}&date={date}&cycle={cycle}&forecast={forecast}
+GET /earth-viz-app/          # Main application
 ```
 
-Parameters:
-- `parameter`: GRIB2 parameter code (UGRD, VGRD, TMP, RH, etc.)
-- `level`: Atmospheric level (10_m_above_ground, 2_m_above_ground, etc.)
-- `date`: Date in YYYYMMDD format (optional, defaults to latest)
-- `cycle`: Model cycle hour (00, 06, 12, 18) (optional, defaults to latest)
-- `forecast`: Forecast hour (000, 003, 006, etc.) (default: 000)
-
-### Metadata
+### Health & Status
 ```
-GET /api/v1/parameters  # Available weather parameters
-GET /api/v1/levels      # Available atmospheric levels
+GET /earth-viz/api/health    # Health check
+GET /earth-viz/api/status    # Connection status
 ```
 
-## Example Usage
-
-```bash
-# Get latest wind U-component at 10m above ground
-curl "http://localhost:8000/api/v1/data/weather/UGRD?level=10_m_above_ground"
-
-# Get temperature at 2m above ground for specific date/time
-curl "http://localhost:8000/api/v1/data/weather/TMP?level=2_m_above_ground&date=20241201&cycle=12"
-
-# Get available parameters
-curl "http://localhost:8000/api/v1/parameters"
+### Data Proxies
+```
+GET /earth-viz/api/proxy/opendap?url={url}           # OpenDAP data proxy
+GET /earth-viz/api/cgi-bin/filter_gfs_0p25.pl        # GRIB2 data proxy
 ```
 
-## Response Format
+### Planet Images
+```
+GET /earth-viz/api/planets/{planet_name}             # Static planet textures
+```
 
-```json
-{
-  "source": "GFS/NCEP",
-  "parameter": "UGRD",
-  "level": "10_m_above_ground",
-  "reference_time": "2024-12-01T12:00:00",
-  "forecast_time": 0,
-  "grid": {
-    "nx": 1440,
-    "ny": 721,
-    "lon0": 0.0,
-    "lat0": 90.0,
-    "dlon": 0.25,
-    "dlat": 0.25
-  },
-  "values": [1.2, 1.5, 1.8, ...],
-  "units": "m/s"
-}
+Supported planets: `earth`, `mars`, `venus`, `moon`, `jupiter`, `saturn`, `uranus`, `neptune`, `mercury`
+
+### Cloud Generation
+```
+GET /earth-viz/api/live-earth/status                 # Trigger cloud generation
+```
+
+### WebSocket Control
+```
+WS /earth-viz/ws                                     # Control connection
+```
+
+## WebSocket Control API
+
+Connect to `/earth-viz/ws` to send commands to the visualization:
+
+```javascript
+const ws = new WebSocket('ws://localhost:8000/earth-viz/ws');
+
+ws.send(JSON.stringify({
+  type: 'EARTH_COMMAND',
+  command: 'setProjection',
+  params: ['orthographic']
+}));
+```
+
+Available commands:
+- `setProjection(projection)` - Set map projection
+- `setOverlay(type)` - Set overlay type
+- `setAirMode(level, particleType, overlayType)` - Air mode
+- `setOceanMode(particleType, overlayType)` - Ocean mode
+- `setPlanetMode(planet)` - Planet mode
+- `setLevel(level)` - Set atmospheric level
+- `showGrid()` / `hideGrid()` - Toggle grid
+- `setWindUnits(units)` - Set wind units
+- `setDate(date)` / `setHour(hour)` - Time controls
+- `navigateTime(hours)` - Navigate time
+- `goToNow()` - Reset to current time
+- `hideUI()` / `showUI()` - Toggle UI
+- `enableFullScreen()` / `disableFullScreen()` - Fullscreen
+
+## Integration Mode
+
+Mount the Earth-Viz router in your own FastAPI application:
+
+```python
+from fastapi import FastAPI
+from earth_viz_backend.earth_viz_api import create_earth_viz_router
+from earth_viz_backend.earth_control import create_earth_control_router
+from earth_viz_backend.services.cloud_scheduler import scheduler
+import asyncio
+
+app = FastAPI()
+
+# Mount routers
+app.include_router(create_earth_viz_router())
+app.include_router(create_earth_control_router())
+
+# Add lifecycle handlers
+@app.on_event("startup")
+async def startup():
+    asyncio.create_task(scheduler.start())
+
+@app.on_event("shutdown")
+async def shutdown():
+    await scheduler.stop()
+```
+
+### Programmatic Control
+
+Control the visualization from Python:
+
+```python
+from earth_viz_backend.earth_control import (
+    set_projection,
+    set_air_mode,
+    set_planet_mode,
+    await_earth_connection
+)
+
+# Wait for frontend to connect
+await await_earth_connection(timeout=30.0)
+
+# Send commands
+await set_projection("orthographic")
+await set_air_mode("surface", "wind", "temp")
+await set_planet_mode("mars")
 ```
 
 ## Development
 
-The API documentation is automatically generated and available at:
+API documentation available at:
 - Swagger UI: `http://localhost:8000/docs`
 - ReDoc: `http://localhost:8000/redoc`
 
-## Integration Mode
+## File Locations
 
-For integration into larger applications:
-
-```python
-# In your main FastAPI app
-from earth_viz_api import create_earth_viz_router, startup_earth_viz, shutdown_earth_viz
-
-app = FastAPI()
-
-# Mount earth-viz router
-earth_router = create_earth_viz_router()
-app.include_router(earth_router, prefix="/api/earth-viz")
-
-# Add lifecycle events
-@app.on_event("startup")
-async def startup():
-    await startup_earth_viz()
-
-@app.on_event("shutdown")
-async def shutdown():
-    await shutdown_earth_viz()
-```
-
-## NPM Package Structure
-
-When packaged as NPM:
-- `standalone_server.py` is excluded via `.npmignore`
-- `src/earth_viz_api.py` provides the importable router
-- All services and dependencies are included
-- Parent application manages Python dependencies
+- Static images: `~/.earth_viz/static_images/`
+- Generated clouds: `~/.earth_viz/images/`
+- Package source: `src/earth_viz_backend/`
+- Frontend app: `src/earth_viz_backend/static/`
