@@ -14,7 +14,7 @@ FastAPI backend server for the Earth-Viz interactive globe visualization.
 
 ```bash
 pip install earth-viz
-earth-viz-setup    # Download static files (one-time, ~300MB)
+earth-viz-setup    # Download static files (one-time, ~100MB)
 earth-viz-server   # Start server
 ```
 

@@ -23,7 +23,7 @@ Interactive 3D globe visualization with real-time weather data from NOAA. Inspir
 
 ```bash
 pip install earth-viz
-earth-viz-setup    # Download static files (~300MB, one-time)
+earth-viz-setup    # Download static files (~100MB, one-time)
 earth-viz-server   # Start server
 ```
 
@@ -36,7 +36,7 @@ Run frontend and backend separately for development:
 **Backend:**
 ```bash
 cd earth_viz_backend
-pip install -e .
+pip install earth-viz
 earth-viz-setup
 earth-viz-server
 ```

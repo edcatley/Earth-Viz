@@ -20,7 +20,7 @@ def download_static_files():
     print("Earth-Viz Static Files Setup")
     print("=" * 60)
     print(f"\nDownload location: {static_dir}")
-    print("\nThis will download ~300MB of high-resolution planet textures.")
+    print("\nThis will download ~100MB of high-resolution planet textures.")
     print("This only needs to be done once after installation.\n")
     
     # Check if already downloaded
