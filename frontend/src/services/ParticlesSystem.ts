@@ -55,16 +55,15 @@ export class ParticleSystem {
 
         debugLog('PARTICLES', 'Initializing WebGL renderer with shared context');
         this.webglParticleSystem = new WebGLParticleSystem();
-        const success = this.webglParticleSystem.initialize(gl);
+        const webglAvailable = this.webglParticleSystem.initialize(this.webglCanvas);
 
-        if (!success) {
-            debugLog('PARTICLES', 'WebGL initialization failed');
+        if (!webglAvailable) {
+            debugLog('PARTICLES', 'WebGL not available on this system');
             this.webglParticleSystem.dispose();
             this.webglParticleSystem = null;
         } else {
             debugLog('PARTICLES', 'WebGL renderer initialized successfully');
         }
-    }
 
     /**
      * Check if this system can render directly to a shared GL context
@@ -194,6 +193,58 @@ export class ParticleSystem {
         this.renderer2D.initialize(this.particleCount, this.windData, this.windBounds, validPositions);
 
         debugLog('PARTICLES', '2D setup complete');
+    }
+
+    /**
+     * Generate frame using appropriate rendering system
+     */
+    public generateFrame(globe: Globe, view: ViewportSize): HTMLCanvasElement | null {
+        if (this.useWebGL && this.webglParticleSystem) {
+            // WebGL path - pure GPU rendering
+            this.webglParticleSystem.evolve();
+            this.renderWebGL();
+            return this.webglCanvas;
+        } else if (this.renderer2D) {
+            // CPU path - evolve and render on CPU
+            this.renderer2D.evolve();
+            this.render2D(globe, view);
+            return this.canvas2D;
+        }
+        return null;
+    }
+
+    // ===== RENDERING IMPLEMENTATIONS =====
+
+    /**
+     * Render particles using WebGL (no ReadPixels!)
+     */
+    private renderWebGL(): boolean {
+        if (!this.webglParticleSystem) {
+            debugLog('PARTICLES', 'WebGL render failed - no system');
+            return false;
+        }
+
+        // Render particles (pass half width for quad rendering)
+        this.webglParticleSystem.render(PARTICLE_LINE_WIDTH / 2);
+        return true;
+    }
+
+    /**
+     * Render particles using 2D canvas (CPU)
+     */
+    private render2D(globe: Globe, view: ViewportSize): boolean {
+        if (!this.renderer2D || !this.ctx2D) {
+            debugLog('PARTICLES', '2D render failed - no renderer');
+            return false;
+        }
+
+        if (!globe || !view) {
+            debugLog('PARTICLES', '2D render failed - missing state');
+            return false;
+        }
+
+        // Delegate to 2D renderer
+        return this.renderer2D.render(this.ctx2D, globe, view);
     }
 
     // ===== PARTICLE SYSTEM IMPLEMENTATION =====

@@ -50,15 +50,25 @@ class EarthModernApp {
     private renderSystem: RenderSystem;
     private meshSystem: MeshSystem;
 
+    // Mesh data - single canvas (system decides WebGL vs 2D internally)
+    private meshCanvas: HTMLCanvasElement | null = null;
+
     // Mesh data (loaded once)
     private mesh: any = null;
 
     // Mask data (regenerated when globe changes)
     private mask: any = null;
 
+    // Planet data - single canvas (system decides WebGL vs 2D internally)
+    private planetCanvas: HTMLCanvasElement | null = null;
+
+    // Particle data - single canvas (system decides WebGL vs 2D internally)
+    private particleCanvas: HTMLCanvasElement | null = null;
+
     // Weather data - cleanly separated
     private overlayProduct: WeatherProduct | null = null;
     private particleProduct: WeatherProduct | null = null;
+    private overlayCanvas: HTMLCanvasElement | null = null;
     
     // Product manager - handles caching and creation
     private productManager: ProductManager;
@@ -265,7 +275,7 @@ class EarthModernApp {
     }
 
     /**
-     * Render current state - uses direct WebGL rendering when available
+     * Render current state - pass data directly to avoid object allocation
      */
     private performRender(): void {
         console.log('[EARTH] performRender called');
@@ -275,7 +285,7 @@ class EarthModernApp {
             return;
         }
 
-        // Get config properties
+        // Get config properties individually to avoid creating new config object
         const mode = this.configManager.get('mode') || 'air';
         const overlayType = this.configManager.get('overlayType') || 'off';
         console.log('[EARTH] Rendering with mode:', mode);
@@ -289,9 +299,23 @@ class EarthModernApp {
         // Get overlay scale/units if available
         let overlayScale = null;
         let overlayUnits = null;
-        if (this.overlayProduct) {
-            overlayScale = this.overlayProduct.scale;
-            overlayUnits = this.overlayProduct.units;
+
+        if (mode === 'planet') {
+            // Planet mode: only show planet surface
+            planetCanvas = this.planetCanvas;
+        } else if (mode === 'air' || mode === 'ocean') {
+            // Air/Ocean modes: show mesh, overlay, and particles if enabled
+            meshCanvas = this.meshCanvas;
+
+            if (overlayType !== 'off' && this.overlayProduct) {
+                overlayCanvas = this.overlayCanvas;
+                overlayScale = this.overlayProduct.scale;
+                overlayUnits = this.overlayProduct.units;
+            }
+
+            if (particleType !== 'off') {
+                particleCanvas = this.particleCanvas;
+            }
         }
 
         // Call RenderSystem
@@ -333,16 +357,9 @@ class EarthModernApp {
             // Setup UI
             this.setupUI();
 
-            // Setup rendering first (initializes canvases and WebGL context)
+            // Setup rendering first (initializes canvases)
             this.renderSystem.setupCanvases();
 
-            // Initialize systems with shared WebGL context
-            this.renderSystem.initializeSystems(
-                this.planetSystem,
-                this.overlaySystem,
-                this.meshSystem,
-                this.particleSystem
-            );
 
             // Load static data (mesh) - now MeshSystem is ready
             await this.loadMesh();
@@ -445,7 +462,7 @@ class EarthModernApp {
         }
 
         if (globe && mesh && view) {
-            this.meshSystem.handleRotation(globe);
+            this.meshSystem.handleRotation(globe, view);
         }
 
         if (globe && mask && view && config.planetType !== undefined) {

@@ -9,7 +9,7 @@ import { Globe, DisplayOptions, Point, GeoPoint, ViewportSize } from '../core/Gl
 
 // Debug logging - enabled
 function debugLog(section: string, message: string, data?: any): void {
-    console.log(`[${section}] ${message}`, data || '');
+    console.debug(`[${section}] ${message}`, data || '');
 }
 
 // Constants from original
@@ -22,15 +22,6 @@ export class RenderSystem {
     private overlayContext: CanvasRenderingContext2D | null = null;
     private scaleCanvas: HTMLCanvasElement | null = null;
     private scaleContext: CanvasRenderingContext2D | null = null;
-    
-    // WebGL context (shared across all systems)
-    private gl: WebGLRenderingContext | null = null;
-    
-    // System references (not owned - just references for rendering)
-    private planetSystem: any = null;
-    private overlaySystem: any = null;
-    private meshSystem: any = null;
-    private particleSystem: any = null;
     
     // Scale listener tracking
     private scaleListenerSetup: boolean = false;
@@ -76,36 +67,6 @@ export class RenderSystem {
         if (this.scaleCanvas) {
             this.scaleContext = this.scaleCanvas.getContext("2d");
             this.setSizeScale();
-        }
-    }
-
-    /**
-     * Initialize systems with shared WebGL context
-     * Called by Earth after systems are created
-     */
-    public initializeSystems(
-        planetSystem: any,
-        overlaySystem: any,
-        meshSystem: any,
-        particleSystem: any
-    ): void {
-        debugLog('RENDER', 'Initializing systems with shared WebGL context');
-        
-        // Store references to systems
-        this.planetSystem = planetSystem;
-        this.overlaySystem = overlaySystem;
-        this.meshSystem = meshSystem;
-        this.particleSystem = particleSystem;
-        
-        // Initialize systems with shared GL context (if available)
-        if (this.gl) {
-            planetSystem.initializeGL(this.gl);
-            overlaySystem.initializeGL(this.gl);
-            meshSystem.initializeGL(this.gl);
-            particleSystem.initializeGL(this.gl);
-            debugLog('RENDER', 'Systems initialized with WebGL');
-        } else {
-            debugLog('RENDER', 'Systems will use 2D fallback');
         }
     }
 

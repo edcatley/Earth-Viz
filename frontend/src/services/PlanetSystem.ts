@@ -67,10 +67,10 @@ export class PlanetSystem {
         this.sharedGLContext = gl;
         
         this.webglRenderer = new WebGLRenderer();
-        const success = this.webglRenderer.initialize(gl);
+        const webglAvailable = this.webglRenderer.initialize(this.webglCanvas);
 
-        if (!success) {
-            debugLog('PLANET', 'WebGL initialization failed');
+        if (!webglAvailable) {
+            debugLog('PLANET', 'WebGL not available on this system');
             this.webglRenderer.dispose();
             this.webglRenderer = null;
         } else {
@@ -134,6 +134,10 @@ export class PlanetSystem {
                 return false;
             }
 
+            // Size canvas
+            this.webglCanvas.width = view.width;
+            this.webglCanvas.height = view.height;
+
             // Load planet image and setup WebGL
             const cacheKey = useDayNight ? `${planetType}_daynight` : planetType;
             const planetImage = this.imageCache[cacheKey];
@@ -181,6 +185,77 @@ export class PlanetSystem {
         }
 
         debugLog('PLANET', '2D setup complete');
+    }
+
+    /**
+     * Generate frame using appropriate rendering system
+     */
+    public generateFrame(globe: Globe, mask: any, view: ViewportSize): HTMLCanvasElement | null {
+        debugLog('PLANET', `Generating using ${this.useWebGL ? 'WebGL' : '2D'}`);
+
+        if (this.useWebGL) {
+            return this.renderWebGL(globe, view) ? this.webglCanvas : null;
+        } else {
+            return this.render2D(globe, mask, view) ? this.canvas2D : null;
+        }
+    }
+
+    // ===== RENDERING IMPLEMENTATIONS =====
+
+    /**
+     * Render using WebGL system
+     */
+    private renderWebGL(globe: Globe, view: ViewportSize): boolean {
+        if (!this.webglRenderer) {
+            debugLog('PLANET', 'WebGL render failed - no renderer');
+            return false;
+        }
+
+        try {
+            if (!globe || !view) {
+                debugLog('PLANET', 'WebGL render failed - missing state');
+                return false;
+            }
+
+            // Render the planet 
+            const renderSuccess = this.webglRenderer.render(globe, view);
+
+            if (renderSuccess) {
+                debugLog('PLANET', 'WebGL render successful');
+                return true;
+            } else {
+                debugLog('PLANET', 'WebGL render failed');
+                return false;
+            }
+
+        } catch (error) {
+            debugLog('PLANET', 'WebGL render error:', error);
+            return false;
+        }
+    }
+
+    /**
+     * Render using 2D system - delegates to PlanetRenderer2D
+     */
+    private render2D(globe: Globe, mask: any, view: ViewportSize): boolean {
+        if (!this.ctx2D || !this.renderer2D) {
+            debugLog('PLANET', '2D render failed - no renderer');
+            return false;
+        }
+
+        try {
+            if (!globe || !mask || !view) {
+                debugLog('PLANET', '2D render failed - missing state');
+                return false;
+            }
+
+            // Delegate to 2D renderer
+            return this.renderer2D.render(this.ctx2D, globe, mask, view);
+
+        } catch (error) {
+            debugLog('PLANET', '2D render error:', error);
+            return false;
+        }
     }
 
     // ===== UTILITY METHODS =====
