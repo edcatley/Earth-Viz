@@ -64,7 +64,7 @@ export const PARTICLE_PRODUCTS = {
             { label: "mph", conversion: (x: number) => x * 2.236936, precision: 0 }
         ],
         particles: {
-            velocityScale: 1 / 200000,
+            velocityScale: 1 / 100000,
             maxIntensity: 17
         }
     },

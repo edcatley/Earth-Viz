@@ -80,14 +80,13 @@ void main() {
     vec2 dirNorm = dir / len;
     vec2 perp = vec2(-dirNorm.y, dirNorm.x) * u_lineWidth;
     
-    // Select corner (6 vertices = 2 triangles)
+    // Select corner (4 vertices = triangle strip)
+    // Strip order: 0→1→2→3 creates two triangles: (0,1,2) and (1,3,2)
     vec2 pos;
-    if (corner < 0.5) pos = posA - perp;
-    else if (corner < 1.5) pos = posA + perp;
-    else if (corner < 2.5) pos = posB + perp;
-    else if (corner < 3.5) pos = posA - perp;
-    else if (corner < 4.5) pos = posB + perp;
-    else pos = posB - perp;
+    if (corner < 0.5) pos = posA - perp;      // 0: bottom-left
+    else if (corner < 1.5) pos = posA + perp; // 1: top-left
+    else if (corner < 2.5) pos = posB - perp; // 2: bottom-right
+    else pos = posB + perp;                   // 3: top-right
     
     gl_Position = u_projection * vec4(pos, 0.0, 1.0);
 }
@@ -97,7 +96,7 @@ const RENDER_FRAGMENT_SHADER = `
 precision highp float;
 
 void main() {
-    gl_FragColor = vec4(1.0, 1.0, 1.0, 0.9);
+    gl_FragColor = vec4(1.0, 1.0, 1.0, 0.6);
 }
 `;
 
@@ -115,7 +114,7 @@ const FADE_FRAGMENT_SHADER = `
 precision highp float;
 
 void main() {
-    gl_FragColor = vec4(0.0, 0.0, 0.0, 0.05);
+    gl_FragColor = vec4(0.0, 0.0, 0.0, 0.02);
 }
 `;
 
@@ -1029,15 +1028,15 @@ export class WebGLParticleSystem {
     private createRenderVertexBuffer(): boolean {
         if (!this.gl) return false;
 
-        // 6 vertices per particle (2 triangles = 1 quad)
+        // 4 vertices per particle (triangle strip = 1 quad)
         // Each vertex: (particleIndex, corner)
-        const vertexData = new Float32Array(this.particleCount * 6 * 2);
+        const vertexData = new Float32Array(this.particleCount * 4 * 2);
 
         for (let i = 0; i < this.particleCount; i++) {
-            for (let corner = 0; corner < 6; corner++) {
-                const idx = (i * 6 + corner) * 2;
+            for (let corner = 0; corner < 4; corner++) {
+                const idx = (i * 4 + corner) * 2;
                 vertexData[idx + 0] = i;        // Particle index
-                vertexData[idx + 1] = corner;   // Corner ID (0-5)
+                vertexData[idx + 1] = corner;   // Corner ID (0-3)
             }
         }
 
@@ -1049,7 +1048,7 @@ export class WebGLParticleSystem {
         this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.renderVertexBuffer);
         this.gl.bufferData(this.gl.ARRAY_BUFFER, vertexData, this.gl.STATIC_DRAW);
 
-        console.log('[WebGLParticleSystem] Created render vertex buffer with', this.particleCount * 6, 'vertices');
+        console.log('[WebGLParticleSystem] Created render vertex buffer with', this.particleCount * 4, 'vertices');
         return true;
     }
 
@@ -1104,8 +1103,10 @@ export class WebGLParticleSystem {
         gl.enable(gl.BLEND);
         gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
 
-        // Draw all particles as triangles
-        gl.drawArrays(gl.TRIANGLES, 0, this.particleCount * 6);
+        // Draw all particles as triangle strips (4 vertices per particle)
+        for (let i = 0; i < this.particleCount; i++) {
+            gl.drawArrays(gl.TRIANGLE_STRIP, i * 4, 4);
+        }
 
         // Disable blending
         gl.disable(gl.BLEND);
